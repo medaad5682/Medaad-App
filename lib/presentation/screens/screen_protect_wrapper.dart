@@ -36,15 +36,8 @@ class _ScreenProtectWrapperState extends State<ScreenProtectWrapper>
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        widget.child,
-        if (_isProtected)
-          Positioned.fill(
-            child: Container(color: Colors.black),
-          ),
-      ],
-    );
-  }
+Widget build(BuildContext context) {
+  // إرجاع الـ child مباشرة بدون الـ Stack الذي يحتوي على الكونتينر الأسود
+  return widget.child;
+}
 }
