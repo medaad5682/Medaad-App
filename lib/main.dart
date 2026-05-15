@@ -189,21 +189,20 @@ void main() async {
       DeviceOrientation.landscapeRight,
     ]);
 
-    await _enableSecureMode();
+    // ❌ 1. تم إيقاف تفعيل الحماية من لقطات الشاشة
+    // await _enableSecureMode();
 
-    // Security
-    SecurityManager.instance.initListeners();
-    // Start periodic check
-    SecurityManager.instance.startPeriodicCheck();
+    // ❌ 2. تم إيقاف مراقب الأمان الدوري والتحقق من التطبيقات
+    // SecurityManager.instance.initListeners();
+    // SecurityManager.instance.startPeriodicCheck();
 
     // Theme
     await AppState().initTheme();
 
     runApp(
-      SecureScreenWidget(useBlur: true,
-        child: const RestartWidget(
-          child: EduVantageApp(),
-        ),
+      // ❌ 3. تم إزالة SecureScreenWidget لتجنب الشاشة الضبابية والسوداء
+      const RestartWidget(
+        child: EduVantageApp(),
       ),
     );
   }, (error, stack) async {
