@@ -38,7 +38,7 @@ class _ProtectedVideoPlayerState extends State<ProtectedVideoPlayer> with Widget
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializePlayer();
-    _initializeProtection();
+    //_initializeProtection();
   }
 
   /// تهيئة المشغل
