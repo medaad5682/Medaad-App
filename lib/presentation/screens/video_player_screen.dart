@@ -83,12 +83,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initializeProtection(); // ✅ تفعيل الحماية أولاً
+    
+    // ❌ تم تهميش استدعاء دالة الحماية لتعطيلها
+    // _initializeProtection(); 
+    
     _initializePlayerScreen();
   }
 
   // ✅ 1. دالة تفعيل الحماية والاستماع للتسجيل
   Future<void> _initializeProtection() async {
+    // ❌ تم تهميش محتوى الدالة بالكامل
+    /*
     try {
       // منع لقطات الشاشة وتسجيل الفيديو (يظهر شاشة سوداء)
       await FlutterWindowManagerPlus.addFlags(
@@ -113,10 +118,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       FirebaseCrashlytics.instance
           .recordError(e, null, reason: 'Protection Init Error');
     }
+    */
   }
 
   // ✅ 2. دالة التعامل الصارم مع اكتشاف التسجيل (كتم الصوت + إيقاف)
   void _handleRecordingDetected() {
+    // ❌ تم تهميشها لمنع إيقاف المشغل
+    /*
     if (!mounted) return;
 
     setState(() => _isRecordingDetected = true);
@@ -127,6 +135,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
     FirebaseCrashlytics.instance
         .log("🚨 Security: Screen Recording Detected! Player Muted & Paused.");
+    */
   }
 
   // ✅ 3. مراقبة حالة التطبيق عند الخروج والعودة
@@ -135,12 +144,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     if (state == AppLifecycleState.paused) {
       _player.pause();
     } else if (state == AppLifecycleState.resumed) {
+      // ❌ تم تهميش إعادة تفعيل الحظر وحالة التسجيل
+      /*
       _protectionService.blockAudioCapture();
       // إعادة التحقق: إذا كان هناك تسجيل، تأكد من كتم الصوت مجدداً
       if (_isRecordingDetected) {
         _player.setVolume(0.0);
         _player.pause();
       }
+      */
     }
   }
 
@@ -234,11 +246,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             setState(() => _isVideoLoading = false);
 
             // 🛑 حارس الأمان: لا تشغل إذا تم اكتشاف تسجيل
+            // ❌ تم تهميش حارس الأمان
+            /*
             if (_isRecordingDetected) {
               _player.setVolume(0.0);
               _player.pause();
               return;
             }
+            */
 
             if (_isOfflineMode) {
               _startCountdown();
@@ -338,10 +353,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       await _player.open(Media(playUrl, httpHeaders: headers), play: false);
 
       // ✅ 5. حارس أمان إضافي عند فتح الميديا
+      // ❌ تم تهميشه
+      /*
       if (_isRecordingDetected) {
         await _player.setVolume(0.0);
         return;
       }
+      */
 
       if (audioUrl != null) {
         int delayMs = _isWeakDevice ? 2500 : 500;
@@ -381,7 +399,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Future<void> _seekRelative(Duration amount) async {
     // منع التنقل إذا كان هناك تسجيل
-    if (_isRecordingDetected) return;
+    // ❌ تم تهميشها
+    // if (_isRecordingDetected) return;
 
     _accumulatedSeekAmount += amount;
     if (_seekDebounceTimer?.isActive ?? false) _seekDebounceTimer!.cancel();
@@ -415,7 +434,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   void _showSettingsSheet() {
-    if (!mounted || _isRecordingDetected) return;
+    // ❌ تم إزالة شرط الحماية _isRecordingDetected
+    if (!mounted) return;
+    
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1E1E1E),
@@ -540,12 +561,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           setState(() => _stabilizingCountdown = 0);
 
           // ✅ 6. حارس الأمان للعد التنازلي
+          // ❌ تم تهميش الشرط واستخدام التشغيل المباشر
+          _player.play();
+          /*
           if (!_isRecordingDetected) {
             _player.play();
           } else {
             _player.setVolume(0.0);
             _player.pause();
           }
+          */
         }
       } else {
         if (mounted) setState(() => _stabilizingCountdown--);
@@ -862,6 +887,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
 
             // ✅ 7. شاشة التحذير الحمراء مع التهديد
+            // ❌ تم تهميش شاشة التحذير بالكامل حتى لا تظهر أبداً
+            /*
             if (_isRecordingDetected)
               Container(
                 color: Colors.red.shade900,
@@ -924,6 +951,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   ],
                 ),
               ),
+            */
           ],
         ),
       ),
