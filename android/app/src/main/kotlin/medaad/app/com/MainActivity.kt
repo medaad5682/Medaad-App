@@ -26,12 +26,15 @@ class MainActivity: FlutterActivity() {
 
         // ✅ 1. منع تسجيل الفيديو وأخذ لقطات الشاشة (FLAG_SECURE)
         // وضعه في onCreate يضمن تنفيذه فوراً عند بناء النافذة
+        /*
         window.setFlags(
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
         )
+        */
 
         // ✅ 2. منع تسجيل الصوت الداخلي (Internal Audio) - Android 10+
+        /*
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -41,9 +44,10 @@ class MainActivity: FlutterActivity() {
                 e.printStackTrace()
             }
         }
+        */
 
         // ✅ 3. بدء حلقة المراقبة المستمرة للتطبيقات الخارجية
-        startRecordingMonitoring()
+       // startRecordingMonitoring()
     }
 
     // ✅ هذه الدالة ضرورية جداً لكي يعمل كود Dart (AudioProtectionService)
@@ -122,9 +126,11 @@ class MainActivity: FlutterActivity() {
     override fun onResume() {
         super.onResume()
         // إعادة تطبيق حظر الصوت عند العودة للتطبيق
+        /*
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             audioManager?.allowedCapturePolicy = 3
         }
+        */
     }
 
     override fun onDestroy() {
