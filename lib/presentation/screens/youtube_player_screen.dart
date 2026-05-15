@@ -61,8 +61,8 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
     // ✅ 2. تفعيل Wakelock لمنع انطفاء الشاشة
     WakelockPlus.enable();
 
-    // ✅ 3. تفعيل الحماية الأمنية
-    _initializeProtection();
+    // ❌ 3. تم تهميش تفعيل الحماية الأمنية
+    // _initializeProtection();
 
     // ✅ 4. جلب رقم الهاتف وبدء التحريك
     _getUserId();
@@ -91,6 +91,8 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
 
   // ✅ دالة تفعيل الحماية
   Future<void> _initializeProtection() async {
+    // ❌ تم تهميش محتوى الدالة بالكامل لتعطيل الحماية
+    /*
     try {
       // منع Screenshot & Screen Recording
       await FlutterWindowManagerPlus.addFlags(
@@ -113,10 +115,13 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
       FirebaseCrashlytics.instance
           .recordError(e, null, reason: 'Protection Init Error');
     }
+    */
   }
 
   // ✅ التعامل مع اكتشاف التسجيل (تم التعديل لإيقاف الصوت)
   void _handleRecordingDetected() {
+    // ❌ تم تهميش الإجراءات لمنع إيقاف المشغل وكتم الصوت
+    /*
     if (!mounted) return;
 
     // حتى إذا تم الكشف مسبقاً، نتأكد من تطبيق الإيقاف مرة أخرى
@@ -128,6 +133,7 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
 
     FirebaseCrashlytics.instance.log(
         "🚨 Security: Screen Recording Detected on YouTube Player! Muted & Paused.");
+    */
   }
 
   // ✅ إعادة تفعيل الحماية عند العودة للتطبيق
@@ -136,6 +142,8 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
     if (state == AppLifecycleState.paused) {
       _controller.pause();
     } else if (state == AppLifecycleState.resumed) {
+      // ❌ تم تهميش إعادة تفعيل حظر الصوت والتأكد من التسجيل
+      /*
       _protectionService.blockAudioCapture();
 
       // إذا كان هناك تسجيل، نعيد تطبيق الحظر (كتم وإيقاف)
@@ -143,6 +151,7 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
         _controller.mute();
         _controller.pause();
       }
+      */
     }
   }
 
@@ -152,11 +161,13 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
           .log("Youtube Player Error: ${_controller.value.errorCode}");
     }
 
-    // ✅ حارس إضافي: إذا كان الفيديو يعمل وهناك تسجيل، أوقفه
+    // ❌ تم تهميش الحارس الإضافي لمنع كتم وإيقاف الفيديو
+    /*
     if (_isRecordingDetected && _controller.value.isPlaying) {
       _controller.pause();
       _controller.mute();
     }
+    */
   }
 
   void _getUserId() {
@@ -353,6 +364,8 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
             ),
 
             // 4. ✅ شاشة التحذير الحمراء عند اكتشاف التسجيل (فوق كل شيء)
+            // ❌ تم تهميشها بالكامل لعدم ظهورها أبداً
+            /*
             if (_isRecordingDetected)
               Container(
                 color: Colors.red.shade900,
@@ -392,6 +405,7 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
                   ],
                 ),
               ),
+            */
           ],
         ),
       ),
