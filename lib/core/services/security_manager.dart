@@ -1,10 +1,11 @@
 import 'dart:async';
-
 import 'package:Medaad/core/services/audio_protection_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:safe_device/safe_device.dart';
 import 'package:screen_protector/screen_protector.dart';
+import 'package:battery_plus/battery_plus.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 // =========================================================
 // 🛡️ كلاس إدارة الحماية (Security Manager) - النسخة المحدثة
@@ -14,25 +15,23 @@ class SecurityManager {
   static final SecurityManager instance = SecurityManager._internal();
   SecurityManager._internal();
 
-  // ✅ التعديل: استبدال المتغير البولياني بمتغير نصي يحمل سبب الحظر
-  // إذا كان null فهذا يعني أن الوضع آمن. إذا كان يحتوي على نص فهذا هو سبب الحظر.
+  // [FIX F-04 / F-14] Native root detection MethodChannel (implemented in MainActivity.kt)
+  // ملاحظة: تأكد أن اسم القناة هنا يطابق الموجود في ملف MainActivity.kt
+  static const _nativeChannel = MethodChannel('com.example.edu_vantage_app/audio_protection');
+
   final ValueNotifier<String?> securityBreachReason = ValueNotifier(null);
 
-  // ✅ الاعتماد على خدمة الحماية الخاصة التي نجحت في المشغل
   final AudioProtectionService _audioProtection = AudioProtectionService();
 
   void initListeners() {
-    // 1. تشغيل المراقبة من خدمتك الخاصة (AudioProtectionService)
     _audioProtection.startMonitoring();
 
-    // 2. الاستماع للـ Stream القادم من خدمتك
     _audioProtection.recordingStateStream.listen((isRecording) {
       if (isRecording) {
         _triggerBreach("تم اكتشاف تسجيل للشاشة أو الصوت!");
       }
     });
 
-    // 3. (إضافي) الاستماع لمكتبة ScreenProtector كطبقة حماية ثانية
     ScreenProtector.addListener(() {
       // Screenshot callback
     }, (isCapturing) {
@@ -40,29 +39,64 @@ class SecurityManager {
     });
   }
 
-  // فحص الأمان للروت، خيارات المطور، والمحاكي
+  // [FIX F-14] Enhanced emulator detection using hardware-based signals:
+  //   - Battery presence (real devices always have a battery)
+  //   - Accelerometer availability (emulators often lack real sensors)
+  //   - Native root check via MainActivity (F-04 fix)
+  // These supplement SafeDevice's build-prop checks which Genymotion / Magisk
+  // can spoof by modifying ro.product.model and ro.kernel.qemu.
+  Future<bool> _isHardwareRealDevice() async {
+    // 1. Native root / build-tag check (MainActivity.kt)
+    try {
+      final bool nativeRooted = await _nativeChannel.invokeMethod('isDeviceRooted') ?? false;
+      if (nativeRooted) return false;
+    } catch (_) {}
+
+    // 2. Battery presence — emulators return BatteryState.unknown or unavailable
+    try {
+      final battery = Battery();
+      final level = await battery.batteryLevel;
+      if (level <= 0) return false; // emulator typically returns 0 or -1
+    } catch (_) {
+      return false; // inability to read battery = emulator
+    }
+
+    // 3. Accelerometer availability — emulators usually have no real gyro data
+    bool sensorPresent = false;
+    try {
+      final sub = accelerometerEventStream(samplingPeriod: SensorInterval.normalInterval)
+          .timeout(const Duration(milliseconds: 500))
+          .listen((_) { sensorPresent = true; });
+      await Future.delayed(const Duration(milliseconds: 600));
+      await sub.cancel();
+    } catch (_) {}
+
+    if (!sensorPresent) return false;
+
+    return true;
+  }
+
   Future<bool> checkSecurity() async {
-    // إذا كان هناك سبب مسجل بالفعل، نعتبر الجهاز مخترقاً ولا نعيد الفحص
     if (securityBreachReason.value != null) return false;
 
     try {
       bool isJailBroken = await SafeDevice.isJailBroken;
       bool isDevMode = await SafeDevice.isDevelopmentModeEnable;
-      bool isRealDevice = await SafeDevice.isRealDevice; // ✅ إضافة فحص المحاكي
+      bool isRealDeviceSafe = await SafeDevice.isRealDevice;
 
-      // ✅ منع المحاكي (Emulator) نهائياً
-      if (!isRealDevice) {
+      // [FIX F-14] Use combined hardware + software check
+      bool isRealDeviceHardware = await _isHardwareRealDevice();
+
+      if (!isRealDeviceSafe || !isRealDeviceHardware) {
         _triggerBreach("غير مسموح بتشغيل التطبيق على المحاكي (Emulator)");
         return false;
       }
 
-      // ✅ منع الروت أو الجيلبريك نهائياً
       if (isJailBroken) {
         _triggerBreach("عفواً، الجهاز مكسور الحماية (Root / Jailbreak)");
         return false;
       }
 
-      // ✅ منع خيارات المطور
       if (isDevMode) {
         _triggerBreach("خيارات المطور مفعلة (Developer Options)");
         return false;
@@ -73,47 +107,37 @@ class SecurityManager {
     return true;
   }
 
-  // Start periodic check for jailbreak/dev mode/emulator
   void startPeriodicCheck() {
     Timer.periodic(const Duration(seconds: 2), (timer) async {
       await checkSecurity();
     });
   }
 
-  // ✅ دالة تفعيل الإنذار تستقبل السبب وتخزنه للعرض
   void _triggerBreach(String reason) {
-    // if (securityBreachReason.value != null) return;
-
     debugPrint("🚨 SECURITY BREACH: $reason");
 
-    // تأكد أن التحديث يتم على الـ UI Thread
     WidgetsBinding.instance.addPostFrameCallback((_) {
       securityBreachReason.value = reason;
     });
 
-    // أوقف الصوت فورًا
     _audioProtection.blockAudioCapture();
-
-    // (اختياري) اهتزاز تحذيري
     HapticFeedback.heavyImpact();
   }
 
   Future<bool> forceReCheck() async {
-    // إعادة فحص حقيقية من الـ Native لكل الأسباب
-    bool isRecording = await _audioProtection.checkRecordingStatus(); // تأكد أن هذه تنادي الـ MethodChannel
+    bool isRecording = await _audioProtection.checkRecordingStatus();
     bool isDevMode = await SafeDevice.isDevelopmentModeEnable;
     bool isJailBroken = await SafeDevice.isJailBroken;
-    bool isRealDevice = await SafeDevice.isRealDevice; // ✅ فحص المحاكي
+    bool isRealDeviceSafe = await SafeDevice.isRealDevice;
+    bool isRealDeviceHardware = await _isHardwareRealDevice();
 
-    // ✅ تفعيل جميع الشروط معاً للتأكد من الأمان الكامل قبل إخفاء الشاشة الحمراء
-    if (!isRecording && !isDevMode && !isJailBroken && isRealDevice) {
-      securityBreachReason.value = null; // سيؤدي لإخفاء الشاشة الحمراء
+    if (!isRecording && !isDevMode && !isJailBroken && isRealDeviceSafe && isRealDeviceHardware) {
+      securityBreachReason.value = null;
       return true;
     } else {
-      // تحديث السبب سيجعل الواجهة "تنفض" نفسها وتظهر النص الجديد
       if (isRecording) {
         securityBreachReason.value = "لا يزال تسجيل الشاشة قيد العمل!";
-      } else if (!isRealDevice) {
+      } else if (!isRealDeviceSafe || !isRealDeviceHardware) {
         securityBreachReason.value = "لا يمكنك استخدام المحاكي، استخدم هاتف حقيقي!";
       } else if (isDevMode) {
         securityBreachReason.value = "خيارات المطور لا تزال مفعلة!";
