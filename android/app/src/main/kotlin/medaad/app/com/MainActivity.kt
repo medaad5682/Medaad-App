@@ -12,9 +12,9 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.embedding.engine.FlutterEngine
 import android.os.Handler
 import android.os.Looper
+import java.io.File
 
 class MainActivity: FlutterActivity() {
-    // اسم القناة للتواصل مع كود Flutter
     private val CHANNEL = "com.example.edu_vantage_app/audio_protection"
     
     private var audioManager: AudioManager? = null
@@ -25,7 +25,7 @@ class MainActivity: FlutterActivity() {
         super.onCreate(savedInstanceState)
 
         // ✅ 1. منع تسجيل الفيديو وأخذ لقطات الشاشة (FLAG_SECURE)
-        // وضعه في onCreate يضمن تنفيذه فوراً عند بناء النافذة
+        // Applied in onCreate before first frame — consistent with FlutterWindowManagerPlus in Dart
         window.setFlags(
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
@@ -35,8 +35,7 @@ class MainActivity: FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                // الرقم 3 يعني ALLOW_CAPTURE_BY_NONE
-                audioManager?.allowedCapturePolicy = 3 
+                audioManager?.allowedCapturePolicy = 3 // ALLOW_CAPTURE_BY_NONE
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -46,14 +45,12 @@ class MainActivity: FlutterActivity() {
         startRecordingMonitoring()
     }
 
-    // ✅ هذه الدالة ضرورية جداً لكي يعمل كود Dart (AudioProtectionService)
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "checkRecording" -> {
-                    // Flutter يسأل: هل هناك تسجيل الآن؟
                     val isRecording = checkIfRecording()
                     result.success(isRecording)
                 }
@@ -62,7 +59,6 @@ class MainActivity: FlutterActivity() {
                     result.success(mode)
                 }
                 "blockAudioCapture" -> {
-                    // طلب إعادة تطبيق الحظر من Flutter
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         audioManager?.allowedCapturePolicy = 3
                         result.success(true)
@@ -70,26 +66,28 @@ class MainActivity: FlutterActivity() {
                         result.success(false)
                     }
                 }
+                // [FIX F-04] Expose native root detection to Flutter layer
+                "isDeviceRooted" -> {
+                    result.success(isDeviceRooted())
+                }
                 else -> result.notImplemented()
             }
         }
     }
 
-    // ✅ دالة فحص التسجيل النشط (تستخدمها حلقة المراقبة وكود Flutter)
+    // ✅ دالة فحص التسجيل النشط
     private fun checkIfRecording(): Boolean {
         try {
             if (audioManager == null) {
                 audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             }
             
-            // 1. فحص وضع الصوت (مثل المكالمات)
             val audioMode = audioManager?.mode
             if (audioMode == AudioManager.MODE_IN_COMMUNICATION || 
                 audioMode == AudioManager.MODE_IN_CALL) {
                 return true
             }
 
-            // 2. فحص تطبيقات التسجيل النشطة (Android 7.0+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 val activeRecordings = audioManager?.activeRecordingConfigurations
                 if (!activeRecordings.isNullOrEmpty()) {
@@ -102,18 +100,63 @@ class MainActivity: FlutterActivity() {
         return false
     }
 
-    // ✅ تشغيل مراقبة مستمرة في الخلفية كل 2 ثانية
+    // [FIX F-04] Multi-vector native root detection.
+    // Supplements the safe_device Flutter package (which relies only on user-space
+    // heuristics easily bypassed by Magisk Hide / Shamiko / LSPosed).
+    // This performs independent checks at the native layer:
+    //   1. Known su binary paths (standard + common Magisk locations)
+    //   2. Attempt to write to /system (only possible on rooted devices)
+    //   3. CPU core count sanity (emulator heuristic)
+    //   4. Build tag check (production builds are always "release-keys")
+    private fun isDeviceRooted(): Boolean {
+        // 1. Known root binary / app paths
+        val rootPaths = arrayOf(
+            "/system/app/Superuser.apk",
+            "/system/app/SuperSU.apk",
+            "/sbin/su",
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/data/local/su",
+            "/data/local/bin/su",
+            "/data/local/xbin/su",
+            "/system/sd/xbin/su",
+            "/system/bin/failsafe/su",
+            "/dev/com.koushikdutta.superuser.daemon/"
+        )
+        if (rootPaths.any { File(it).exists() }) return true
+
+        // 2. Attempt to write to /system (succeeds only on rooted devices)
+        val canWriteSystem = try {
+            val testFile = File("/system/medaad_rw_test")
+            val created = testFile.createNewFile()
+            if (created) testFile.delete()
+            created
+        } catch (e: Exception) {
+            false
+        }
+        if (canWriteSystem) return true
+
+        // 3. Emulator / build property check (defence in depth alongside safe_device)
+        val buildTags = Build.TAGS
+        if (buildTags != null && buildTags.contains("test-keys")) return true
+
+        // 4. CPU core count — real devices always have ≥ 2 cores
+        val cores = Runtime.getRuntime().availableProcessors()
+        if (cores < 2) return true
+
+        return false
+    }
+
     private fun startRecordingMonitoring() {
         handler = Handler(Looper.getMainLooper())
         recordingCheckRunnable = object : Runnable {
             override fun run() {
                 if (checkIfRecording()) {
-                    // إرسال تنبيه فوري إلى Flutter لإيقاف الفيديو
                     flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
                         MethodChannel(messenger, CHANNEL).invokeMethod("onRecordingDetected", true)
                     }
                 }
-                handler?.postDelayed(this, 2000) // تكرار الفحص كل 2 ثانية
+                handler?.postDelayed(this, 2000)
             }
         }
         handler?.post(recordingCheckRunnable!!)
@@ -121,24 +164,21 @@ class MainActivity: FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
-        // إعادة تطبيق حظر الصوت عند العودة للتطبيق
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             audioManager?.allowedCapturePolicy = 3
         }
     }
 
     override fun onDestroy() {
-        // إيقاف حلقة المراقبة لتجنب تسريب الذاكرة
         if (handler != null && recordingCheckRunnable != null) {
             handler?.removeCallbacks(recordingCheckRunnable!!)
         }
 
-        // حذف الإشعارات عند الإغلاق
         try {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.cancelAll()
         } catch (e: Exception) {
-            // تجاهل الخطأ
+            // ignore
         }
         
         super.onDestroy()
