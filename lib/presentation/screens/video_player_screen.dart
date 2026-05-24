@@ -303,8 +303,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         _isOfflineMode = true;
         final file = File(playUrl);
         if (!await file.exists()) throw Exception("Offline file missing");
-        playUrl =
-            'http://127.0.0.1:${_proxyService.videoPort}/video?path=${Uri.encodeComponent(file.path)}&ext=.mp4&token=${_proxyService.authToken}';
+        
+        // ✅ [FIX F-08] استخدام الرابط الموقّع بشكل ديناميكي (HMAC)
+        playUrl = _proxyService.getSignedUrl(file.path, isAudio: false);
 
         if (audioUrl == null && Hive.isBoxOpen('downloads_box')) {
           final box = Hive.box('downloads_box');
@@ -318,8 +319,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             if (downloadItem != null && downloadItem['audioPath'] != null) {
               final audioPath = downloadItem['audioPath'];
               if (await File(audioPath).exists()) {
-                audioUrl =
-                    'http://127.0.0.1:${_proxyService.audioPort}/video?path=${Uri.encodeComponent(audioPath)}&ext=.mp4&token=${_proxyService.authToken}';
+                // ✅ [FIX F-08] استخدام الرابط الموقّع للملف الصوتي أيضاً
+                audioUrl = _proxyService.getSignedUrl(audioPath, isAudio: true);
               }
             }
           } catch (_) {}
