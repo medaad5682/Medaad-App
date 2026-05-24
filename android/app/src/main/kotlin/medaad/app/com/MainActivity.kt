@@ -15,7 +15,7 @@ import android.os.Looper
 import java.io.File
 
 class MainActivity: FlutterActivity() {
-    private val CHANNEL = "com.example.edu_vantage_app/audio_protection"
+    private val CHANNEL = "medaad.app.com/audio_protection"
     
     private var audioManager: AudioManager? = null
     private var handler: Handler? = null
