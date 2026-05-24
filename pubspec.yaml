@@ -35,7 +35,8 @@ dependencies:
   file_picker: 10.3.8
   connectivity_plus: ^6.0.3
   shared_preferences: ^2.2.3
-  
+  battery_plus: ^7.0.0
+  sensors_plus: ^7.0.0
   
   # ✅ التعديل 1: استخدام نسخة GitHub للحصول على دوال الاستماع (addListener)
   # screen_protector:
