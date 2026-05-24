@@ -21,6 +21,7 @@ import 'package:flutter_background_service_android/flutter_background_service_an
 
 import 'core/services/notification_service.dart';
 import 'core/services/app_state.dart';
+import 'core/services/storage_service.dart';
 // ✅ استيراد شاشة الإشعارات ليتم التوجيه إليها
 import 'presentation/screens/notifications_screen.dart';
 
@@ -49,12 +50,11 @@ Future<void> initializeBackgroundService() async {
       notificationChannelId: 'downloads_channel', 
       initialNotificationTitle: 'مــــداد',
       initialNotificationContent: 'Initializing Service...',
-      // تم إزالة foregroundServiceType من هنا لأن النظام سيعتمد على ما كتبناه في AndroidManifest.xml
     ),
     iosConfiguration: IosConfiguration(
       autoStart: false,
       onForeground: onStartBackgroundService,
-      onBackground: onIosBackground, // تم استخدام دالة مخصصة لـ iOS ترجع bool
+      onBackground: onIosBackground,
     ),
   );
 }
@@ -81,10 +81,9 @@ void onStartBackgroundService(ServiceInstance service) async {
   });
 }
 
-// ✅ دالة مخصصة للعمل في الخلفية في نظام iOS (يجب أن تُرجع قيمة boolean)
+// ✅ دالة مخصصة للعمل في الخلفية في نظام iOS
 @pragma('vm:entry-point')
 Future<bool> onIosBackground(ServiceInstance service) async {
-  // أعد true لإخبار نظام iOS أن العملية في الخلفية تمت بنجاح
   return true;
 }
 
@@ -106,12 +105,12 @@ void main() async {
     // ✅ استدعاء التهيئة هنا
     await initializeBackgroundService();
 
-    // Hive
+    // Hive — [FIX F-06] All boxes now opened with encryption via StorageService
     await Hive.initFlutter();
-    var authBox = await Hive.openBox('auth_box'); // ✅ حفظ الصندوق في متغير لاستخدامه
-    await Hive.openBox('settings_box');
-    await Hive.openBox('downloads_box');
-    await Hive.openBox('pdf_drawings_db');
+    var authBox = await StorageService.openBox('auth_box');
+    await StorageService.openBox('settings_box');
+    await StorageService.openBox('downloads_box');
+    await StorageService.openBox('pdf_drawings_db');
 
     // ✅ طلب إذن الإشعارات من المستخدم وجلب التوكن وحفظه في Hive
     FirebaseMessaging messaging = FirebaseMessaging.instance;
@@ -120,13 +119,16 @@ void main() async {
       badge: true,
       sound: true,
     );
-    debugPrint('User granted permission: ${settings.authorizationStatus}');
 
+    // [FIX F-07] FCM token log is now debug-only (stripped in release builds)
     String? fcmToken = await messaging.getToken();
-    debugPrint("🔥 FCM Token: $fcmToken");
+    assert(() {
+      debugPrint("🔥 FCM Token: $fcmToken");
+      return true;
+    }());
 
     if (fcmToken != null) {
-      await authBox.put('fcm_token', fcmToken); // حفظ التوكن محلياً ليرسله التطبيق للباك إند
+      await authBox.put('fcm_token', fcmToken);
     }
 
     // =========================================================================
@@ -136,7 +138,6 @@ void main() async {
     // 1. إذا كان التطبيق مغلقاً تماماً (Terminated) وتم فتحه عن طريق الضغط على الإشعار
     FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
       if (message != null) {
-        // نستخدم تأخير بسيط لضمان بناء واجهة التطبيق بالكامل قبل الانتقال
         Future.delayed(const Duration(milliseconds: 1500), () {
           if (navigatorKey.currentState != null) {
             navigatorKey.currentState!.push(
