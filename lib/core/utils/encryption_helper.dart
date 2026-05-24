@@ -30,12 +30,12 @@ class EncryptionHelper {
       String? storedKey = await _storage.read(key: 'app_master_key');
       
       if (storedKey == null) {
-        FirebaseCrashlytics.instance.log("EncryptionHelper: Generating new master key");
+        // [FIX F-10] تم إزالة سجلات Crashlytics التي تفشي وقت توليد المفتاح
         final keyBytes = List<int>.generate(32, (i) => Random.secure().nextInt(256));
         storedKey = base64UrlEncode(keyBytes);
         await _storage.write(key: 'app_master_key', value: storedKey);
       } else {
-        FirebaseCrashlytics.instance.log("EncryptionHelper: Master key loaded from storage");
+        // [FIX F-10] تم إزالة سجل تحميل المفتاح من التخزين
       }
       
       _key = encrypt.Key.fromBase64(storedKey);
@@ -142,7 +142,7 @@ class EncryptionHelper {
       // سيأخذ القيمة الجديدة تلقائياً (512KB + Overhead)
       const int blockSize = ENCRYPTED_CHUNK_SIZE;
 
-      FirebaseCrashlytics.instance.log("Starting full decryption: ${encryptedFile.path}");
+      // [FIX F-10] تم إزالة سجلدأ عملية فك التشفير لعدم إعطاء أي معلومات
 
       while (currentPos < fileLength) {
         int bytesToRead = blockSize;
