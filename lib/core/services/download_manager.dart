@@ -636,7 +636,8 @@ void _pdfEncryptIsolateEntryPoint(Map<String, dynamic> args) async {
     final rafRead = await inFile.open(mode: FileMode.read);
     final iosWrite = outFile.openWrite();
 
-    final algorithm = Chacha20(macAlgorithm: MacAlgorithm.empty);
+    // ✅ [FIX F-02] استخدام AEAD داخل مسار الخلفية
+    final algorithm = Chacha20.poly1305Aead();
     final secretKey = SecretKey(keyBytes);
     const CHUNK_SIZE = 32 * 1024;
     const NONCE_LENGTH = 12;
@@ -646,13 +647,12 @@ void _pdfEncryptIsolateEntryPoint(Map<String, dynamic> args) async {
 
     while (currentPos < fileLength) {
       final chunk = await rafRead.read(CHUNK_SIZE);
-      final nonce =
-          List<int>.generate(NONCE_LENGTH, (i) => Random.secure().nextInt(256));
-      final secretBox =
-          await algorithm.encrypt(chunk, secretKey: secretKey, nonce: nonce);
+      final nonce = List<int>.generate(NONCE_LENGTH, (i) => Random.secure().nextInt(256));
+      final secretBox = await algorithm.encrypt(chunk, secretKey: secretKey, nonce: nonce);
 
       iosWrite.add(nonce);
       iosWrite.add(secretBox.cipherText);
+      iosWrite.add(secretBox.mac.bytes); // ✅ كتابة الـ MAC
       currentPos += chunk.length;
     }
     await rafRead.close();
@@ -672,24 +672,22 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     final Map<String, dynamic> rawHeaders = args['headers'];
     final List<int> keyBytes = args['keyBytes'];
 
-    // تحويل الـ Headers لتتوافق مع Dio داخل الـ Isolate
     final Map<String, String> headers =
         rawHeaders.map((key, value) => MapEntry(key, value.toString()));
 
-    final algorithm = Chacha20(macAlgorithm: MacAlgorithm.empty);
+    // ✅ [FIX F-02] استخدام AEAD
+    final algorithm = Chacha20.poly1305Aead();
     final secretKey = SecretKey(keyBytes);
     const int CHUNK_SIZE = 32 * 1024;
     const int NONCE_LENGTH = 12;
 
-    // دالة مساعدة لتشفير الكتل فورياً
     Future<Uint8List> encryptData(List<int> data) async {
-      final nonce =
-          List<int>.generate(NONCE_LENGTH, (i) => Random.secure().nextInt(256));
-      final box =
-          await algorithm.encrypt(data, secretKey: secretKey, nonce: nonce);
+      final nonce = List<int>.generate(NONCE_LENGTH, (i) => Random.secure().nextInt(256));
+      final box = await algorithm.encrypt(data, secretKey: secretKey, nonce: nonce);
       final builder = BytesBuilder(copy: false);
       builder.add(nonce);
       builder.add(box.cipherText);
+      builder.add(box.mac.bytes); // ✅ تضمين الـ MAC
       return builder.toBytes();
     }
 
@@ -760,7 +758,7 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
       return;
     }
 
-    // 2. نظام MP4 المباشر (Chunked/Streamed)
+    // 2. نظام MP4 المباشر
     int totalBytes = 0;
     try {
       final headRes = await dio.head(url, options: Options(headers: headers));
@@ -772,7 +770,6 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     final sink = await file.open(mode: FileMode.write);
     List<int> buffer = [];
 
-    // إذا لم يدعم السيرفر تحديد الحجم، نقوم بالتحميل المباشر الكامل
     if (totalBytes <= 0) {
       final res = await dio.get(url,
           options:
@@ -802,7 +799,6 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
       return;
     }
 
-    // نظام تقسيم التحميل لضمان استقراره (1 ميجا لكل طلب)
     const int reqChunkSize = 1 * 1024 * 1024;
     int downloadedBytes = 0;
 
