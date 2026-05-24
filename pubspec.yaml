@@ -59,6 +59,7 @@ dependencies:
   flutter_windowmanager_plus: ^1.0.1 # منع تصوير الشاشة
   encrypt: ^5.0.3 # التشفير (AES)
   cryptography: ^2.9.0
+  crypto: ^3.0.7
   flutter_secure_storage: ^10.0.0
 
   # Networking
