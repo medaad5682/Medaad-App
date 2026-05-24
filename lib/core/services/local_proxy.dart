@@ -8,8 +8,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_router/shelf_router.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
-import 'package:cryptography/cryptography.dart'
-    as crypto; // ✅ ضروري لتشفير ChaCha20 محلياً
+import 'package:cryptography/cryptography.dart' as crypto; // ✅ ضروري لتشفير ChaCha20 محلياً
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // ✅ استدعاء التخزين الآمن
 
 import '../utils/encryption_helper.dart';
@@ -187,8 +186,7 @@ void _proxyServerEntryPoint(_ProxyInitData initData) async {
     // Use port 0 to let the system choose an available port
     final server = await shelf_io.serve(
         router,
-        InternetAddress
-            .loopbackIPv4, // ✅ إغلاق الثغرة: الاستماع لـ 127.0.0.1 فقط
+        InternetAddress.loopbackIPv4, // ✅ إغلاق الثغرة: الاستماع لـ 127.0.0.1 فقط
         0, // Dynamic Port
         shared: false);
 
@@ -235,18 +233,18 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
     final encryptedLength = await file.length();
 
     // ✅ التعرف على إصدار التشفير (القديم V1 مقابل الجديد V2)
-    bool isV2 =
-        decodedPath.endsWith('_v2.enc') || decodedPath.endsWith('.pdf.enc');
+    bool isV2 = decodedPath.endsWith('_v2.enc') || decodedPath.endsWith('.pdf.enc');
     int originalFileSize;
 
     if (isV2) {
-      // --- نظام ChaCha20 الجديد ---
+      // ✅ [FIX F-02] إضافة MAC_LENGTH (16 بايت) إلى حسابات الملف الجديد
       const int CHUNK_SIZE = 32 * 1024;
       const int NONCE_LENGTH = 12;
-      const int ENCRYPTED_CHUNK_SIZE = NONCE_LENGTH + CHUNK_SIZE;
+      const int MAC_LENGTH = 16;
+      const int ENCRYPTED_CHUNK_SIZE = NONCE_LENGTH + CHUNK_SIZE + MAC_LENGTH;
 
       int numChunks = (encryptedLength / ENCRYPTED_CHUNK_SIZE).ceil();
-      originalFileSize = encryptedLength - (numChunks * NONCE_LENGTH);
+      originalFileSize = encryptedLength - (numChunks * (NONCE_LENGTH + MAC_LENGTH));
     } else {
       // --- النظام القديم AES ---
       final int CHUNK_SIZE = EncryptionHelper.CHUNK_SIZE;
@@ -260,10 +258,7 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
       final int plainChunkSize = CHUNK_SIZE;
       final int overhead = ENCRYPTED_CHUNK_SIZE - plainChunkSize;
       originalFileSize = ((totalChunks - 1) * plainChunkSize) +
-          max(
-              0,
-              (encryptedLength - ((totalChunks - 1) * ENCRYPTED_CHUNK_SIZE)) -
-                  overhead);
+          max(0, (encryptedLength - ((totalChunks - 1) * ENCRYPTED_CHUNK_SIZE)) - overhead);
     }
 
     final rangeHeader = request.headers['range'];
@@ -306,10 +301,8 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
     return Response(
       206,
       body: isV2
-          ? _createDecryptedStreamV2(file, start, end, chachaKeyBytes,
-              isolateName) // ✅ التشفير الجديد (ChaCha20)
-          : _createDecryptedStream(
-              file, start, end, encrypter, isolateName), // التشفير القديم (AES)
+          ? _createDecryptedStreamV2(file, start, end, chachaKeyBytes, isolateName) // ✅ التشفير الجديد
+          : _createDecryptedStream(file, start, end, encrypter, isolateName), // التشفير القديم
       headers: headers,
     );
   } catch (e) {
@@ -318,7 +311,7 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
   }
 }
 
-// ✅ دالة فك التشفير V2 المستقلة داخل الـ Isolate (آمنة تماماً)
+// ✅ دالة فك التشفير V2 المستقلة داخل الـ Isolate (آمنة تماماً تدعم AEAD)
 Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
     List<int> chachaKeyBytes, String isolateName) async* {
   final streamStopwatch = Stopwatch()..start();
@@ -329,13 +322,14 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
   try {
     raf = await file.open(mode: FileMode.read);
 
-    // تهيئة محرك ChaCha20 محلياً في الـ Isolate بدون الاعتماد على SecureStorage
-    final algorithm = crypto.Chacha20(macAlgorithm: crypto.MacAlgorithm.empty);
+    // ✅ [FIX F-02] تهيئة محرك ChaCha20-Poly1305 للتحقق من سلامة التشفير (MAC)
+    final algorithm = crypto.Chacha20.poly1305Aead();
     final secretKey = crypto.SecretKey(chachaKeyBytes);
 
     const int CHUNK_SIZE = 32 * 1024;
     const int NONCE_LENGTH = 12;
-    const int ENCRYPTED_CHUNK_SIZE = NONCE_LENGTH + CHUNK_SIZE;
+    const int MAC_LENGTH = 16; // ✅ تمت إضافة حجم الختم
+    const int ENCRYPTED_CHUNK_SIZE = NONCE_LENGTH + CHUNK_SIZE + MAC_LENGTH;
 
     final int fileSize = await file.length();
     int currentReadOffset = reqStart;
@@ -353,15 +347,18 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
       await raf.setPosition(chunkStartInFile);
       final encryptedBlock = await raf.read(ENCRYPTED_CHUNK_SIZE);
 
-      if (encryptedBlock.isEmpty || encryptedBlock.length <= NONCE_LENGTH)
+      // ✅ تأكيد احتواء الكتلة على بيانات تكفي للنون والختم
+      if (encryptedBlock.isEmpty || encryptedBlock.length <= NONCE_LENGTH + MAC_LENGTH)
         break;
 
+      // ✅ فصل المكونات الثلاثة: النون(Nonce)، البيانات، والختم(MAC)
       final nonce = encryptedBlock.sublist(0, NONCE_LENGTH);
-      final cipherText = encryptedBlock.sublist(NONCE_LENGTH);
+      final cipherText = encryptedBlock.sublist(NONCE_LENGTH, encryptedBlock.length - MAC_LENGTH);
+      final macBytes = encryptedBlock.sublist(encryptedBlock.length - MAC_LENGTH);
 
-      // فك تشفير الكتلة بالكامل
+      // فك تشفير الكتلة بالكامل مع التحقق
       final decryptedChunk = await algorithm.decrypt(
-        crypto.SecretBox(cipherText, nonce: nonce, mac: crypto.Mac.empty),
+        crypto.SecretBox(cipherText, nonce: nonce, mac: crypto.Mac(macBytes)),
         secretKey: secretKey,
       );
 
