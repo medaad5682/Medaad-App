@@ -17,7 +17,7 @@ class SecurityManager {
 
   // [FIX F-04 / F-14] Native root detection MethodChannel (implemented in MainActivity.kt)
   // ملاحظة: تأكد أن اسم القناة هنا يطابق الموجود في ملف MainActivity.kt
-  static const _nativeChannel = MethodChannel('com.example.edu_vantage_app/audio_protection');
+  static const _nativeChannel = MethodChannel('medaad.app.com/audio_protection');
 
   final ValueNotifier<String?> securityBreachReason = ValueNotifier(null);
 
