@@ -8,11 +8,12 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_router/shelf_router.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
-import 'package:cryptography/cryptography.dart' as crypto; // ✅ ضروري لتشفير ChaCha20 محلياً
-import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // ✅ استدعاء التخزين الآمن
+import 'package:cryptography/cryptography.dart' as crypto; // لتشفير ChaCha20
+import 'package:crypto/crypto.dart' as hmac_crypto; // ✅ [FIX F-08] مكتبة التوقيع HMAC
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../utils/encryption_helper.dart';
-import 'file_crypto_service.dart'; // ✅ استدعاء خدمة ChaCha20
+import 'file_crypto_service.dart';
 
 class LocalProxyService {
   static final LocalProxyService _instance = LocalProxyService._internal();
@@ -30,18 +31,33 @@ class LocalProxyService {
   int _videoPort = 0;
   int _audioPort = 0;
 
-  // ✅ إضافة متغير التوكن
-  String _authToken = "";
+  // ✅ [FIX F-08] سر التوقيع الديناميكي بدلاً من التوكن الثابت
+  String _hmacSecret = "";
 
   int get videoPort => _videoPort;
   int get audioPort => _audioPort;
-  // ✅ Getter للوصول للتوكن من الملفات الأخرى
-  String get authToken => _authToken;
 
   ReceivePort? _videoReceivePort;
   ReceivePort? _audioReceivePort;
 
   Completer<void>? _readyCompleter;
+
+  // ✅ [FIX F-08] دالة ذكية لتوليد روابط آمنة ومشفرة للمشغل مع وقت انتهاء الصلاحية
+  String getSignedUrl(String filePath, {bool isAudio = false}) {
+    if (_hmacSecret.isEmpty) throw Exception("Proxy not initialized");
+    final port = isAudio ? _audioPort : _videoPort;
+    
+    // الرابط صالح لمدة ساعتين فقط (لمنع Replay Attacks)
+    final expires = DateTime.now().add(const Duration(hours: 2)).millisecondsSinceEpoch;
+    
+    // ربط التوقيع بالمسار ووقت الانتهاء
+    final dataToSign = "path=$filePath&expires=$expires";
+    final hmac = hmac_crypto.Hmac(hmac_crypto.sha256, utf8.encode(_hmacSecret));
+    final sig = hmac.convert(utf8.encode(dataToSign)).toString();
+    
+    final encodedPath = Uri.encodeComponent(filePath);
+    return 'http://127.0.0.1:$port/video?path=$encodedPath&expires=$expires&sig=$sig';
+  }
 
   Future<void> start() async {
     // Keep-Alive: If server is already running, do nothing and return immediately
@@ -58,42 +74,38 @@ class LocalProxyService {
     _readyCompleter = Completer<void>();
 
     try {
-      // ✅ 1. تهيئة كلا الخدمتين لضمان وجود المفاتيح قبل قراءتها
+      // 1. تهيئة كلا الخدمتين لضمان وجود المفاتيح قبل قراءتها
       await EncryptionHelper.init();
       await FileCryptoService.init();
 
-      // ✅ 2. جلب كلا المفتاحين (AES و ChaCha20)
+      // 2. جلب كلا المفتاحين (AES و ChaCha20)
       String aesKeyBase64 = EncryptionHelper.key.base64;
 
       final storage = const FlutterSecureStorage();
-      String chachaKeyBase64 =
-          (await storage.read(key: 'docs_chacha_key')) ?? '';
+      String chachaKeyBase64 = (await storage.read(key: 'docs_chacha_key')) ?? '';
 
       if (chachaKeyBase64.isEmpty) {
         throw Exception("CRITICAL: ChaCha20 key is missing!");
       }
 
-      // ✅ 3. توليد توكن عشوائي آمن عند بدء التشغيل
+      // ✅ 3. [FIX F-08] توليد سر قوي (256-bit) لعمليات التوقيع HMAC
       final random = Random.secure();
       final values = List<int>.generate(32, (i) => random.nextInt(256));
-      _authToken =
-          values.map((e) => e.toRadixString(16).padLeft(2, '0')).join();
-      print('🔒 [SECURITY] Proxy Auth Token Generated');
+      _hmacSecret = base64UrlEncode(values);
+      print('🔒 [SECURITY] HMAC Secret Generated for Local Proxy');
 
       // 4. Start Video Server (Port 0 = Random)
       _videoReceivePort = ReceivePort();
       _videoServerIsolate = await Isolate.spawn(
           _proxyServerEntryPoint,
-          // ✅ تمرير التوكن وكلا المفتاحين للـ Isolate
           _ProxyInitData(_videoReceivePort!.sendPort, aesKeyBase64,
-              chachaKeyBase64, "VideoIsolate", _authToken));
+              chachaKeyBase64, "VideoIsolate", _hmacSecret));
 
       // Wait for ready message with port number
       await for (final message in _videoReceivePort!) {
         if (message is String && message.startsWith("READY:")) {
           _videoPort = int.parse(message.split(':')[1]);
-          print(
-              '🔍 [DIAGNOSIS] Video Proxy Started on dynamic port: $_videoPort');
+          print('🔍 [DIAGNOSIS] Video Proxy Started on dynamic port: $_videoPort');
           break;
         } else if (message.toString().startsWith("ERROR")) {
           throw Exception("Video Proxy Failed: $message");
@@ -104,16 +116,14 @@ class LocalProxyService {
       _audioReceivePort = ReceivePort();
       _audioServerIsolate = await Isolate.spawn(
           _proxyServerEntryPoint,
-          // ✅ تمرير التوكن وكلا المفتاحين للـ Isolate
           _ProxyInitData(_audioReceivePort!.sendPort, aesKeyBase64,
-              chachaKeyBase64, "AudioIsolate", _authToken));
+              chachaKeyBase64, "AudioIsolate", _hmacSecret));
 
       // Wait for ready message with port number
       await for (final message in _audioReceivePort!) {
         if (message is String && message.startsWith("READY:")) {
           _audioPort = int.parse(message.split(':')[1]);
-          print(
-              '🔍 [DIAGNOSIS] Audio Proxy Started on dynamic port: $_audioPort');
+          print('🔍 [DIAGNOSIS] Audio Proxy Started on dynamic port: $_audioPort');
           break;
         } else if (message.toString().startsWith("ERROR")) {
           throw Exception("Audio Proxy Failed: $message");
@@ -132,7 +142,7 @@ class LocalProxyService {
     _readyCompleter = null;
     _videoPort = 0;
     _audioPort = 0;
-    _authToken = ""; // تصفير التوكن
+    _hmacSecret = ""; // تصفير السر
 
     if (_videoServerIsolate != null) {
       print('🛑 Stopping Video Proxy');
@@ -152,48 +162,47 @@ class LocalProxyService {
 
 class _ProxyInitData {
   final SendPort sendPort;
-  final String aesKeyBase64; // مفتاح AES
-  final String chachaKeyBase64; // ✅ مفتاح ChaCha20
+  final String aesKeyBase64;
+  final String chachaKeyBase64;
   final String name;
-  final String authToken;
+  final String hmacSecret; // ✅ السر الخاص بالتوقيع
 
   _ProxyInitData(this.sendPort, this.aesKeyBase64, this.chachaKeyBase64,
-      this.name, this.authToken);
+      this.name, this.hmacSecret);
 }
 
 void _proxyServerEntryPoint(_ProxyInitData initData) async {
   try {
-    // ✅ 1. تجهيز مفتاح AES للملفات القديمة
+    // 1. تجهيز مفتاح AES للملفات القديمة
     final aesKey = encrypt.Key.fromBase64(initData.aesKeyBase64);
     final encrypter =
         encrypt.Encrypter(encrypt.AES(aesKey, mode: encrypt.AESMode.gcm));
 
-    // ✅ 2. تجهيز مفتاح ChaCha20 للملفات الجديدة باستخدام المفتاح الخاص به
+    // 2. تجهيز مفتاح ChaCha20 للملفات الجديدة
     final List<int> chachaKeyBytes = base64Decode(initData.chachaKeyBase64);
 
     final router = Router();
 
-    // ✅ نمرر كلا المفتاحين (للقديم والجديد) لدالة المعالجة
+    // نمرر المفاتيح وسر الـ HMAC
     router.get(
         '/video',
         (Request req) => _handleRequest(
-            req, encrypter, chachaKeyBytes, initData.name, initData.authToken));
+            req, encrypter, chachaKeyBytes, initData.name, initData.hmacSecret));
     router.head(
         '/video',
         (Request req) => _handleRequest(
-            req, encrypter, chachaKeyBytes, initData.name, initData.authToken));
+            req, encrypter, chachaKeyBytes, initData.name, initData.hmacSecret));
 
-    // Use port 0 to let the system choose an available port
+    // إغلاق الثغرة: الاستماع لـ 127.0.0.1 فقط
     final server = await shelf_io.serve(
         router,
-        InternetAddress.loopbackIPv4, // ✅ إغلاق الثغرة: الاستماع لـ 127.0.0.1 فقط
-        0, // Dynamic Port
+        InternetAddress.loopbackIPv4, 
+        0, 
         shared: false);
 
     server.autoCompress = false;
     server.idleTimeout = const Duration(seconds: 60);
 
-    // Send the actual port number to the main thread
     initData.sendPort.send("READY:${server.port}");
   } catch (e) {
     initData.sendPort.send("ERROR: $e");
@@ -201,22 +210,38 @@ void _proxyServerEntryPoint(_ProxyInitData initData) async {
 }
 
 Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
-    List<int> chachaKeyBytes, String isolateName, String expectedToken) async {
+    List<int> chachaKeyBytes, String isolateName, String hmacSecret) async {
   final requestStopwatch = Stopwatch()..start();
 
   try {
-    // ✅ التحقق من التوكن قبل أي شيء
-    final requestToken = request.url.queryParameters['token'];
-    if (requestToken == null || requestToken != expectedToken) {
-      print("⛔ [$isolateName] Unauthorized Access Attempt!");
-      return Response.forbidden('Access Denied: Invalid Token');
+    // ✅ [FIX F-08] التحقق من التوقيع وتاريخ الصلاحية
+    final pathParam = request.url.queryParameters['path'];
+    final expiresParam = request.url.queryParameters['expires'];
+    final sigParam = request.url.queryParameters['sig'];
+
+    if (pathParam == null || expiresParam == null || sigParam == null) {
+      print("⛔ [$isolateName] Security Breach: Missing URL Parameters!");
+      return Response.forbidden('Access Denied: Missing Parameters');
     }
 
-    final pathParam = request.url.queryParameters['path'];
-    if (pathParam == null) return Response.notFound('Path missing');
+    // التحقق من انتهاء الصلاحية
+    final expires = int.tryParse(expiresParam) ?? 0;
+    if (DateTime.now().millisecondsSinceEpoch > expires) {
+      print("⛔ [$isolateName] Security Breach: Link Expired!");
+      return Response.forbidden('Access Denied: Link Expired');
+    }
+
+    // إعادة إنشاء التوقيع ومطابقته
+    final dataToSign = "path=$pathParam&expires=$expiresParam";
+    final hmac = hmac_crypto.Hmac(hmac_crypto.sha256, utf8.encode(hmacSecret));
+    final expectedSig = hmac.convert(utf8.encode(dataToSign)).toString();
+
+    if (sigParam != expectedSig) {
+      print("⛔ [$isolateName] Security Breach: Invalid HMAC Signature!");
+      return Response.forbidden('Access Denied: Invalid Signature');
+    }
 
     final decodedPath = pathParam;
-
     final file = File(decodedPath);
 
     if (!await file.exists()) {
@@ -232,12 +257,11 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
 
     final encryptedLength = await file.length();
 
-    // ✅ التعرف على إصدار التشفير (القديم V1 مقابل الجديد V2)
+    // التعرف على إصدار التشفير
     bool isV2 = decodedPath.endsWith('_v2.enc') || decodedPath.endsWith('.pdf.enc');
     int originalFileSize;
 
     if (isV2) {
-      // ✅ [FIX F-02] إضافة MAC_LENGTH (16 بايت) إلى حسابات الملف الجديد
       const int CHUNK_SIZE = 32 * 1024;
       const int NONCE_LENGTH = 12;
       const int MAC_LENGTH = 16;
@@ -246,7 +270,6 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
       int numChunks = (encryptedLength / ENCRYPTED_CHUNK_SIZE).ceil();
       originalFileSize = encryptedLength - (numChunks * (NONCE_LENGTH + MAC_LENGTH));
     } else {
-      // --- النظام القديم AES ---
       final int CHUNK_SIZE = EncryptionHelper.CHUNK_SIZE;
       const int IV_LENGTH = 12;
       const int TAG_LENGTH = 16;
@@ -280,8 +303,7 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
 
     final contentLength = end - start + 1;
 
-    print(
-        "🔍 [PROXY_REQ] $isolateName | Range: $start-$end | V2: $isV2 | Processing: ${requestStopwatch.elapsedMilliseconds}ms");
+    print("🔍 [PROXY_REQ] $isolateName | Range: $start-$end | V2: $isV2 | Processing: ${requestStopwatch.elapsedMilliseconds}ms");
 
     final Map<String, Object> headers = {
       'Content-Type': contentType,
@@ -301,8 +323,8 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
     return Response(
       206,
       body: isV2
-          ? _createDecryptedStreamV2(file, start, end, chachaKeyBytes, isolateName) // ✅ التشفير الجديد
-          : _createDecryptedStream(file, start, end, encrypter, isolateName), // التشفير القديم
+          ? _createDecryptedStreamV2(file, start, end, chachaKeyBytes, isolateName) 
+          : _createDecryptedStream(file, start, end, encrypter, isolateName),
       headers: headers,
     );
   } catch (e) {
@@ -311,7 +333,6 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
   }
 }
 
-// ✅ دالة فك التشفير V2 المستقلة داخل الـ Isolate (آمنة تماماً تدعم AEAD)
 Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
     List<int> chachaKeyBytes, String isolateName) async* {
   final streamStopwatch = Stopwatch()..start();
@@ -322,13 +343,12 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
   try {
     raf = await file.open(mode: FileMode.read);
 
-    // ✅ [FIX F-02] تهيئة محرك ChaCha20-Poly1305 للتحقق من سلامة التشفير (MAC)
     final algorithm = crypto.Chacha20.poly1305Aead();
     final secretKey = crypto.SecretKey(chachaKeyBytes);
 
     const int CHUNK_SIZE = 32 * 1024;
     const int NONCE_LENGTH = 12;
-    const int MAC_LENGTH = 16; // ✅ تمت إضافة حجم الختم
+    const int MAC_LENGTH = 16; 
     const int ENCRYPTED_CHUNK_SIZE = NONCE_LENGTH + CHUNK_SIZE + MAC_LENGTH;
 
     final int fileSize = await file.length();
@@ -338,7 +358,6 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
     while (remainingLength > 0) {
       if (totalSent >= requiredLength) break;
 
-      // تحديد أي كتلة (Chunk) نحتاج قراءتها
       int chunkIndex = currentReadOffset ~/ CHUNK_SIZE;
       int chunkStartInFile = chunkIndex * ENCRYPTED_CHUNK_SIZE;
 
@@ -347,30 +366,25 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
       await raf.setPosition(chunkStartInFile);
       final encryptedBlock = await raf.read(ENCRYPTED_CHUNK_SIZE);
 
-      // ✅ تأكيد احتواء الكتلة على بيانات تكفي للنون والختم
       if (encryptedBlock.isEmpty || encryptedBlock.length <= NONCE_LENGTH + MAC_LENGTH)
         break;
 
-      // ✅ فصل المكونات الثلاثة: النون(Nonce)، البيانات، والختم(MAC)
       final nonce = encryptedBlock.sublist(0, NONCE_LENGTH);
       final cipherText = encryptedBlock.sublist(NONCE_LENGTH, encryptedBlock.length - MAC_LENGTH);
       final macBytes = encryptedBlock.sublist(encryptedBlock.length - MAC_LENGTH);
 
-      // فك تشفير الكتلة بالكامل مع التحقق
       final decryptedChunk = await algorithm.decrypt(
         crypto.SecretBox(cipherText, nonce: nonce, mac: crypto.Mac(macBytes)),
         secretKey: secretKey,
       );
 
-      // أخذ الجزء المطلوب فقط من الكتلة
       int startInChunk = currentReadOffset % CHUNK_SIZE;
       int availableInChunk = decryptedChunk.length - startInChunk;
 
       if (availableInChunk <= 0) break;
 
       int bytesToTake = min(remainingLength, availableInChunk);
-      final dataChunk =
-          decryptedChunk.sublist(startInChunk, startInChunk + bytesToTake);
+      final dataChunk = decryptedChunk.sublist(startInChunk, startInChunk + bytesToTake);
 
       yield dataChunk;
 
@@ -379,8 +393,7 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
       remainingLength -= dataChunk.length;
     }
 
-    print(
-        "✅ [PROXY_V2_DONE] $isolateName | Sent: $totalSent bytes | Time: ${streamStopwatch.elapsedMilliseconds}ms");
+    print("✅ [PROXY_V2_DONE] $isolateName | Sent: $totalSent bytes | Time: ${streamStopwatch.elapsedMilliseconds}ms");
   } catch (e) {
     print("❌ Stream V2 Error: $e");
   } finally {
@@ -394,7 +407,6 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
   }
 }
 
-// دالة التشغيل القديمة للملفات المحملة مسبقاً بنظام AES (V1)
 Stream<List<int>> _createDecryptedStream(File file, int reqStart, int reqEnd,
     encrypt.Encrypter encrypter, String isolateName) async* {
   final streamStopwatch = Stopwatch()..start();
