@@ -32,3 +32,6 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+# [FIX F-12] Security - prevent leaking secrets in Xcode schemes
+*.xcscheme
