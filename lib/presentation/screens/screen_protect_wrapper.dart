@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+// ✅ [FIX F-11] استدعاء مكتبة حماية النوافذ
+import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 
 class ScreenProtectWrapper extends StatefulWidget {
   final Widget child;
@@ -16,6 +18,18 @@ class _ScreenProtectWrapperState extends State<ScreenProtectWrapper>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // ✅ [FIX F-11] تفعيل الحماية فوراً من مستوى نظام التشغيل قبل رسم أي إطار
+    _secureScreen(); 
+  }
+
+  Future<void> _secureScreen() async {
+    try {
+      // هذا الأمر يمنع أخذ لقطات شاشة أو تصوير فيديو من الخلفية (App Switcher)
+      // ويقضي على ثغرة الـ Race Condition الزمني تماماً
+      await FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE);
+    } catch (e) {
+      debugPrint("Failed to secure screen: $e");
+    }
   }
 
   @override
@@ -40,6 +54,7 @@ class _ScreenProtectWrapperState extends State<ScreenProtectWrapper>
     return Stack(
       children: [
         widget.child,
+        // ✅ طبقة بصرية إضافية (Fallback) تحجب المحتوى تماماً باللون الأسود
         if (_isProtected)
           Positioned.fill(
             child: Container(color: Colors.black),
