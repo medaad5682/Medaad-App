@@ -1,5 +1,13 @@
 import 'package:flutter/services.dart';
 
+// ✅ إضافة دالة آمنة للطباعة تظهر فقط في وضع التطوير (Debug)
+void _safePrint(Object? message) {
+  assert(() {
+    print(message);
+    return true;
+  }());
+}
+
 class ScreenshotProtection {
   static const _channel = MethodChannel('screenshot_protection');
 
@@ -7,9 +15,9 @@ class ScreenshotProtection {
   static Future<void> enable() async {
     try {
       await _channel.invokeMethod('enableProtection');
-      print('✅ Screenshot protection enabled');
+      _safePrint('✅ Screenshot protection enabled'); // ✅ استخدام الطباعة الآمنة
     } catch (e) {
-      print('❌ Error enabling protection: $e');
+      _safePrint('❌ Error enabling protection: $e'); // ✅ استخدام الطباعة الآمنة
     }
   }
 
@@ -17,9 +25,9 @@ class ScreenshotProtection {
   static Future<void> disable() async {
     try {
       await _channel.invokeMethod('disableProtection');
-      print('✅ Screenshot protection disabled');
+      _safePrint('✅ Screenshot protection disabled'); // ✅ استخدام الطباعة الآمنة
     } catch (e) {
-      print('❌ Error disabling protection: $e');
+      _safePrint('❌ Error disabling protection: $e'); // ✅ استخدام الطباعة الآمنة
     }
   }
 }
