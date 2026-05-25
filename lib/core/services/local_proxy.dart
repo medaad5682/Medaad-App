@@ -15,6 +15,15 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../utils/encryption_helper.dart';
 import 'file_crypto_service.dart';
 
+// ✅ إضافة دالة آمنة للطباعة تظهر فقط في وضع التطوير (Debug) 
+// ويتم إزالتها تلقائياً في نسخة الإنتاج (Release) لمنع تسريب السجلات
+void _safePrint(Object? message) {
+  assert(() {
+    print(message);
+    return true;
+  }());
+}
+
 class LocalProxyService {
   static final LocalProxyService _instance = LocalProxyService._internal();
 
@@ -92,7 +101,7 @@ class LocalProxyService {
       final random = Random.secure();
       final values = List<int>.generate(32, (i) => random.nextInt(256));
       _hmacSecret = base64UrlEncode(values);
-      print('🔒 [SECURITY] HMAC Secret Generated for Local Proxy');
+      _safePrint('🔒 [SECURITY] HMAC Secret Generated for Local Proxy');
 
       // 4. Start Video Server (Port 0 = Random)
       _videoReceivePort = ReceivePort();
@@ -105,7 +114,7 @@ class LocalProxyService {
       await for (final message in _videoReceivePort!) {
         if (message is String && message.startsWith("READY:")) {
           _videoPort = int.parse(message.split(':')[1]);
-          print('🔍 [DIAGNOSIS] Video Proxy Started on dynamic port: $_videoPort');
+          _safePrint('🔍 [DIAGNOSIS] Video Proxy Started on dynamic port: $_videoPort');
           break;
         } else if (message.toString().startsWith("ERROR")) {
           throw Exception("Video Proxy Failed: $message");
@@ -123,7 +132,7 @@ class LocalProxyService {
       await for (final message in _audioReceivePort!) {
         if (message is String && message.startsWith("READY:")) {
           _audioPort = int.parse(message.split(':')[1]);
-          print('🔍 [DIAGNOSIS] Audio Proxy Started on dynamic port: $_audioPort');
+          _safePrint('🔍 [DIAGNOSIS] Audio Proxy Started on dynamic port: $_audioPort');
           break;
         } else if (message.toString().startsWith("ERROR")) {
           throw Exception("Audio Proxy Failed: $message");
@@ -132,7 +141,7 @@ class LocalProxyService {
 
       _readyCompleter?.complete();
     } catch (e) {
-      print("❌ Proxy Launch Error: $e");
+      _safePrint("❌ Proxy Launch Error: $e");
       _readyCompleter?.completeError(e);
       stop();
     }
@@ -145,14 +154,14 @@ class LocalProxyService {
     _hmacSecret = ""; // تصفير السر
 
     if (_videoServerIsolate != null) {
-      print('🛑 Stopping Video Proxy');
+      _safePrint('🛑 Stopping Video Proxy');
       _videoReceivePort?.close();
       _videoServerIsolate?.kill(priority: Isolate.immediate);
       _videoServerIsolate = null;
     }
 
     if (_audioServerIsolate != null) {
-      print('🛑 Stopping Audio Proxy');
+      _safePrint('🛑 Stopping Audio Proxy');
       _audioReceivePort?.close();
       _audioServerIsolate?.kill(priority: Isolate.immediate);
       _audioServerIsolate = null;
@@ -220,14 +229,14 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
     final sigParam = request.url.queryParameters['sig'];
 
     if (pathParam == null || expiresParam == null || sigParam == null) {
-      print("⛔ [$isolateName] Security Breach: Missing URL Parameters!");
+      _safePrint("⛔ [$isolateName] Security Breach: Missing URL Parameters!");
       return Response.forbidden('Access Denied: Missing Parameters');
     }
 
     // التحقق من انتهاء الصلاحية
     final expires = int.tryParse(expiresParam) ?? 0;
     if (DateTime.now().millisecondsSinceEpoch > expires) {
-      print("⛔ [$isolateName] Security Breach: Link Expired!");
+      _safePrint("⛔ [$isolateName] Security Breach: Link Expired!");
       return Response.forbidden('Access Denied: Link Expired');
     }
 
@@ -237,7 +246,7 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
     final expectedSig = hmac.convert(utf8.encode(dataToSign)).toString();
 
     if (sigParam != expectedSig) {
-      print("⛔ [$isolateName] Security Breach: Invalid HMAC Signature!");
+      _safePrint("⛔ [$isolateName] Security Breach: Invalid HMAC Signature!");
       return Response.forbidden('Access Denied: Invalid Signature');
     }
 
@@ -303,7 +312,7 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
 
     final contentLength = end - start + 1;
 
-    print("🔍 [PROXY_REQ] $isolateName | Range: $start-$end | V2: $isV2 | Processing: ${requestStopwatch.elapsedMilliseconds}ms");
+    _safePrint("🔍 [PROXY_REQ] $isolateName | Range: $start-$end | V2: $isV2 | Processing: ${requestStopwatch.elapsedMilliseconds}ms");
 
     final Map<String, Object> headers = {
       'Content-Type': contentType,
@@ -328,7 +337,7 @@ Future<Response> _handleRequest(Request request, encrypt.Encrypter encrypter,
       headers: headers,
     );
   } catch (e) {
-    print("[$isolateName] Request Error: $e");
+    _safePrint("[$isolateName] Request Error: $e");
     return Response.internalServerError(body: 'Proxy Error');
   }
 }
@@ -393,9 +402,9 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
       remainingLength -= dataChunk.length;
     }
 
-    print("✅ [PROXY_V2_DONE] $isolateName | Sent: $totalSent bytes | Time: ${streamStopwatch.elapsedMilliseconds}ms");
+    _safePrint("✅ [PROXY_V2_DONE] $isolateName | Sent: $totalSent bytes | Time: ${streamStopwatch.elapsedMilliseconds}ms");
   } catch (e) {
-    print("❌ Stream V2 Error: $e");
+    _safePrint("❌ Stream V2 Error: $e");
   } finally {
     if (totalSent < requiredLength) {
       int missingBytes = requiredLength - totalSent;
@@ -481,7 +490,7 @@ Stream<List<int>> _createDecryptedStream(File file, int reqStart, int reqEnd,
       }
     }
   } catch (e) {
-    print("Stream Error: $e");
+    _safePrint("Stream Error: $e");
   } finally {
     if (totalSent < requiredLength) {
       int missingBytes = requiredLength - totalSent;
