@@ -140,7 +140,11 @@ class FileCryptoService {
   }
 
   // ✅ استخدمنا الخوارزمية القديمة هنا فقط للحفاظ على التوافق إذا كانت هناك دوال تعتمد عليها
+  @Deprecated('This uses unauthenticated ChaCha20. Use encryptFileChunked() instead. Will be removed soon.')
   static final _oldAlgorithm = Chacha20(macAlgorithm: MacAlgorithm.empty);
+  
+  // ✅ إضافة التنبيه هنا لمنع المطورين من استخدامها بالخطأ
+  @Deprecated('This uses unauthenticated ChaCha20. Use encryptFileChunked() instead. Will be removed soon.')
   static Future<void> encryptFile(String inputPath, String outputPath) async {
     await init();
     final inFile = File(inputPath);
