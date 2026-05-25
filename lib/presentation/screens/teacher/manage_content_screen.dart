@@ -152,10 +152,9 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
     }
   }
 
-  Future<void> _submit() async {
+Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // ✅ التحقق الإجباري من الوقت قبل بدء التحميل للفيديو
     if (widget.contentType == ContentType.video) {
       int hVal = int.tryParse(_hoursController.text) ?? 0;
       int mVal = int.tryParse(_minutesController.text) ?? 0;
@@ -189,10 +188,12 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
     try {
       String? finalFileUrl = _uploadedFileUrl;
+      String? finalFileHash; // ✅ متغير لحفظ الهاش المرجع من السيرفر
 
       // 1. رفع الملف
       if (widget.contentType == ContentType.pdf && _selectedFile != null) {
-        finalFileUrl = await _teacherService.uploadFile(
+        // ✅ استقبال Map بدلاً من String
+        final uploadResult = await _teacherService.uploadFile(
           _selectedFile!,
           onProgress: (sent, total) {
             setState(() {
@@ -200,11 +201,14 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
             });
           },
         );
+        
+        finalFileUrl = uploadResult['url'];
+        finalFileHash = uploadResult['contentHash']; // ✅ التقاط الهاش
       }
 
       setState(() => _uploadProgress = 0.0);
 
-      // 2. تحضير البيانات
+      // 2. تحضير البيانات للحفظ
       Map<String, dynamic> data = {
         'title': _titleController.text,
       };
@@ -232,7 +236,6 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
           data['youtube_video_id'] = videoId;
           if (!isEditing) data['notifyStudents'] = _notifyStudents;
 
-          // ✅ تجميع الوقت وتنسيقه وإرساله
           int hVal = int.tryParse(_hoursController.text) ?? 0;
           int mVal = int.tryParse(_minutesController.text) ?? 0;
           int sVal = int.tryParse(_secondsController.text) ?? 0;
@@ -246,6 +249,8 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
         case ContentType.pdf:
           data['chapter_id'] = widget.parentId;
           if (finalFileUrl != null) data['file_path'] = finalFileUrl;
+          // ✅ تمرير الهاش ليتم حفظه في قاعدة البيانات
+          if (finalFileHash != null) data['content_hash'] = finalFileHash; 
           if (!isEditing) data['notifyStudents'] = _notifyStudents;
           break;
       }
@@ -259,7 +264,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
         case ContentType.pdf: dbType = 'pdfs'; break;
       }
 
-      // 3. الحفظ في السيرفر
+      // 3. الحفظ في السيرفر (والذي سيستدعي content.js)
       await _teacherService.manageContent(
         action: isEditing ? 'update' : 'create',
         type: dbType,
@@ -290,63 +295,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
-  Future<void> _deleteItem() async {
-    bool? confirm = await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.backgroundSecondary,
-        title: Text("Confirm Delete", style: TextStyle(color: AppColors.textPrimary)),
-        content: Text("Are you sure you want to delete this item? This cannot be undone.", style: TextStyle(color: AppColors.textSecondary)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text("Cancel", style: TextStyle(color: AppColors.textSecondary))),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: const Text("Delete", style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      String dbType = '';
-      switch (widget.contentType) {
-        case ContentType.course: dbType = 'courses'; break;
-        case ContentType.subject: dbType = 'subjects'; break;
-        case ContentType.chapter: dbType = 'chapters'; break;
-        case ContentType.video: dbType = 'videos'; break;
-        case ContentType.pdf: dbType = 'pdfs'; break;
-      }
-
-      await _teacherService.manageContent(
-        action: 'delete',
-        type: dbType,
-        data: {'id': widget.initialData!['id']},
-      );
-
-      await _updateLocalCache();
-
-      await Future.delayed(const Duration(seconds: 1));
-      await AppState().reloadAppInit();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text("Deleted Successfully"), backgroundColor: AppColors.success));
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Delete Failed: $e"), backgroundColor: AppColors.error));
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
+  
   @override
   Widget build(BuildContext context) {
     String titleText = '';
