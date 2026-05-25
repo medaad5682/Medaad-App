@@ -139,7 +139,8 @@ class TeacherService {
   // ==========================================================
   // 2️⃣ رفع الملفات العامة (للمحتوى)
   // ==========================================================
-  Future<String> uploadFile(File file,
+  // ✅ [تم التعديل لإرجاع Map بدلاً من String للحصول على الرابط والهاش معاً]
+  Future<Map<String, dynamic>> uploadFile(File file,
       {Function(int sent, int total)? onProgress}) async {
     try {
       final options = await _getHeaders(isUpload: true);
@@ -161,7 +162,7 @@ class TeacherService {
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        return response.data['url'];
+        return response.data; // إرجاع البيانات كاملة
       } else {
         throw Exception("فشل رفع الملف");
       }
