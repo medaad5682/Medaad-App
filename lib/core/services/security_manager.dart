@@ -23,6 +23,9 @@ class SecurityManager {
 
   final AudioProtectionService _audioProtection = AudioProtectionService();
 
+  // ✅ 1. متغير لحفظ نتيجة فحص الهاردوير (Cache) لعدم تكراره عند العودة من الخلفية
+  bool? _cachedIsHardwareReal;
+
   void initListeners() {
     _audioProtection.startMonitoring();
 
@@ -46,22 +49,33 @@ class SecurityManager {
   // These supplement SafeDevice's build-prop checks which Genymotion / Magisk
   // can spoof by modifying ro.product.model and ro.kernel.qemu.
   Future<bool> _isHardwareRealDevice() async {
+    // ✅ 2. إذا تم الفحص مسبقاً وكانت النتيجة معروفة، قم بإرجاعها مباشرة دون إعادة الفحص
+    if (_cachedIsHardwareReal != null) {
+      return _cachedIsHardwareReal!;
+    }
+
     // 1. Native root / build-tag check (MainActivity.kt)
     try {
       final bool nativeRooted = await _nativeChannel.invokeMethod('isDeviceRooted') ?? false;
-      if (nativeRooted) return false;
+      if (nativeRooted) {
+        _cachedIsHardwareReal = false;
+        return false;
+      }
     } catch (_) {}
 
     // 2. Battery presence — emulators return BatteryState.unknown or unavailable
     try {
       final battery = Battery();
       final level = await battery.batteryLevel;
-      if (level <= 0) return false; // emulator typically returns 0 or -1
+      if (level <= 0) {
+        _cachedIsHardwareReal = false;
+        return false; // emulator typically returns 0 or -1
+      }
     } catch (_) {
+      _cachedIsHardwareReal = false;
       return false; // inability to read battery = emulator
     }
 
-    // 3. Accelerometer availability — emulators usually have no real gyro data
     // 3. Accelerometer availability — emulators usually have no real gyro data
     bool sensorPresent = false;
     try {
@@ -78,8 +92,13 @@ class SecurityManager {
       await sub.cancel();
     } catch (_) {}
 
-    if (!sensorPresent) return false;
+    if (!sensorPresent) {
+      _cachedIsHardwareReal = false;
+      return false;
+    }
 
+    // ✅ 3. إذا اجتاز كل الفحوصات، احفظ النتيجة كجهاز حقيقي لتفادي الفحص مجدداً
+    _cachedIsHardwareReal = true;
     return true;
   }
 
