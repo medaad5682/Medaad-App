@@ -271,7 +271,8 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
         String? imageUrl = q.imageUrl;
         
         if (q.imageFile != null) {
-          imageUrl = await _teacherService.uploadFile(q.imageFile!);
+          final uploadResult = await _teacherService.uploadFile(q.imageFile!);
+imageUrl = uploadResult['url']; // استخراج الرابط فقط
         }
 
         processedQuestions.add({
