@@ -1,6 +1,15 @@
 import 'package:flutter/services.dart';
 import 'dart:async';
 
+// ✅ إضافة دالة آمنة للطباعة تظهر فقط في وضع التطوير (Debug) 
+// ويتم إزالتها تلقائياً في نسخة الإنتاج (Release) لمنع تسريب السجلات
+void _safePrint(Object? message) {
+  assert(() {
+    print(message);
+    return true;
+  }());
+}
+
 class AudioProtectionService {
   static const platform = MethodChannel('com.example.edu_vantage_app/audio_protection');
 
@@ -49,7 +58,7 @@ class AudioProtectionService {
 
       return isRecording;
     } catch (e) {
-      print('⚠️ خطأ في فحص التسجيل: $e');
+      _safePrint('⚠️ خطأ في فحص التسجيل: $e'); // ✅ استخدام الطباعة الآمنة
       return false;
     }
   }
@@ -67,7 +76,7 @@ class AudioProtectionService {
           await platform.invokeMethod('blockAudioCapture') ?? false;
       return result;
     } catch (e) {
-      print('⚠️ خطأ في حظر الصوت: $e');
+      _safePrint('⚠️ خطأ في حظر الصوت: $e'); // ✅ استخدام الطباعة الآمنة
       return false;
     }
   }
