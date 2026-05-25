@@ -62,11 +62,18 @@ class SecurityManager {
     }
 
     // 3. Accelerometer availability — emulators usually have no real gyro data
+    // 3. Accelerometer availability — emulators usually have no real gyro data
     bool sensorPresent = false;
     try {
       final sub = accelerometerEventStream(samplingPeriod: SensorInterval.normalInterval)
           .timeout(const Duration(milliseconds: 500))
-          .listen((_) { sensorPresent = true; });
+          .listen(
+            (_) { sensorPresent = true; },
+            // ✅ إضافة هذا السطر لالتقاط الخطأ بصمت وعدم إرساله إلى Crashlytics
+            onError: (error) { 
+              sensorPresent = false; 
+            },
+          );
       await Future.delayed(const Duration(milliseconds: 600));
       await sub.cancel();
     } catch (_) {}
