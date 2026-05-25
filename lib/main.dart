@@ -77,7 +77,7 @@ void onStartBackgroundService(ServiceInstance service) async {
   });
 
   service.on('keepAlive').listen((event) {
-     // يمكنك وضع كود هنا إذا أردت استلام إشارات من الواجهة الأمامية
+      // يمكنك وضع كود هنا إذا أردت استلام إشارات من الواجهة الأمامية
   });
 }
 
@@ -90,6 +90,11 @@ Future<bool> onIosBackground(ServiceInstance service) async {
 void main() async {
   runZonedGuarded<Future<void>>(() async {
     WidgetsFlutterBinding.ensureInitialized();
+
+    // =========================================================
+    // ✅ تم النقل هنا: تفعيل وضع الأمان فوراً قبل أي شيء (حل N-03)
+    // =========================================================
+    await _enableSecureMode();
 
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -189,8 +194,6 @@ void main() async {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-
-    await _enableSecureMode();
 
     // Security
     SecurityManager.instance.initListeners();
