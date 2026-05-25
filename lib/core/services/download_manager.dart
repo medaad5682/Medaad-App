@@ -12,6 +12,8 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:cryptography/cryptography.dart';
+// ✅ [FIX F-13] استدعاء مكتبة التشفير لحساب بصمة الملفات المحملة
+import 'package:crypto/crypto.dart' as hash_crypto;
 
 import 'notification_service.dart';
 import '../../core/services/storage_service.dart';
@@ -157,7 +159,7 @@ class DownloadManager with WidgetsBindingObserver {
     required String courseName,
     required String subjectName,
     required String chapterName,
-    required String subjectId, // 👈 ✅ تمت إضافة المعرف هنا
+    required String subjectId,
     String? downloadUrl,
     String? audioUrl,
     required Function(double) onProgress,
@@ -293,7 +295,7 @@ class DownloadManager with WidgetsBindingObserver {
               }
             });
       } else {
-        // 🎥 تحميل وتشفير الفيديو (والصوت إن وجد) باستخدام Isolates قوية وسريعة
+        // 🎥 تحميل وتشفير الفيديو
         double vidProg = 0.0;
         double audProg = 0.0;
 
@@ -366,7 +368,7 @@ class DownloadManager with WidgetsBindingObserver {
         'title': videoTitle,
         'path': videoSavePath,
         'audioPath': audioSavePath,
-        'subjectId': subjectId, // 👈 ✅ تم الحفظ هنا
+        'subjectId': subjectId,
         'course': courseName,
         'subject': subjectName,
         'chapter': chapterName,
@@ -439,9 +441,6 @@ class DownloadManager with WidgetsBindingObserver {
     }
   }
 
-  // ===========================================================================
-  // 🧹 دالة تنظيف الملفات المحملة إذا فقد الطالب الصلاحية
-  // ===========================================================================
   Future<void> validateAndCleanRevokedDownloads(List<String> authorizedSubjects) async {
     try {
       if (!Hive.isBoxOpen('downloads_box')) return;
@@ -454,16 +453,13 @@ class DownloadManager with WidgetsBindingObserver {
 
         String? sId = data['subjectId'];
 
-        // تجاهل الملفات القديمة (التي حملها الطالب قبل هذا التحديث) لتجنب حذفها بالخطأ
         if (sId == null) continue;
 
-        // التحقق: هل المادة المحملة موجودة ضمن المواد المسموح بها؟
         if (!authorizedSubjects.contains(sId)) {
           keysToDelete.add(key);
         }
       }
 
-      // مسح الملفات المرفوضة من التخزين وقاعدة البيانات
       for (var key in keysToDelete) {
         var data = box.get(key);
         try {
@@ -504,8 +500,8 @@ class DownloadManager with WidgetsBindingObserver {
         '${tempDir.path}/downloading_${DateTime.now().millisecondsSinceEpoch}.tmp';
 
     try {
-      // 1. تحميل الملف الخام (سريع جداً لا يؤثر على الواجهة)
-      await _dio.download(
+      // 1. تحميل الملف الخام واستقبال الاستجابة
+      final response = await _dio.download(
         url,
         tempPath,
         options: Options(headers: headers),
@@ -520,6 +516,21 @@ class DownloadManager with WidgetsBindingObserver {
             requestOptions: RequestOptions(path: url),
             type: DioExceptionType.cancel);
 
+      // ✅ [FIX F-13] قراءة الهاش القادم من السيرفر والتحقق من سلامة الملف قبل تشفيره
+      final expectedHash = response.headers.value('x-file-hash') ?? response.headers.value('X-File-Hash');
+      if (expectedHash != null && expectedHash.isNotEmpty) {
+        // حساب الهاش بنظام Stream لتجنب امتلاء الذاكرة
+        final fileStream = File(tempPath).openRead();
+        final hash = await hash_crypto.sha256.bind(fileStream).first;
+        final actualHash = hash.toString();
+        
+        // مطابقة البصمة
+        if (actualHash.toLowerCase() != expectedHash.toLowerCase()) {
+          throw Exception("Integrity Check Failed: SHA-256 hash mismatch! File might be tampered with.");
+        }
+        debugPrint("✅ [F-13] PDF Integrity Check Passed! Hash verified.");
+      }
+
       // 2. تشغيل التشفير في مسار معالج منفصل Isolate (لمنع تجمد الواجهة)
       final ReceivePort port = ReceivePort();
       final isolate = await Isolate.spawn(_pdfEncryptIsolateEntryPoint, {
@@ -531,7 +542,6 @@ class DownloadManager with WidgetsBindingObserver {
 
       final completer = Completer<void>();
 
-      // إذا ألغى الطالب التحميل، نقتل الـ Isolate فوراً!
       final cancelSub = cancelToken.whenCancel.then((_) {
         isolate.kill(priority: Isolate.immediate);
         if (!completer.isCompleted)
@@ -579,7 +589,6 @@ class DownloadManager with WidgetsBindingObserver {
   }) async {
     final ReceivePort port = ReceivePort();
 
-    // إنشاء المسار المستقل (Thread)
     final isolate = await Isolate.spawn(_videoDownloadIsolateEntryPoint, {
       'sendPort': port.sendPort,
       'url': url,
@@ -590,7 +599,6 @@ class DownloadManager with WidgetsBindingObserver {
 
     final completer = Completer<void>();
 
-    // نظام القتل الفوري (Instant Kill) في حال ضغط المستخدم على إلغاء
     final cancelSub = cancelToken.whenCancel.then((_) {
       isolate.kill(priority: Isolate.immediate);
       if (!completer.isCompleted) {
@@ -600,7 +608,6 @@ class DownloadManager with WidgetsBindingObserver {
       }
     });
 
-    // استقبال التقدم أو رسائل الانتهاء/الخطأ من المسار المنفصل
     port.listen((message) {
       if (message is double) {
         onProgress(message);
@@ -620,10 +627,9 @@ class DownloadManager with WidgetsBindingObserver {
 }
 
 // ===========================================================================
-// 🛡️ Isolates Entry Points (تجنب وضع أي أكواد متعلقة بالواجهة هنا)
+// 🛡️ Isolates Entry Points
 // ===========================================================================
 
-/// دالة مسار التشفير لملفات الـ PDF (تعمل في الخلفية)
 void _pdfEncryptIsolateEntryPoint(Map<String, dynamic> args) async {
   final String inputPath = args['inputPath'];
   final String outputPath = args['outputPath'];
@@ -636,7 +642,6 @@ void _pdfEncryptIsolateEntryPoint(Map<String, dynamic> args) async {
     final rafRead = await inFile.open(mode: FileMode.read);
     final iosWrite = outFile.openWrite();
 
-    // ✅ [FIX F-02] استخدام AEAD داخل مسار الخلفية
     final algorithm = Chacha20.poly1305Aead();
     final secretKey = SecretKey(keyBytes);
     const CHUNK_SIZE = 32 * 1024;
@@ -652,7 +657,7 @@ void _pdfEncryptIsolateEntryPoint(Map<String, dynamic> args) async {
 
       iosWrite.add(nonce);
       iosWrite.add(secretBox.cipherText);
-      iosWrite.add(secretBox.mac.bytes); // ✅ كتابة الـ MAC
+      iosWrite.add(secretBox.mac.bytes); 
       currentPos += chunk.length;
     }
     await rafRead.close();
@@ -663,7 +668,6 @@ void _pdfEncryptIsolateEntryPoint(Map<String, dynamic> args) async {
   }
 }
 
-/// دالة مسار التحميل والتشفير المباشر للفيديوهات (تعمل في الخلفية)
 void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
   final SendPort sendPort = args['sendPort'];
   try {
@@ -675,7 +679,6 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     final Map<String, String> headers =
         rawHeaders.map((key, value) => MapEntry(key, value.toString()));
 
-    // ✅ [FIX F-02] استخدام AEAD
     final algorithm = Chacha20.poly1305Aead();
     final secretKey = SecretKey(keyBytes);
     const int CHUNK_SIZE = 32 * 1024;
@@ -687,7 +690,7 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
       final builder = BytesBuilder(copy: false);
       builder.add(nonce);
       builder.add(box.cipherText);
-      builder.add(box.mac.bytes); // ✅ تضمين الـ MAC
+      builder.add(box.mac.bytes); 
       return builder.toBytes();
     }
 
@@ -695,7 +698,6 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
         connectTimeout: const Duration(seconds: 60),
         receiveTimeout: const Duration(seconds: 60)));
 
-    // 1. نظام HLS (m3u8)
     if (url.contains('.m3u8') || url.contains('.m3u')) {
       final response = await dio.get(url, options: Options(headers: headers));
       final content = response.data.toString();
@@ -758,7 +760,6 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
       return;
     }
 
-    // 2. نظام MP4 المباشر
     int totalBytes = 0;
     try {
       final headRes = await dio.head(url, options: Options(headers: headers));
