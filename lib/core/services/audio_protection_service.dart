@@ -11,8 +11,7 @@ void _safePrint(Object? message) {
 }
 
 class AudioProtectionService {
-  static const platform = MethodChannel('com.example.edu_vantage_app/audio_protection');
-
+  static const platform = MethodChannel('medaad.app.com/audio_protection');
   // Singleton Pattern
   static final AudioProtectionService _instance =
       AudioProtectionService._internal();
