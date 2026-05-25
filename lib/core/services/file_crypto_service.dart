@@ -138,27 +138,4 @@ class FileCryptoService {
       await raf.close();
     }
   }
-
-  // ✅ استخدمنا الخوارزمية القديمة هنا فقط للحفاظ على التوافق إذا كانت هناك دوال تعتمد عليها
-  @Deprecated('This uses unauthenticated ChaCha20. Use encryptFileChunked() instead. Will be removed soon.')
-  static final _oldAlgorithm = Chacha20(macAlgorithm: MacAlgorithm.empty);
-  
-  // ✅ إضافة التنبيه هنا لمنع المطورين من استخدامها بالخطأ
-  @Deprecated('This uses unauthenticated ChaCha20. Use encryptFileChunked() instead. Will be removed soon.')
-  static Future<void> encryptFile(String inputPath, String outputPath) async {
-    await init();
-    final inFile = File(inputPath);
-    final outFile = File(outputPath);
-    final ios = outFile.openWrite();
-    final nonce = List<int>.generate(NONCE_LENGTH, (i) => Random.secure().nextInt(256));
-    ios.add(nonce);
-    final stream = _oldAlgorithm.encryptStream(
-      inFile.openRead(),
-      secretKey: _key!,
-      nonce: nonce,
-      onMac: (mac) {},
-    );
-    await ios.addStream(stream);
-    await ios.close();
-  }
 }
