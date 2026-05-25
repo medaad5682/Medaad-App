@@ -68,9 +68,9 @@ import UIKit
             return
         }
 
-        // Create Method Channel for Audio Protection
+        // ✅ [توحيد الاسم] تم تغيير اسم القناة ليتطابق مع Flutter و Android
         flutterMethodChannel = FlutterMethodChannel(
-            name: "com.example.edu_vantage_app/audio_protection",
+            name: "medaad.app.com/audio_protection",
             binaryMessenger: controller.binaryMessenger
         )
 
@@ -96,6 +96,12 @@ import UIKit
                 // Check if screen is being captured/recorded
                 let isRecording = UIScreen.main.isCaptured
                 result(isRecording)
+                
+            // ✅ [FIX N-01] استقبال طلب فحص الجيلبريك من Flutter وتنفيذه
+            case "isDeviceRooted":
+                let isJailbroken = self?.isDeviceJailbroken() ?? false
+                print("🔍 Amr AI: iOS Jailbreak Check -> \(isJailbroken)")
+                result(isJailbroken)
 
             default:
                 result(FlutterMethodNotImplemented)
@@ -135,21 +141,6 @@ import UIKit
             }
         }
     }
-
-    // private func startScreenRecordingMonitoring() {
-    //     // Check every 1 second for screen capture changes
-    //     screenRecordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) {
-    //         [weak self] _ in
-    //         guard let self = self else { return }
-
-    //         let isCaptured = UIScreen.main.isCaptured
-    //         if isCaptured && !self.isScreenBeingCaptured {
-    //             self.screenCaptureStatusChanged()
-    //         } else if !isCaptured && self.isScreenBeingCaptured {
-    //             self.screenCaptureStatusChanged()
-    //         }
-    //     }
-    // }
 
     private func notifyFlutterOfRecording() {
         // Send notification to Flutter side
