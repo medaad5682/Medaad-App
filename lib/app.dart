@@ -36,10 +36,13 @@ class _EduVantageAppState extends State<EduVantageApp>
     if (state == AppLifecycleState.resumed) {
       // إعادة تفعيل الحظر عند العودة للتطبيق
       AudioProtectionService().blockAudioCapture();
-      SecurityManager.instance.checkSecurity();
+      
+      // ✅ أضف تأخير بسيط (500 ملي ثانية) لتجنب مشكلة الـ Race Condition مع النظام
+      Future.delayed(const Duration(milliseconds: 500), () {
+        SecurityManager.instance.checkSecurity();
+      });
     }
   }
-
   @override
   Widget build(BuildContext context) {
     const MethodChannel _settingsChannel = MethodChannel("app.settings");
