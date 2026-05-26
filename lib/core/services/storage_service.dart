@@ -38,7 +38,7 @@ class StorageService {
       );
     } catch (e) {
       // في حالة تلف البيانات أو تغيير المفتاح، نعيد إنشاء الصندوق لتجنب توقف التطبيق
-      print("Error opening encrypted box $boxName: $e");
+      FirebaseCrashlytics.instance.recordError(e, StackTrace.current, reason: 'Failed to open Hive box: $boxName');
       await Hive.deleteBoxFromDisk(boxName);
       final key = await _getKey();
       return await Hive.openBox(
