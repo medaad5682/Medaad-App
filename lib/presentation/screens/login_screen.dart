@@ -7,9 +7,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:android_id/android_id.dart';
+// ✅ 1. استيراد حزمة App Check
+import 'package:firebase_app_check/firebase_app_check.dart'; 
+
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
-// ✅ 1. استيراد خدمة الإشعارات
+// ✅ استيراد خدمة الإشعارات
 import '../../core/services/notification_service.dart';
 import 'main_wrapper.dart';
 import 'register_screen.dart';
@@ -99,7 +102,10 @@ class _LoginScreenState extends State<LoginScreen> {
       // 1. جلب معرف الجهاز الحقيقي
       final deviceId = await _getAndSaveDeviceId(box);
 
-      // 2. إرسال الطلب للباك اند
+      // ✅ 2. جلب توكن الأمان من فايربيز
+      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+
+      // 3. إرسال الطلب للباك اند
       final response = await _dio.post(
         '$_baseUrl/api/auth/login',
         data: {
@@ -110,6 +116,8 @@ class _LoginScreenState extends State<LoginScreen> {
         options: Options(
           headers: {
             'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+            // ✅ إرسال توكن الأمان في الهيدر
+            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
           },
           validateStatus: (status) => status! < 500,
         ),
@@ -177,16 +185,21 @@ class _LoginScreenState extends State<LoginScreen> {
       var box = await StorageService.openBox('auth_box');
       final deviceId = await _getAndSaveDeviceId(box);
       
-      // ✅ 2. جلب توكن فايربيز لإرساله حتى للزوار
+      // ✅ 2. جلب توكن فايربيز للإشعارات
       String? fcmToken = box.get('fcm_token');
 
-      // للضيف لا نرسل توكن، فقط معرف الجهاز وتوكن فايربيز
+      // ✅ 3. جلب توكن الأمان من فايربيز
+      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+
+      // للضيف لا نرسل توكن الدخول، فقط معرف الجهاز وتوكن فايربيز للإشعارات وتوكن الأمان
       final response = await _dio.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(headers: {
           'x-device-id': deviceId,
           'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-          if (fcmToken != null) 'x-fcm-token': fcmToken, // ✅ إرسال التوكن
+          if (fcmToken != null) 'x-fcm-token': fcmToken,
+          // ✅ إرسال توكن الأمان في الهيدر
+          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
         }),
       );
 
@@ -202,7 +215,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
         await box.put('free_mode', serverFreeMode);
         
-        // ✅ 3. تحديث قنوات الإشعارات للزائر
+        // ✅ 4. تحديث قنوات الإشعارات للزائر
         if (response.data['myAccess'] != null && response.data['myAccess']['topics'] != null) {
           List<String> topics = List<String>.from(response.data['myAccess']['topics']);
           await NotificationService().updateSubscriptions(topics);
@@ -240,8 +253,11 @@ class _LoginScreenState extends State<LoginScreen> {
       var box = await StorageService.openBox('auth_box');
       String? token = box.get('jwt_token');
       
-      // ✅ 4. جلب توكن فايربيز للمستخدم المسجل
+      // ✅ 4. جلب توكن فايربيز للإشعارات
       String? fcmToken = box.get('fcm_token');
+
+      // ✅ 5. جلب توكن الأمان
+      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
 
       final response = await _dio.get(
         '$_baseUrl/api/public/get-app-init-data',
@@ -249,7 +265,9 @@ class _LoginScreenState extends State<LoginScreen> {
           if (token != null) 'Authorization': 'Bearer $token',
           'x-device-id': deviceId,
           'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-          if (fcmToken != null) 'x-fcm-token': fcmToken, // ✅ إرسال التوكن
+          if (fcmToken != null) 'x-fcm-token': fcmToken,
+          // ✅ إرسال التوكن للباك إند
+          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
         }),
       );
 
@@ -265,7 +283,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
         await box.put('free_mode', serverFreeMode);
         
-        // ✅ 5. تحديث قنوات الإشعارات (Topics) بعد تسجيل الدخول
+        // ✅ 6. تحديث قنوات الإشعارات (Topics) بعد تسجيل الدخول
         if (response.data['myAccess'] != null && response.data['myAccess']['topics'] != null) {
           List<String> topics = List<String>.from(response.data['myAccess']['topics']);
           await NotificationService().updateSubscriptions(topics);
