@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+// ✅ استيراد Firebase App Check
+import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import 'checkout_screen.dart';
 import 'teacher_profile_screen.dart';
@@ -91,7 +93,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
     }
   }
 
-  // ✅ دالة التفعيل المجاني المباشر
+  // ✅ دالة التفعيل المجاني المباشر (تم تأمينها هنا)
   Future<void> _enrollFree() async {
     setState(() => _enrolling = true);
     try {
@@ -99,6 +101,14 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
       String? token = box.get('jwt_token');
       String? deviceId = box.get('device_id');
       String? userId = box.get('user_id');
+
+      // ✅ جلب توكن الـ App Check
+      String? appCheckToken;
+      try {
+        appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+      } catch (e) {
+        debugPrint("App Check Error: $e");
+      }
 
       // تجهيز البيانات المختارة
       List<Map<String, dynamic>> selectedItems = [];
@@ -128,6 +138,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
           'x-user-id': userId,
           'x-app-secret': const String.fromEnvironment('APP_SECRET'),
           'x-free-secret': _activationSecret, // ✅ إرسال كلمة السر في الهيدر
+          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إضافة التوكن للطلب
         }),
       );
 
