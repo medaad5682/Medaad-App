@@ -3,6 +3,8 @@ import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+// ✅ إضافة استيراد Firebase App Check
+import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
@@ -62,6 +64,14 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
       final String? token = box.get('jwt_token');
       final String? deviceId = box.get('device_id');
 
+      // ✅ جلب توكن الـ App Check
+      String? appCheckToken;
+      try {
+        appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        debugPrint("App Check Error: $e");
+      }
+
       final res = await Dio().get(
         '$_baseUrl/api/secure/get-subject-content',
         queryParameters: {'subjectId': widget.subjectId},
@@ -69,6 +79,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
           'Authorization': 'Bearer $token',
           'x-device-id': deviceId,
           'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إرسال توكن App Check للباك اند
         }),
       );
 
