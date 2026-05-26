@@ -3,6 +3,9 @@ import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+// ✅ 1. استيراد مكتبة حماية فايربيز
+import 'package:firebase_app_check/firebase_app_check.dart';
+
 import '../../core/constants/app_colors.dart';
 import '../../core/services/download_manager.dart';
 import '../../core/services/storage_service.dart';
@@ -11,7 +14,6 @@ import 'youtube_player_screen.dart';
 import 'pdf_viewer_screen.dart';
 import 'teacher/manage_content_screen.dart';
 import '../../core/constants/api_constants.dart';
-// ✅ تم استيراد موديل الإعدادات
 import '../../data/models/player_settings_model.dart'; 
 
 class ChapterContentsScreen extends StatefulWidget {
@@ -69,6 +71,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       final token = box.get('jwt_token');
       final deviceId = box.get('device_id');
 
+      // ✅ 2. جلب توكن الأمان
+      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+
       final res = await Dio().get(
         '$_baseUrl/api/secure/get-subject-content',
         queryParameters: {'subjectId': widget.subjectId},
@@ -76,6 +81,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
           'Authorization': 'Bearer $token',
           'x-device-id': deviceId,
           'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+          // ✅ إرسال التوكن للباك إند
+          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
         }),
       );
 
@@ -133,7 +140,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     }
   }
 
- String _formatBytes(int bytes, int decimals) {
+  String _formatBytes(int bytes, int decimals) {
     if (bytes <= 0) return ""; // إرجاع نص فارغ تماماً بدلاً من Unknown Size
     
     const suffixes = ["B", "KB", "MB", "GB", "TB"];
@@ -154,10 +161,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     final bool hasYoutubeId = video['hasId'] == true || 
         (video['youtube_video_id'] != null && video['youtube_video_id'].toString().isNotEmpty);
     
-    // ✅ تحويل الـ Map إلى الـ Model
     final settings = PlayerSettings.fromJson(widget.playerSettings);
-    
-    // ✅ جلب المشغلات المفعلة والمرتبة باستخدام دالتك الذكية في الموديل
     final players = settings.getSortedEnabledPlayers(hasYoutubeId);
 
     showModalBottomSheet(
@@ -188,12 +192,10 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                    child: Text("No active players available.", style: TextStyle(color: Colors.white54)),
                  ),
               ...players.map((player) {
-                // ✅ تحديد الأيقونة بناءً على الـ ID 
                 IconData icon = LucideIcons.playCircle;
                 if (player.id == 'player_1') icon = LucideIcons.rocket;
                 if (player.id == 'player_2') icon = LucideIcons.server;
                 if (player.id == 'player_3') icon = LucideIcons.playSquare; 
-// أو يمكنك استخدام LucideIcons.video أو LucideIcons.tv
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 16.0),
@@ -203,7 +205,6 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                     subtitle: player.description,
                     onTap: () {
                       Navigator.pop(context);
-                      // ✅ توجيه المستخدم بناءً على الـ ID 
                       if (player.id == 'player_1') {
                         _fetchAndPlayWithExplode(video);
                       } else if (player.id == 'player_2') {
@@ -234,6 +235,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       final token = box.get('jwt_token');
       final deviceId = box.get('device_id');
 
+      // ✅ 3. جلب توكن الأمان
+      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+
       final res = await Dio().get(
         '$_baseUrl/api/secure/get-video-id',
         queryParameters: {'lessonId': video['id'].toString()},
@@ -242,8 +246,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
             'Authorization': 'Bearer $token',
             'x-device-id': deviceId,
             'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+            // ✅ إرسال التوكن للباك إند
+            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
           },
-          // ✅ زيادة مهلة الاتصال لـ 3 دقائق لتجنب الـ Timeout
           receiveTimeout: const Duration(minutes: 3),
           sendTimeout: const Duration(minutes: 3),
         ),
@@ -316,6 +321,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       final token = box.get('jwt_token');
       final deviceId = box.get('device_id');
 
+      // ✅ 4. جلب توكن الأمان
+      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+
       final res = await Dio().get(
         '$_baseUrl/api/secure/get-stream-proxy',
         queryParameters: {'lessonId': video['id'].toString()},
@@ -324,6 +332,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
             'Authorization': 'Bearer $token',
             'x-device-id': deviceId,
             'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+            // ✅ إرسال التوكن للباك إند
+            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
           },
           receiveTimeout: const Duration(minutes: 3),
           sendTimeout: const Duration(minutes: 3),
@@ -408,6 +418,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       final token = box.get('jwt_token');
       final deviceId = box.get('device_id');
 
+      // ✅ 5. جلب توكن الأمان مرة واحدة
+      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+
       // 1. المحاولة الأولى عبر السيرفر الأساسي (get-stream-proxy)
       try {
         final res = await Dio().get(
@@ -418,6 +431,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
               'Authorization': 'Bearer $token',
               'x-device-id': deviceId,
               'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+              // ✅ إرسال التوكن
+              if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
             },
             receiveTimeout: const Duration(minutes: 3),
             sendTimeout: const Duration(minutes: 3),
@@ -461,6 +476,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
             'Authorization': 'Bearer $token',
             'x-device-id': deviceId,
             'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+            // ✅ إرسال التوكن هنا أيضاً
+            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
           },
           receiveTimeout: const Duration(minutes: 3),
           sendTimeout: const Duration(minutes: 3),
@@ -474,10 +491,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
         List<dynamic> rawQualities = data['availableQualities'] ?? [];
 
         if (rawQualities.isNotEmpty) {
-          // تمرير الـ Manifest مباشرة، لا يحتاج لرابط صوت منفصل
           _showQualitySelectionDialog(videoId, videoTitle, rawQualities, duration, null, 0);
         } else if (data['url'] != null) {
-          // في حال رجع رابط واحد فقط
           _showQualitySelectionDialog(videoId, videoTitle, [
             {'quality': 'Auto', 'url': data['url'], 'type': 'video_audio'}
           ], duration, null, 0);
@@ -542,7 +557,6 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                           "${q['quality']}p",
                           style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold), 
                         ),
-                        // ✅ التحقق: إذا كان الحجم فارغاً نعطي subtitle قيمة null ليختفي تماماً
                         subtitle: sizeText.isNotEmpty
                             ? Text(
                                 sizeText,
