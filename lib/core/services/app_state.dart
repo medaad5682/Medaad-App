@@ -3,6 +3,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'; // ✅ ضروري لـ ThemeMode و ValueNotifier
 import 'package:hive_flutter/hive_flutter.dart';
+// ✅ إضافة استيراد Firebase App Check
+import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../data/models/course_model.dart';
 import '../../core/services/storage_service.dart';
 import '../constants/api_constants.dart';
@@ -253,6 +255,14 @@ class AppState {
       // التأكد من وجود التوكن قبل الطلب (للمستخدم المسجل فقط)
       if (token == null || isGuest) return;
 
+      // ✅ جلب توكن الـ App Check
+      String? appCheckToken;
+      try {
+        appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        if (kDebugMode) print("App Check Error: $e");
+      }
+
       // ✅ التعديل هنا: إضافة timestamp لمنع الكاش وإجبار السيرفر على جلب بيانات جديدة
       final response = await Dio().get(
         '${ApiConstants.apiUrl}/public/get-app-init-data',
@@ -264,6 +274,7 @@ class AppState {
           'x-device-id':
               deviceId, // ✅ 2. إرسال معرف الجهاز (بدونه يعتبرك السيرفر ضيفاً)
           'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إرسال توكن App Check للباك اند
         }),
       );
 
