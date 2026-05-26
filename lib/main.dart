@@ -15,6 +15,10 @@ import 'package:audio_session/audio_session.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:secure_display/secure_display.dart';
 
+// ✅ استيراد حزمة App Check و Foundation لمعرفة وضع التطبيق
+import 'package:flutter/foundation.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+
 // ✅ استيراد حزمة الخلفية
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
@@ -99,6 +103,17 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+
+    // =========================================================
+    // ✅ تفعيل Firebase App Check (حماية الخوادم ضد المحاكي والروت)
+    // =========================================================
+    await FirebaseAppCheck.instance.activate(
+      // Play Integrity للأندرويد (الأقوى ضد الروت والتعديل) في وضع الإنتاج، أو Debug في وضع التطوير
+      androidProvider: kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+      // App Attest للآيفون في وضع الإنتاج، أو Debug في وضع التطوير
+      appleProvider: kReleaseMode ? AppleProvider.appAttest : AppleProvider.debug,
+    );
+    // =========================================================
 
     // ✅ ربط دالة الخلفية بفايربيز لاستقبال الإشعارات والتطبيق مغلق
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
