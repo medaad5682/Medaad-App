@@ -7,6 +7,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import 'login_screen.dart';
 import '../../core/constants/api_constants.dart';
+import '../../core/services/api_client.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
