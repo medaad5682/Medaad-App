@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+// ✅ إضافة استيراد Firebase App Check
+import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/storage_service.dart';
 // أو المسار المناسب حسب مكان الملف
@@ -50,6 +52,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         throw Exception("Authentication data not found. Please login again.");
       }
 
+      // ✅ جلب توكن الـ App Check
+      String? appCheckToken;
+      try {
+        appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        debugPrint("App Check Error: $e");
+      }
+
       // 3. إرسال الطلب مع الـ Headers الصحيحة
       final res = await Dio().post(
         '$_baseUrl/api/student/change-password',
@@ -62,6 +72,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             'Authorization': 'Bearer $token', // ✅ الهيدر الجديد
             'x-device-id': deviceId,
             'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إرسال توكن App Check
           },
           // لضمان استلام رسائل الخطأ من السيرفر حتى لو كان الكود 400 أو 401
           validateStatus: (status) => status! < 500,
