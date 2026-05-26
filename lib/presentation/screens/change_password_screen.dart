@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 // أو المسار المناسب حسب مكان الملف
 import '../../core/constants/api_constants.dart';
 
