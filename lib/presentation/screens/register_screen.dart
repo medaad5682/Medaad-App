@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+// ✅ إضافة استيراد Firebase App Check
+import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import 'login_screen.dart';
 import '../../core/constants/api_constants.dart';
@@ -107,6 +109,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // ✅ جلب توكن الـ App Check
+      String? appCheckToken;
+      try {
+        appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        debugPrint("App Check Error (Register): $e");
+      }
+
       final response = await _dio.post(
         '$_baseUrl/api/auth/signup',
         data: {
@@ -118,6 +128,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         options: Options(
           headers: {
             'x-app-secret': const String.fromEnvironment('APP_SECRET'),
+            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إرسال توكن App Check للباك اند
           },
           validateStatus: (status) => status! < 500,
         ),
