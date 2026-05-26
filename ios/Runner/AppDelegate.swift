@@ -10,6 +10,13 @@ import UIKit
     // private var screenRecordingTimer: Timer?
     private var isScreenBeingCaptured = false
 
+    // MARK: - Secure Logging Helper (Fix N-02)
+    private func secureLog(_ message: String) {
+        #if DEBUG
+        print(message)
+        #endif
+    }
+
     // MARK: - Application Lifecycle
     override func application(
         _ application: UIApplication,
@@ -64,7 +71,7 @@ import UIKit
     // MARK: - Flutter Method Channel Setup
     private func setupFlutterMethodChannel() {
         guard let controller = window?.rootViewController as? FlutterViewController else {
-            print("⚠️ Amr AI: Failed to get FlutterViewController")
+            secureLog("⚠️ Amr AI: Failed to get FlutterViewController")
             return
         }
 
@@ -89,7 +96,7 @@ import UIKit
                 // iOS doesn't support programmatic audio capture blocking
                 // But we return success to prevent Flutter from crashing
                 // The screen_protector plugin handles visual protection
-                print("✅ Amr AI: Audio protection request received (iOS uses screen_protector)")
+                secureLog("✅ Amr AI: Audio protection request received (iOS uses screen_protector)")
                 result(true)
 
             case "checkRecording":
@@ -100,7 +107,7 @@ import UIKit
             // ✅ [FIX N-01] استقبال طلب فحص الجيلبريك من Flutter وتنفيذه
             case "isDeviceRooted":
                 let isJailbroken = self?.isDeviceJailbroken() ?? false
-                print("🔍 Amr AI: iOS Jailbreak Check -> \(isJailbroken)")
+                secureLog("🔍 Amr AI: iOS Jailbreak Check -> \(isJailbroken)")
                 result(isJailbroken)
 
             default:
@@ -108,7 +115,7 @@ import UIKit
             }
         }
 
-        print("✅ Amr AI: Flutter Method Channel initialized successfully")
+        secureLog("✅ Amr AI: Flutter Method Channel initialized successfully")
     }
 
     // MARK: - Screen Protection
@@ -124,7 +131,7 @@ import UIKit
         // Start periodic checking (backup method)
         // startScreenRecordingMonitoring()
 
-        print("✅ Amr AI: Screen protection activated")
+        secureLog("✅ Amr AI: Screen protection activated")
     }
 
     @objc private func screenCaptureStatusChanged() {
@@ -134,10 +141,10 @@ import UIKit
             isScreenBeingCaptured = isCaptured
 
             if isCaptured {
-                print("⚠️ Amr AI Security Alert: Screen recording detected!")
+                secureLog("⚠️ Amr AI Security Alert: Screen recording detected!")
                 notifyFlutterOfRecording()
             } else {
-                print("✅ Amr AI: Screen recording stopped")
+                secureLog("✅ Amr AI: Screen recording stopped")
             }
         }
     }
@@ -161,9 +168,9 @@ import UIKit
 
             try audioSession.setActive(true)
 
-            print("✅ Amr AI: Audio protection configured successfully")
+            secureLog("✅ Amr AI: Audio protection configured successfully")
         } catch {
-            print("⚠️ Amr AI Security: Audio session setup failed: \(error)")
+            secureLog("⚠️ Amr AI Security: Audio session setup failed: \(error)")
         }
     }
 
@@ -193,7 +200,7 @@ import UIKit
         window.addSubview(blurEffectView)
         self.blurView = blurEffectView
 
-        print("✅ Amr AI: Background protection activated")
+        secureLog("✅ Amr AI: Background protection activated")
     }
 
     private func unblurScreen() {
@@ -201,7 +208,7 @@ import UIKit
         window.viewWithTag(9999)?.removeFromSuperview()
         self.blurView = nil
 
-        print("✅ Amr AI: Background protection deactivated")
+        secureLog("✅ Amr AI: Background protection deactivated")
     }
 
     // MARK: - Prevent Mirroring
@@ -210,7 +217,7 @@ import UIKit
 
         // Check for mirroring/external displays
         if UIScreen.screens.count > 1 {
-            print("⚠️ Amr AI Security Alert: External display/AirPlay detected!")
+            secureLog("⚠️ Amr AI Security Alert: External display/AirPlay detected!")
             // Notify Flutter about potential security risk
             flutterMethodChannel?.invokeMethod("onExternalDisplayDetected", arguments: nil)
         }
