@@ -7,6 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 
 class ExamResultScreen extends StatefulWidget {
@@ -59,7 +60,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
       _deviceId = box.get('device_id');
       _token = box.get('jwt_token'); 
 
-      final res = await Dio().get(
+      final res = await ApiClient.instance.get(
         '$_baseUrl/api/exams/get-results',
         queryParameters: {'attemptId': widget.attemptId},
         options: Options(headers: {

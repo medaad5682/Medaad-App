@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart'; // ✅ ضروري لفتح ال
 import '../../core/constants/app_colors.dart';
 import 'course_details_screen.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 
 class TeacherProfileScreen extends StatefulWidget {
@@ -46,7 +47,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
       final String? token = box.get('jwt_token');
       final String? deviceId = box.get('device_id');
 
-      final res = await Dio().get(
+      final res = await ApiClient.instance.get(
         '${ApiConstants.apiUrl}/public/get-teacher-details',
         queryParameters: {'teacherId': widget.teacherId},
         options: Options(

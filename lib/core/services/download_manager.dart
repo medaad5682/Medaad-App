@@ -19,6 +19,7 @@ import 'package:crypto/crypto.dart' as hash_crypto;
 
 import 'notification_service.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../constants/api_constants.dart';
 
 class DownloadManager with WidgetsBindingObserver {
@@ -236,7 +237,7 @@ class DownloadManager with WidgetsBindingObserver {
         if (isPdf) {
           finalVideoUrl = '$_baseUrl/api/secure/get-pdf?pdfId=$lessonId';
         } else {
-          final res = await _dio.get(
+          final res = await ApiClient.instance.get(
             '$_baseUrl/api/secure/get-video-id',
             queryParameters: {'lessonId': lessonId},
             options: Options(headers: requestHeaders),

@@ -7,6 +7,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../data/models/course_model.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../constants/api_constants.dart';
 import 'download_manager.dart'; // 👈 ✅ تم استيراد مدير التحميل
 
@@ -264,7 +265,7 @@ class AppState {
       }
 
       // ✅ التعديل هنا: إضافة timestamp لمنع الكاش وإجبار السيرفر على جلب بيانات جديدة
-      final response = await Dio().get(
+      final response = await ApiClient.instance.get(
         '${ApiConstants.apiUrl}/public/get-app-init-data',
         queryParameters: {
           't': DateTime.now().millisecondsSinceEpoch, // 👈 هذا السطر يمنع الكاش

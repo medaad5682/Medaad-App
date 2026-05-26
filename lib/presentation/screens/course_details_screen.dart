@@ -9,6 +9,7 @@ import 'checkout_screen.dart';
 import 'teacher_profile_screen.dart';
 import 'login_screen.dart'; // ✅ استيراد صفحة الدخول
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 
 class CourseDetailsScreen extends StatefulWidget {
@@ -72,7 +73,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
       final String? token = box.get('jwt_token');
       final String? deviceId = box.get('device_id');
 
-      final res = await Dio().get(
+      final res = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-course-sales-details',
         queryParameters: {'courseCode': widget.courseCode},
         options: Options(headers: {
@@ -129,7 +130,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
         return;
       }
 
-      final res = await Dio().post(
+      final res = await ApiClient.instance.post(
         '$_baseUrl/api/student/enroll-free', // تأكد أن هذا المسار موجود في الباك اند
         data: {'items': selectedItems},
         options: Options(headers: {

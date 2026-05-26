@@ -40,7 +40,7 @@ class UpdateService {
 
       final platform = Platform.isAndroid ? 'android' : 'ios';
 
-      final response = await _dio.get(
+      final response = await ApiClient.instance.get(
         _checkVersionUrl, // ✅ استخدام الرابط الجديد المعتمد على ApiConstants
         queryParameters: {
           'platform': platform,

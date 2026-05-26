@@ -16,6 +16,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 // ✅ 1. استيراد خدمة الإشعارات
 import '../../core/services/notification_service.dart';
 import 'login_screen.dart';
@@ -300,7 +301,7 @@ class _SplashScreenState extends State<SplashScreen>
         debugPrint("App Check Error (Guest): $e");
       }
 
-      final response = await _dio.get(
+      final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(
           headers: {
@@ -357,7 +358,7 @@ class _SplashScreenState extends State<SplashScreen>
         debugPrint("App Check Error (User): $e");
       }
 
-      final response = await _dio.get(
+      final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(
           headers: {

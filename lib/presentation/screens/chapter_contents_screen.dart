@@ -9,6 +9,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/download_manager.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import 'video_player_screen.dart';
 import 'youtube_player_screen.dart';
 import 'pdf_viewer_screen.dart';
@@ -74,7 +75,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       // ✅ 2. جلب توكن الأمان
       final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
 
-      final res = await Dio().get(
+      final res = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-subject-content',
         queryParameters: {'subjectId': widget.subjectId},
         options: Options(headers: {
@@ -238,7 +239,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       // ✅ 3. جلب توكن الأمان
       final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
 
-      final res = await Dio().get(
+      final res = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-video-id',
         queryParameters: {'lessonId': video['id'].toString()},
         options: Options(
@@ -324,7 +325,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       // ✅ 4. جلب توكن الأمان
       final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
 
-      final res = await Dio().get(
+      final res = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-stream-proxy',
         queryParameters: {'lessonId': video['id'].toString()},
         options: Options(
@@ -423,7 +424,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
 
       // 1. المحاولة الأولى عبر السيرفر الأساسي (get-stream-proxy)
       try {
-        final res = await Dio().get(
+        final res = await ApiClient.instance.get(
           '$_baseUrl/api/secure/get-stream-proxy',
           queryParameters: {'lessonId': videoId},
           options: Options(
@@ -468,7 +469,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
 
       // 2. المحاولة الاحتياطية (Fallback) عبر سيرفر المانيفست (get-video-id)
       FirebaseCrashlytics.instance.log("🔄 Trying Fallback Manifest API for download...");
-      final fallbackRes = await Dio().get(
+      final fallbackRes = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-video-id',
         queryParameters: {'lessonId': videoId},
         options: Options(

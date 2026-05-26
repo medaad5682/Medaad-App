@@ -8,6 +8,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/constants/app_colors.dart';
 import 'exam_result_screen.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 
 class ExamViewScreen extends StatefulWidget {
@@ -65,7 +66,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       _token = box.get('jwt_token');
       final name = box.get('first_name') ?? 'Student';
 
-      final res = await Dio().post(
+      final res = await ApiClient.instance.post(
         '$_baseUrl/api/exams/start-attempt',
         data: {'examId': widget.examId, 'studentName': name},
         options: Options(headers: {
@@ -181,7 +182,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       userAnswers.forEach((k, v) => finalAnswers[k] = v);
 
       // ✅ التعديل: إرسال examId لدعم التصحيح اللحظي في وضع التدريب وحفظ الرد
-      final res = await Dio().post(
+      final res = await ApiClient.instance.post(
         '$_baseUrl/api/exams/submit-attempt',
         data: {
           'attemptId': _attemptId, 

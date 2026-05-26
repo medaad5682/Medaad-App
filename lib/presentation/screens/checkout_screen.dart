@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import 'main_wrapper.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 
 class CheckoutScreen extends StatefulWidget {
@@ -71,7 +72,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         debugPrint(
             "🛒 Checkout: Fetching payment info using Teacher ID: ${widget.teacherId}");
 
-        final response = await Dio().get(
+        final response = await ApiClient.instance.get(
           '$_baseUrl/api/public/get-payment-info',
           queryParameters: {'teacherId': widget.teacherId},
         );
@@ -104,7 +105,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           queryParams['courseId'] = firstItem['id'];
         }
 
-        final response = await Dio().get(
+        final response = await ApiClient.instance.get(
           '$_baseUrl/api/public/get-payment-info',
           queryParameters: queryParams,
         );
@@ -142,7 +143,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         tId = int.tryParse(_currentPaymentInfo['teacher_id'].toString());
       }
 
-      final response = await Dio().post(
+      final response = await ApiClient.instance.post(
         '$_baseUrl/api/student/validate-discount',
         data: {
           'code': _discountController.text.trim(),
@@ -284,7 +285,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
       FormData formData = FormData.fromMap(formMap);
 
-      final response = await Dio().post(
+      final response = await ApiClient.instance.post(
         '$_baseUrl/api/student/request-course',
         data: formData,
         options: Options(

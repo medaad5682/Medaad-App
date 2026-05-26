@@ -43,7 +43,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return;
       }
 
-      final response = await _dio.get(
+      final response = await ApiClient.instance.get(
         '${ApiConstants.baseUrl}/api/student/get-notifications',
         options: Options(headers: {
           'Authorization': 'Bearer $token',

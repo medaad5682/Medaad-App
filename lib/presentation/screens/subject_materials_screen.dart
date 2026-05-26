@@ -8,6 +8,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import 'chapter_contents_screen.dart';
 import 'exam_view_screen.dart';
 import 'exam_result_screen.dart';
@@ -72,7 +73,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         debugPrint("App Check Error: $e");
       }
 
-      final res = await Dio().get(
+      final res = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-subject-content',
         queryParameters: {'subjectId': widget.subjectId},
         options: Options(headers: {
@@ -178,7 +179,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
                         try {
                           var box = await StorageService.openBox('auth_box');
-                          final res = await Dio().post(
+                          final res = await ApiClient.instance.post(
                             '$_baseUrl/api/student/submit-feedback',
                             data: {
                               'chapter_id': chapterId,
@@ -244,7 +245,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
             Future<void> fetchFeedbacks() async {
               try {
                 var box = await StorageService.openBox('auth_box');
-                final res = await Dio().get(
+                final res = await ApiClient.instance.get(
                   '$_baseUrl/api/teacher/get-feedback',
                   queryParameters: {
                     'chapter_id': chapterId,

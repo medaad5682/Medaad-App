@@ -17,6 +17,7 @@ import '../../core/services/notification_service.dart';
 import 'main_wrapper.dart';
 import 'register_screen.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -106,7 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
 
       // 3. إرسال الطلب للباك اند
-      final response = await _dio.post(
+      final response = await ApiClient.instance.post(
         '$_baseUrl/api/auth/login',
         data: {
           'identifier': identifier,
@@ -192,7 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
 
       // للضيف لا نرسل توكن الدخول، فقط معرف الجهاز وتوكن فايربيز للإشعارات وتوكن الأمان
-      final response = await _dio.get(
+      final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(headers: {
           'x-device-id': deviceId,
@@ -259,7 +260,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // ✅ 5. جلب توكن الأمان
       final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
 
-      final response = await _dio.get(
+      final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(headers: {
           if (token != null) 'Authorization': 'Bearer $token',

@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import 'subject_materials_screen.dart';
 import 'teacher/manage_content_screen.dart';
 import '../../core/constants/api_constants.dart';
@@ -68,7 +69,7 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
       final String? token = box.get('jwt_token');
       final String? deviceId = box.get('device_id');
 
-      final res = await Dio().get(
+      final res = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-course-sales-details',
         queryParameters: {'courseCode': widget.courseCode},
         options: Options(headers: {

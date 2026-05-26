@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 
 class MyRequestsScreen extends StatefulWidget {
@@ -31,7 +32,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
       final token = box.get('jwt_token');
       final deviceId = box.get('device_id');
 
-      final res = await Dio().get(
+      final res = await ApiClient.instance.get(
         '$_baseUrl/api/student/my-requests',
         options: Options(headers: {
           'Authorization': 'Bearer $token', // ✅ الهيدر الجديد

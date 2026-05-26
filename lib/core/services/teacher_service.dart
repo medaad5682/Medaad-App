@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
 import '../services/storage_service.dart';
+import '../services/api_client.dart';
 import '../constants/api_constants.dart';
 
 class TeacherService {
@@ -39,7 +40,7 @@ class TeacherService {
     try {
       final options = await _getHeaders();
       // إرسال طلب GET لجلب البيانات
-      final response = await _dio.get(
+      final response = await ApiClient.instance.get(
         '$baseUrl/teacher/update-profile',
         options: options,
       );
@@ -68,7 +69,7 @@ class TeacherService {
       });
 
       // استخدام الـ API الجديد المخصص للصور الشخصية
-      final response = await _dio.post(
+      final response = await ApiClient.instance.post(
         '$baseUrl/user/upload-avatar',
         data: formData,
         options: options,
@@ -93,7 +94,7 @@ class TeacherService {
   }) async {
     try {
       final options = await _getHeaders();
-      await _dio.post(
+      await ApiClient.instance.post(
         '$baseUrl/teacher/update-profile',
         data: {
           if (firstName != null) 'firstName': firstName,
@@ -121,7 +122,7 @@ class TeacherService {
   }) async {
     try {
       final options = await _getHeaders();
-      final response = await _dio.post(
+      final response = await ApiClient.instance.post(
         '$baseUrl/teacher/content',
         data: {'action': action, 'type': type, 'data': data},
         options: options,
@@ -150,7 +151,7 @@ class TeacherService {
         "file": await MultipartFile.fromFile(file.path, filename: fileName),
       });
 
-      final response = await _dio.post(
+      final response = await ApiClient.instance.post(
         '$baseUrl/teacher/upload',
         data: formData,
         options: options,
@@ -180,7 +181,7 @@ class TeacherService {
   Future<List<dynamic>> getRequests(
       {String status = 'pending', int page = 1}) async {
     final options = await _getHeaders();
-    final response = await _dio.get(
+    final response = await ApiClient.instance.get(
       '$baseUrl/teacher/students',
       queryParameters: {
         'mode': 'requests',
@@ -205,7 +206,7 @@ class TeacherService {
   Future<void> handleRequest(String requestId, bool approve,
       {String? reason}) async {
     final options = await _getHeaders();
-    await _dio.post(
+    await ApiClient.instance.post(
       '$baseUrl/teacher/students',
       data: {
         'action': 'handle_request',
@@ -222,7 +223,7 @@ class TeacherService {
   // البحث عن طالب
   Future<Map<String, dynamic>> searchStudent(String query) async {
     final options = await _getHeaders();
-    final response = await _dio.get(
+    final response = await ApiClient.instance.get(
       '$baseUrl/teacher/students',
       queryParameters: {'mode': 'search', 'query': query},
       options: options,
@@ -234,7 +235,7 @@ class TeacherService {
   Future<void> toggleAccess(
       String studentId, String type, String itemId, bool allow) async {
     final options = await _getHeaders();
-    await _dio.post(
+    await ApiClient.instance.post(
       '$baseUrl/teacher/students',
       data: {
         'action': 'manage_access',
@@ -252,7 +253,7 @@ class TeacherService {
   // جلب محتوى المعلم
   Future<List<dynamic>> getMyContent() async {
     final options = await _getHeaders();
-    final response = await _dio.get(
+    final response = await ApiClient.instance.get(
       '$baseUrl/teacher/students',
       queryParameters: {'mode': 'my_content'},
       options: options,
@@ -267,7 +268,7 @@ class TeacherService {
   // جلب أعضاء الفريق
   Future<List<dynamic>> getTeamMembers() async {
     final options = await _getHeaders();
-    final response = await _dio.get(
+    final response = await ApiClient.instance.get(
       '$baseUrl/teacher/team',
       queryParameters: {'mode': 'list'},
       options: options,
@@ -278,7 +279,7 @@ class TeacherService {
   // البحث عن طلاب لترقيتهم
   Future<List<dynamic>> searchStudentsForTeam(String query) async {
     final options = await _getHeaders();
-    final response = await _dio.get(
+    final response = await ApiClient.instance.get(
       '$baseUrl/teacher/team',
       queryParameters: {'mode': 'search', 'query': query},
       options: options,
@@ -290,7 +291,7 @@ class TeacherService {
   Future<void> manageTeamMember(
       {required String action, required String userId}) async {
     final options = await _getHeaders();
-    await _dio.post(
+    await ApiClient.instance.post(
       '$baseUrl/teacher/team',
       data: {
         'action': action, // 'promote' or 'demote'
@@ -311,7 +312,7 @@ class TeacherService {
     // تحديد نوع العملية بناءً على وجود المعرف
     String action = examData.containsKey('examId') ? 'update' : 'create';
 
-    await _dio.post(
+    await ApiClient.instance.post(
       '$baseUrl/teacher/exams',
       data: {'action': action, 'payload': examData},
       options: options,
@@ -322,7 +323,7 @@ class TeacherService {
   Future<void> deleteExam(String examId) async {
     final options = await _getHeaders();
 
-    await _dio.post(
+    await ApiClient.instance.post(
       '$baseUrl/teacher/exams',
       data: {
         'action': 'delete',
@@ -335,7 +336,7 @@ class TeacherService {
   // جلب تفاصيل الامتحان للمعلم (لغرض التعديل)
   Future<Map<String, dynamic>> getExamDetails(String examId) async {
     final options = await _getHeaders();
-    final response = await _dio.get(
+    final response = await ApiClient.instance.get(
       '$baseUrl/teacher/get-exam-details',
       queryParameters: {'examId': examId},
       options: options,
@@ -346,7 +347,7 @@ class TeacherService {
   // جلب إحصائيات امتحان معين
   Future<Map<String, dynamic>> getExamStats(String examId) async {
     final options = await _getHeaders();
-    final response = await _dio.get(
+    final response = await ApiClient.instance.get(
       '$baseUrl/teacher/exams',
       queryParameters: {'examId': examId},
       options: options,
@@ -362,7 +363,7 @@ class TeacherService {
   Future<Map<String, dynamic>> getFinancialStats() async {
     try {
       final options = await _getHeaders();
-      final response = await _dio.get(
+      final response = await ApiClient.instance.get(
         '$baseUrl/teacher/financial-stats',
         options: options,
       );

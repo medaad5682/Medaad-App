@@ -61,7 +61,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       }
 
       // 3. إرسال الطلب مع الـ Headers الصحيحة
-      final res = await Dio().post(
+      final res = await ApiClient.instance.post(
         '$_baseUrl/api/student/change-password',
         data: {
           'oldPassword': _oldPassController.text,

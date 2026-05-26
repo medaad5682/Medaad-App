@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 
 // ✅ استيراد main.dart للوصول لخاصية إعادة التشغيل
@@ -109,7 +110,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (token != null && deviceId != null) {
         // استدعاء API الحذف
-        await Dio().delete(
+        await ApiClient.instance.delete(
           '$_baseUrl/api/student/delete-account',
           options: Options(
             headers: {
@@ -165,7 +166,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       // 1. إرسال طلب للسيرفر لحذف التوكن
       if (token != null && deviceId != null) {
         try {
-          await Dio().post(
+          await ApiClient.instance.post(
             '$_baseUrl/api/auth/logout',
             options: Options(
               headers: {

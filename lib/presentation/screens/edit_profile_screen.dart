@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../core/services/teacher_service.dart';
 import '../widgets/custom_text_field.dart';
 import '../../core/constants/api_constants.dart';
@@ -257,7 +258,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ? '$_baseUrl/api/teacher/update-profile'
           : '$_baseUrl/api/student/update-profile';
 
-      final res = await Dio().post(
+      final res = await ApiClient.instance.post(
         endpoint,
         data: dataToSend,
         options: Options(headers: {

@@ -117,7 +117,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         debugPrint("App Check Error (Register): $e");
       }
 
-      final response = await _dio.post(
+      final response = await ApiClient.instance.post(
         '$_baseUrl/api/auth/signup',
         data: {
           'firstName': name,
