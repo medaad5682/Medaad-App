@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+// ✅ إضافة استيراد Firebase App Check
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -290,6 +292,14 @@ class _SplashScreenState extends State<SplashScreen>
       // ✅ 2. استخراج التوكن للزوار أيضاً (لإرسال إشعارات للكل حتى غير المسجلين)
       String? fcmToken = box.get('fcm_token');
 
+      // ✅ جلب توكن الـ App Check 
+      String? appCheckToken;
+      try {
+        appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        debugPrint("App Check Error (Guest): $e");
+      }
+
       final response = await _dio.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(
@@ -298,6 +308,7 @@ class _SplashScreenState extends State<SplashScreen>
             'x-device-id': deviceId,
             'x-app-secret': const String.fromEnvironment('APP_SECRET'),
             if (fcmToken != null) 'x-fcm-token': fcmToken, // ✅ إرسال التوكن
+            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إرسال توكن App Check للباك اند
           },
           receiveTimeout: const Duration(seconds: 10),
         ),
@@ -338,6 +349,14 @@ class _SplashScreenState extends State<SplashScreen>
       // ✅ 4. استخراج التوكن للمستخدم المسجل
       String? fcmToken = box.get('fcm_token');
 
+      // ✅ جلب توكن الـ App Check
+      String? appCheckToken;
+      try {
+        appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        debugPrint("App Check Error (User): $e");
+      }
+
       final response = await _dio.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(
@@ -346,6 +365,7 @@ class _SplashScreenState extends State<SplashScreen>
             'x-device-id': deviceId,
             'x-app-secret': const String.fromEnvironment('APP_SECRET'),
             if (fcmToken != null) 'x-fcm-token': fcmToken, // ✅ إرسال التوكن
+            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إرسال توكن App Check للباك اند
           },
           receiveTimeout: const Duration(seconds: 10),
         ),
