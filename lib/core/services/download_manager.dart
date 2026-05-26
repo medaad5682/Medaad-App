@@ -9,6 +9,8 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+// ✅ إضافة استيراد Firebase App Check
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:cryptography/cryptography.dart';
@@ -210,10 +212,19 @@ class DownloadManager with WidgetsBindingObserver {
       final token = box.get('jwt_token');
       const String appSecret = const String.fromEnvironment('APP_SECRET');
 
+      // ✅ جلب توكن الـ App Check
+      String? appCheckToken;
+      try {
+        appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        debugPrint("App Check Error: $e");
+      }
+
       final Map<String, dynamic> requestHeaders = {
         'Authorization': 'Bearer $token',
         'x-device-id': deviceId,
         'x-app-secret': appSecret,
+        if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ التوكن هنا سيتم استخدامه في جميع الـ Requests القادمة (get-video-id والتحميل داخل Isolates)
       };
 
       if (token == null) throw Exception("User auth missing");
@@ -275,7 +286,7 @@ class DownloadManager with WidgetsBindingObserver {
         await _runPdfDownloadAndEncrypt(
             url: finalVideoUrl,
             savePath: videoSavePath,
-            headers: requestHeaders,
+            headers: requestHeaders, // التوكن مدمج هنا
             keyBytes: chachaKeyBytes,
             cancelToken: cancelToken,
             onProgress: (p) {
@@ -326,7 +337,7 @@ class DownloadManager with WidgetsBindingObserver {
         tasks.add(_runVideoDownloadIsolate(
             url: finalVideoUrl,
             savePath: videoSavePath,
-            headers: requestHeaders,
+            headers: requestHeaders, // التوكن مدمج هنا
             keyBytes: chachaKeyBytes,
             cancelToken: cancelToken,
             onProgress: (p) {
@@ -338,7 +349,7 @@ class DownloadManager with WidgetsBindingObserver {
           tasks.add(_runVideoDownloadIsolate(
               url: finalAudioUrl,
               savePath: audioSavePath,
-              headers: requestHeaders,
+              headers: requestHeaders, // التوكن مدمج هنا
               keyBytes: chachaKeyBytes,
               cancelToken: cancelToken,
               onProgress: (p) {
