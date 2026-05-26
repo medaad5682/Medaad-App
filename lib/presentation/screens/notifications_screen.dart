@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/api_constants.dart';
+import '../../core/services/api_client.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
