@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
-import 'storage_service.dart'; // تأكد أن هذا هو المسار الصحيح
+import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // ✅ إضافة Crashlytics
+import 'storage_service.dart';
 
 class ApiClient {
   static final Dio _dio = Dio()
@@ -10,14 +11,21 @@ class ApiClient {
           // 1. مفتاح التطبيق (يُرسل مع كل الطلبات)
           options.headers['x-app-secret'] = const String.fromEnvironment('APP_SECRET');
 
-          // 2. توكن Firebase App Check (الحماية الأهم للـ Endpoints)
+          // 2. توكن Firebase App Check
           try {
             final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
             if (appCheckToken != null) {
               options.headers['X-Firebase-AppCheck'] = appCheckToken;
             }
-          } catch (e) {
-            // تجاهل الخطأ في حالة عدم التهيئة
+          } catch (e, stack) {
+            // ✅ إرسال تفاصيل الخطأ إلى Firebase Crashlytics
+            await FirebaseCrashlytics.instance.recordError(
+              e,
+              stack,
+              reason: 'Failed to retrieve App Check token in ApiClient',
+              fatal: false, // نضعه false لأننا لا نريد إغلاق التطبيق
+            );
+            debugPrint("🚨 App Check Error logged to Crashlytics: $e");
           }
 
           // 3. توكن المستخدم (JWT) ومعرف الجهاز
