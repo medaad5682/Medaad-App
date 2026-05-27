@@ -1,35 +1,11 @@
 import 'dart:io';
-import 'package:dio/dio.dart';
-import '../services/storage_service.dart';
+import 'package:dio/dio.dart'; // لا يزال مطلوباً من أجل DioException و FormData و MultipartFile
 import '../services/api_client.dart';
 import '../constants/api_constants.dart';
 
 class TeacherService {
-  final Dio _dio = Dio();
   // ⚠️ تأكد من أن هذا الرابط صحيح ويعمل
   final String baseUrl = ApiConstants.apiUrl;
-
-  // يفضل تعريف Secret التطبيق هنا أو جلبه من البيئة لضمان المرور من حماية السيرفر
-  final String _appSecret = const String.fromEnvironment('APP_SECRET');
-
-  // 🔒 دالة تجهيز الهيدر (Token + Device ID + App Secret)
-  Future<Options> _getHeaders({bool isUpload = false}) async {
-    var box = await StorageService.openBox('auth_box');
-    String? token = box.get('jwt_token');
-    String? deviceId = box.get('device_id');
-
-    final Map<String, dynamic> headers = {
-      'Authorization': 'Bearer $token',
-      'x-device-id': deviceId,
-      'x-app-secret': _appSecret,
-    };
-
-    if (!isUpload) {
-      headers['Content-Type'] = 'application/json';
-    }
-
-    return Options(headers: headers);
-  }
 
   // ==========================================================
   // 🆕 إدارة البروفايل (جلب البيانات + رفع الصورة + التحديث)
@@ -38,11 +14,9 @@ class TeacherService {
   // ✅ دالة جلب البروفايل الكامل للمدرس (البيانات الحالية + تفاصيل الدفع)
   Future<Map<String, dynamic>> getTeacherProfile() async {
     try {
-      final options = await _getHeaders();
-      // إرسال طلب GET لجلب البيانات
+      // إرسال طلب GET لجلب البيانات بالاعتماد على ApiClient
       final response = await ApiClient.instance.get(
         '$baseUrl/teacher/update-profile',
-        options: options,
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
@@ -61,7 +35,6 @@ class TeacherService {
   // ✅ دالة رفع صورة البروفايل
   Future<String> uploadProfileImage(File file) async {
     try {
-      final options = await _getHeaders(isUpload: true);
       String fileName = file.path.split('/').last;
 
       FormData formData = FormData.fromMap({
@@ -72,7 +45,6 @@ class TeacherService {
       final response = await ApiClient.instance.post(
         '$baseUrl/user/upload-avatar',
         data: formData,
-        options: options,
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
@@ -93,7 +65,6 @@ class TeacherService {
     String? profileImage,
   }) async {
     try {
-      final options = await _getHeaders();
       await ApiClient.instance.post(
         '$baseUrl/teacher/update-profile',
         data: {
@@ -102,7 +73,6 @@ class TeacherService {
           if (password != null) 'password': password,
           if (profileImage != null) 'profileImage': profileImage,
         },
-        options: options,
       );
     } catch (e) {
       if (e is DioException) {
@@ -121,11 +91,9 @@ class TeacherService {
     required Map<String, dynamic> data,
   }) async {
     try {
-      final options = await _getHeaders();
       final response = await ApiClient.instance.post(
         '$baseUrl/teacher/content',
         data: {'action': action, 'type': type, 'data': data},
-        options: options,
       );
       return response.data;
     } catch (e) {
@@ -144,7 +112,6 @@ class TeacherService {
   Future<Map<String, dynamic>> uploadFile(File file,
       {Function(int sent, int total)? onProgress}) async {
     try {
-      final options = await _getHeaders(isUpload: true);
       String fileName = file.path.split('/').last;
 
       FormData formData = FormData.fromMap({
@@ -154,7 +121,6 @@ class TeacherService {
       final response = await ApiClient.instance.post(
         '$baseUrl/teacher/upload',
         data: formData,
-        options: options,
         onSendProgress: (sent, total) {
           if (onProgress != null && total != -1) {
             onProgress(sent, total);
@@ -180,7 +146,6 @@ class TeacherService {
   // ✅ دالة جلب الطلبات (تم التعديل لدعم الحالات والصفحات)
   Future<List<dynamic>> getRequests(
       {String status = 'pending', int page = 1}) async {
-    final options = await _getHeaders();
     final response = await ApiClient.instance.get(
       '$baseUrl/teacher/students',
       queryParameters: {
@@ -189,7 +154,6 @@ class TeacherService {
         'page': page,
         'limit': 10 // تحديد إرجاع 10 فقط في كل مرة
       },
-      options: options,
     );
 
     // التوافق مع تعديل الباك إند (إرجاع {data, count})
@@ -205,7 +169,6 @@ class TeacherService {
   // قبول أو رفض طلب اشتراك
   Future<void> handleRequest(String requestId, bool approve,
       {String? reason}) async {
-    final options = await _getHeaders();
     await ApiClient.instance.post(
       '$baseUrl/teacher/students',
       data: {
@@ -216,17 +179,14 @@ class TeacherService {
           'rejectionReason': reason
         }
       },
-      options: options,
     );
   }
 
   // البحث عن طالب
   Future<Map<String, dynamic>> searchStudent(String query) async {
-    final options = await _getHeaders();
     final response = await ApiClient.instance.get(
       '$baseUrl/teacher/students',
       queryParameters: {'mode': 'search', 'query': query},
-      options: options,
     );
     return response.data;
   }
@@ -234,7 +194,6 @@ class TeacherService {
   // منح أو سحب صلاحية
   Future<void> toggleAccess(
       String studentId, String type, String itemId, bool allow) async {
-    final options = await _getHeaders();
     await ApiClient.instance.post(
       '$baseUrl/teacher/students',
       data: {
@@ -246,17 +205,14 @@ class TeacherService {
           'allow': allow
         }
       },
-      options: options,
     );
   }
 
   // جلب محتوى المعلم
   Future<List<dynamic>> getMyContent() async {
-    final options = await _getHeaders();
     final response = await ApiClient.instance.get(
       '$baseUrl/teacher/students',
       queryParameters: {'mode': 'my_content'},
-      options: options,
     );
     return response.data;
   }
@@ -267,22 +223,18 @@ class TeacherService {
 
   // جلب أعضاء الفريق
   Future<List<dynamic>> getTeamMembers() async {
-    final options = await _getHeaders();
     final response = await ApiClient.instance.get(
       '$baseUrl/teacher/team',
       queryParameters: {'mode': 'list'},
-      options: options,
     );
     return response.data;
   }
 
   // البحث عن طلاب لترقيتهم
   Future<List<dynamic>> searchStudentsForTeam(String query) async {
-    final options = await _getHeaders();
     final response = await ApiClient.instance.get(
       '$baseUrl/teacher/team',
       queryParameters: {'mode': 'search', 'query': query},
-      options: options,
     );
     return response.data;
   }
@@ -290,14 +242,12 @@ class TeacherService {
   // إدارة العضو
   Future<void> manageTeamMember(
       {required String action, required String userId}) async {
-    final options = await _getHeaders();
     await ApiClient.instance.post(
       '$baseUrl/teacher/team',
       data: {
         'action': action, // 'promote' or 'demote'
         'userId': userId,
       },
-      options: options,
     );
   }
 
@@ -307,50 +257,40 @@ class TeacherService {
 
   // إنشاء أو تحديث امتحان
   Future<void> createExam(Map<String, dynamic> examData) async {
-    final options = await _getHeaders();
-
     // تحديد نوع العملية بناءً على وجود المعرف
     String action = examData.containsKey('examId') ? 'update' : 'create';
 
     await ApiClient.instance.post(
       '$baseUrl/teacher/exams',
       data: {'action': action, 'payload': examData},
-      options: options,
     );
   }
 
   // ✅ حذف امتحان
   Future<void> deleteExam(String examId) async {
-    final options = await _getHeaders();
-
     await ApiClient.instance.post(
       '$baseUrl/teacher/exams',
       data: {
         'action': 'delete',
         'payload': {'examId': examId}
       },
-      options: options,
     );
   }
 
   // جلب تفاصيل الامتحان للمعلم (لغرض التعديل)
   Future<Map<String, dynamic>> getExamDetails(String examId) async {
-    final options = await _getHeaders();
     final response = await ApiClient.instance.get(
       '$baseUrl/teacher/get-exam-details',
       queryParameters: {'examId': examId},
-      options: options,
     );
     return response.data;
   }
 
   // جلب إحصائيات امتحان معين
   Future<Map<String, dynamic>> getExamStats(String examId) async {
-    final options = await _getHeaders();
     final response = await ApiClient.instance.get(
       '$baseUrl/teacher/exams',
       queryParameters: {'examId': examId},
-      options: options,
     );
     return response.data;
   }
@@ -362,10 +302,8 @@ class TeacherService {
   // جلب الإحصائيات المالية والطلاب
   Future<Map<String, dynamic>> getFinancialStats() async {
     try {
-      final options = await _getHeaders();
       final response = await ApiClient.instance.get(
         '$baseUrl/teacher/financial-stats',
-        options: options,
       );
       return response.data;
     } catch (e) {
