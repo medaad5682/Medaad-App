@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
+import 'package:dio/dio.dart'; // مطلوب من أجل Options
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -10,7 +10,6 @@ import 'package:android_id/android_id.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
-// ✅ استيراد خدمة الإشعارات
 import '../../core/services/notification_service.dart';
 import 'main_wrapper.dart';
 import 'register_screen.dart';
@@ -100,7 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // 1. جلب معرف الجهاز الحقيقي
       final deviceId = await _getAndSaveDeviceId(box);
 
-      // 2. إرسال الطلب للباك اند بالاعتماد على ApiClient
+      // 2. إرسال الطلب للباك اند بالاعتماد كلياً على ApiClient (بدون هيدرز يدوية)
       final response = await ApiClient.instance.post(
         '$_baseUrl/api/auth/login',
         data: {
@@ -147,7 +146,7 @@ class _LoginScreenState extends State<LoginScreen> {
         AppState().updateUserData(
             {...userMap, 'profile_image': userMap['profileImage']});
 
-        // جلب البيانات الأولية (وهنا سيتم إرسال جميع الهيدرز تلقائياً للباك إند عبر الـ Interceptor)
+        // جلب البيانات الأولية وتسجيل الإشعارات
         await _fetchInitData(deviceId);
 
         if (mounted) {
@@ -175,9 +174,16 @@ class _LoginScreenState extends State<LoginScreen> {
       var box = await StorageService.openBox('auth_box');
       await _getAndSaveDeviceId(box);
       
-      // للضيف نعتمد على الـ Interceptor لإرسال معرف الجهاز وتوكن الإشعارات وغيرها
+      // ✅ جلب توكن فايربيز لإرساله وتسجيله في الباك إند
+      String? fcmToken = box.get('fcm_token');
+
+      // الاعتماد على ApiClient مع تمرير x-fcm-token فقط 
+      // (سيقوم الـ Interceptor بدمجه مع AppCheck وباقي الهيدرز)
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
+        options: Options(headers: {
+          if (fcmToken != null) 'x-fcm-token': fcmToken,
+        }),
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
@@ -192,7 +198,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
         await box.put('free_mode', serverFreeMode);
         
-        // ✅ تحديث قنوات الإشعارات للزائر
+        // تحديث قنوات الإشعارات للزائر
         if (response.data['myAccess'] != null && response.data['myAccess']['topics'] != null) {
           List<String> topics = List<String>.from(response.data['myAccess']['topics']);
           await NotificationService().updateSubscriptions(topics);
@@ -227,9 +233,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _fetchInitData(String deviceId) async {
     try {
-      // ✅ الاعتماد على الـ Interceptor لحقن جميع التوكنز في الهيدرز
+      var box = await StorageService.openBox('auth_box');
+      
+      // ✅ جلب توكن فايربيز للإشعارات
+      String? fcmToken = box.get('fcm_token');
+
+      // الاعتماد على ApiClient مع إضافة x-fcm-token فقط كاستثناء ذكي
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
+        options: Options(headers: {
+          if (fcmToken != null) 'x-fcm-token': fcmToken,
+        }),
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
@@ -242,10 +256,9 @@ class _LoginScreenState extends State<LoginScreen> {
           serverFreeMode = false;
         }
 
-        var box = await StorageService.openBox('auth_box');
         await box.put('free_mode', serverFreeMode);
         
-        // ✅ تحديث قنوات الإشعارات (Topics) بعد تسجيل الدخول
+        // تحديث قنوات الإشعارات (Topics) بعد تسجيل الدخول
         if (response.data['myAccess'] != null && response.data['myAccess']['topics'] != null) {
           List<String> topics = List<String>.from(response.data['myAccess']['topics']);
           await NotificationService().updateSubscriptions(topics);
