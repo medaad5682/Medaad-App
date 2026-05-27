@@ -5,6 +5,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:percent_indicator/percent_indicator.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_app_check/firebase_app_check.dart'; // ✅ تم الاستيراد
+
 import '../../core/constants/app_colors.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
@@ -34,6 +36,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   String? _userId;
   String? _deviceId;
   String? _token; 
+  String? _appCheckToken; // ✅ متغير جديد لتخزين توكن الحماية
   final String _appSecret = const String.fromEnvironment('APP_SECRET');
   final String _baseUrl = ApiConstants.baseUrl;
 
@@ -41,25 +44,41 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   void initState() {
     super.initState();
     FirebaseCrashlytics.instance.log("View Result: ${widget.attemptId}");
-    
-    // ✅ التحقق: إذا كانت النتائج ممررة مسبقاً (وضع التدريب)، نستخدمها مباشرة ولا نطلبها من السيرفر
-    if (widget.practiceResults != null) {
-      setState(() {
-        _resultData = widget.practiceResults;
-        _loading = false;
-      });
-    } else {
-      _fetchResults();
-    }
+    _initData(); // ✅ جلب البيانات والتوكنات بشكل موحد
   }
 
-  Future<void> _fetchResults() async {
+  // ✅ دالة جديدة لضمان جلب التوكنات دائماً (سواء جلبنا النتائج من السيرفر أو محلياً)
+  Future<void> _initData() async {
     try {
       var box = await StorageService.openBox('auth_box');
       _userId = box.get('user_id');
       _deviceId = box.get('device_id');
       _token = box.get('jwt_token'); 
 
+      // ✅ جلب توكن App Check لاستخدامه في الصور
+      try {
+        _appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        debugPrint("App Check Error: $e");
+      }
+    } catch (e) {
+      debugPrint("Error loading auth tokens: $e");
+    }
+
+    if (widget.practiceResults != null) {
+      if (mounted) {
+        setState(() {
+          _resultData = widget.practiceResults;
+          _loading = false;
+        });
+      }
+    } else {
+      await _fetchResults();
+    }
+  }
+
+  Future<void> _fetchResults() async {
+    try {
       // ✅ الاعتماد على ApiClient دون تمرير الـ Headers يدوياً
       final res = await ApiClient.instance.get(
         '$_baseUrl/api/exams/get-results',
@@ -109,11 +128,12 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                 child: CachedNetworkImage(
                   imageUrl:
                       '$_baseUrl/api/exams/get-image?file_id=$imageFileId',
-                  // ✅ نترك الهيدرز هنا لأن CachedNetworkImage لا يستخدم الـ ApiClient الخاص بنا
+                  // ✅ إضافة جميع الهيدرز يدوياً بما فيها توكن App Check
                   httpHeaders: {
                     'Authorization': 'Bearer $_token',
                     'x-device-id': _deviceId ?? '',
                     'x-app-secret': _appSecret,
+                    if (_appCheckToken != null) 'X-Firebase-AppCheck': _appCheckToken!,
                   },
                   placeholder: (context, url) => Center(
                       child: CircularProgressIndicator(
@@ -327,10 +347,12 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                               child: CachedNetworkImage(
                                 imageUrl:
                                     '$_baseUrl/api/exams/get-image?file_id=$imageFileId',
+                                // ✅ إضافة جميع الهيدرز يدوياً بما فيها توكن App Check
                                 httpHeaders: {
                                   'Authorization': 'Bearer $_token',
                                   'x-device-id': _deviceId ?? '',
                                   'x-app-secret': _appSecret,
+                                  if (_appCheckToken != null) 'X-Firebase-AppCheck': _appCheckToken!,
                                 },
                                 placeholder: (context, url) => Center(
                                     child: CircularProgressIndicator(
