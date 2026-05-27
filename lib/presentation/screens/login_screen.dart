@@ -7,8 +7,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:android_id/android_id.dart';
-// ✅ 1. استيراد حزمة App Check
-import 'package:firebase_app_check/firebase_app_check.dart'; 
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
@@ -35,7 +33,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final FocusNode _userFocus = FocusNode();
   final FocusNode _passFocus = FocusNode();
 
-  final Dio _dio = Dio();
   final String _baseUrl = ApiConstants.baseUrl;
   bool _isLoading = false;
   String? _errorMessage;
@@ -103,10 +100,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // 1. جلب معرف الجهاز الحقيقي
       final deviceId = await _getAndSaveDeviceId(box);
 
-      // ✅ 2. جلب توكن الأمان من فايربيز
-      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
-
-      // 3. إرسال الطلب للباك اند
+      // 2. إرسال الطلب للباك اند بالاعتماد على ApiClient
       final response = await ApiClient.instance.post(
         '$_baseUrl/api/auth/login',
         data: {
@@ -115,11 +109,6 @@ class _LoginScreenState extends State<LoginScreen> {
           'deviceId': deviceId,
         },
         options: Options(
-          headers: {
-            'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-            // ✅ إرسال توكن الأمان في الهيدر
-            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
-          },
           validateStatus: (status) => status! < 500,
         ),
       );
@@ -158,7 +147,7 @@ class _LoginScreenState extends State<LoginScreen> {
         AppState().updateUserData(
             {...userMap, 'profile_image': userMap['profileImage']});
 
-        // جلب البيانات الأولية (وهنا سيتم إرسال توكن فايربيز للباك إند)
+        // جلب البيانات الأولية (وهنا سيتم إرسال جميع الهيدرز تلقائياً للباك إند عبر الـ Interceptor)
         await _fetchInitData(deviceId);
 
         if (mounted) {
@@ -184,24 +173,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       var box = await StorageService.openBox('auth_box');
-      final deviceId = await _getAndSaveDeviceId(box);
+      await _getAndSaveDeviceId(box);
       
-      // ✅ 2. جلب توكن فايربيز للإشعارات
-      String? fcmToken = box.get('fcm_token');
-
-      // ✅ 3. جلب توكن الأمان من فايربيز
-      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
-
-      // للضيف لا نرسل توكن الدخول، فقط معرف الجهاز وتوكن فايربيز للإشعارات وتوكن الأمان
+      // للضيف نعتمد على الـ Interceptor لإرسال معرف الجهاز وتوكن الإشعارات وغيرها
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
-        options: Options(headers: {
-          'x-device-id': deviceId,
-          'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-          if (fcmToken != null) 'x-fcm-token': fcmToken,
-          // ✅ إرسال توكن الأمان في الهيدر
-          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
-        }),
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
@@ -216,7 +192,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
         await box.put('free_mode', serverFreeMode);
         
-        // ✅ 4. تحديث قنوات الإشعارات للزائر
+        // ✅ تحديث قنوات الإشعارات للزائر
         if (response.data['myAccess'] != null && response.data['myAccess']['topics'] != null) {
           List<String> topics = List<String>.from(response.data['myAccess']['topics']);
           await NotificationService().updateSubscriptions(topics);
@@ -251,25 +227,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _fetchInitData(String deviceId) async {
     try {
-      var box = await StorageService.openBox('auth_box');
-      String? token = box.get('jwt_token');
-      
-      // ✅ 4. جلب توكن فايربيز للإشعارات
-      String? fcmToken = box.get('fcm_token');
-
-      // ✅ 5. جلب توكن الأمان
-      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
-
+      // ✅ الاعتماد على الـ Interceptor لحقن جميع التوكنز في الهيدرز
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
-        options: Options(headers: {
-          if (token != null) 'Authorization': 'Bearer $token',
-          'x-device-id': deviceId,
-          'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-          if (fcmToken != null) 'x-fcm-token': fcmToken,
-          // ✅ إرسال التوكن للباك إند
-          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
-        }),
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
@@ -282,9 +242,10 @@ class _LoginScreenState extends State<LoginScreen> {
           serverFreeMode = false;
         }
 
+        var box = await StorageService.openBox('auth_box');
         await box.put('free_mode', serverFreeMode);
         
-        // ✅ 6. تحديث قنوات الإشعارات (Topics) بعد تسجيل الدخول
+        // ✅ تحديث قنوات الإشعارات (Topics) بعد تسجيل الدخول
         if (response.data['myAccess'] != null && response.data['myAccess']['topics'] != null) {
           List<String> topics = List<String>.from(response.data['myAccess']['topics']);
           await NotificationService().updateSubscriptions(topics);
