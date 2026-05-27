@@ -43,6 +43,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // ✅ الاعتماد على ApiClient دون الحاجة لحقن الهيدرز يدوياً
       final response = await ApiClient.instance.get(
         '${ApiConstants.baseUrl}/api/student/get-notifications',
+        options: Options(headers: {
+    'x-user-id': box.get('user_id'), // ✅ إضافة المعرف هنا
+  }),
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
