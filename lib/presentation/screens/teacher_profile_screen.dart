@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart'; // ✅ ضروري لفتح الرابط
@@ -43,26 +42,18 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
 
   Future<void> _fetchTeacher() async {
     try {
-      var box = await StorageService.openBox('auth_box');
-      final String? token = box.get('jwt_token');
-      final String? deviceId = box.get('device_id');
-
+      // ✅ الاعتماد على ApiClient بالكامل دون الحاجة لتمرير الهيدرز يدوياً
       final res = await ApiClient.instance.get(
         '${ApiConstants.apiUrl}/public/get-teacher-details',
         queryParameters: {'teacherId': widget.teacherId},
-        options: Options(
-          headers: {
-            if (token != null) 'Authorization': 'Bearer $token',
-            'x-device-id': deviceId,
-            'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-          },
-        ),
       );
-      if (mounted)
+      
+      if (mounted) {
         setState(() {
           _teacher = res.data;
           _loading = false;
         });
+      }
     } catch (e) {
       if (mounted) setState(() => _loading = false);
     }
