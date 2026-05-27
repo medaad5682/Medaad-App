@@ -135,8 +135,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     FocusScope.of(context).unfocus(); // إخفاء لوحة المفاتيح
 
     try {
-      var box = await StorageService.openBox('auth_box');
-
       // محاولة الحصول على رقم المدرس بأكثر من طريقة لضمان إرساله مع الكود
       int? tId = widget.teacherId;
       if (tId == null && _currentPaymentInfo['teacher_id'] != null) {
@@ -150,12 +148,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           'teacher_id': tId,
           'selectedItems': widget.selectedItems, // ✅ إضافة السلة ليفحصها الباك إند
         },
-        options: Options(headers: {
-          'Authorization': 'Bearer ${box.get('jwt_token')}',
-          'x-device-id': box.get('device_id'),
-          'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-        }),
       );
+      
       if (response.statusCode == 200 && response.data['success']) {
         final discountData = response.data['discount'];
 
@@ -264,10 +258,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() => _isUploading = true);
 
     try {
-      var box = await StorageService.openBox('auth_box');
-      final token = box.get('jwt_token');
-      final deviceId = box.get('device_id');
-
       String fileName = _receiptImage!.path.split('/').last;
 
       // ✅ تجهيز البيانات لإرسالها
@@ -289,12 +279,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         '$_baseUrl/api/student/request-course',
         data: formData,
         options: Options(
-          headers: {
-            'Authorization': 'Bearer $token',
-            'x-device-id': deviceId,
-            'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-          },
-          validateStatus: (status) => status! < 500,
+          validateStatus: (status) => status! < 500, // ✅ الحفاظ على validateStatus
         ),
       );
 
