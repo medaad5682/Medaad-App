@@ -60,20 +60,17 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
 
   Future<void> _startExamAttempt() async {
     try {
+      // جلب البيانات الأساسية من التخزين المحلي لاستخدامها إذا لزم الأمر (مثل الصور)
       var box = await StorageService.openBox('auth_box');
       _userId = box.get('user_id');
       _deviceId = box.get('device_id');
       _token = box.get('jwt_token');
       final name = box.get('first_name') ?? 'Student';
 
+      // تم الاعتماد على ApiClient ولن نحتاج لتمرير الـ Headers يدوياً
       final res = await ApiClient.instance.post(
         '$_baseUrl/api/exams/start-attempt',
         data: {'examId': widget.examId, 'studentName': name},
-        options: Options(headers: {
-          'Authorization': 'Bearer $_token',
-          'x-device-id': _deviceId,
-          'x-app-secret': _appSecret,
-        }),
       );
 
       if (mounted && res.statusCode == 200) {
@@ -181,7 +178,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       Map<String, int> finalAnswers = {};
       userAnswers.forEach((k, v) => finalAnswers[k] = v);
 
-      // ✅ التعديل: إرسال examId لدعم التصحيح اللحظي في وضع التدريب وحفظ الرد
+      // تم الاعتماد على ApiClient وإزالة الـ Headers اليدوية
       final res = await ApiClient.instance.post(
         '$_baseUrl/api/exams/submit-attempt',
         data: {
@@ -189,11 +186,6 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
           'answers': finalAnswers,
           'examId': widget.examId, // مهم جداً لوضع التدريب (temp_retake_mode)
         },
-        options: Options(headers: {
-          'Authorization': 'Bearer $_token',
-          'x-device-id': _deviceId,
-          'x-app-secret': _appSecret,
-        }),
       );
 
       if (mounted) {
@@ -271,6 +263,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
               maxScale: 4.0,
               child: CachedNetworkImage(
                 imageUrl: imageUrl,
+                // نترك الهيدرز هنا لأن CachedNetworkImage لا يستخدم Dio (بالتالي لا يمر على الـ Interceptor)
                 httpHeaders: {
                   'Authorization': 'Bearer $_token',
                   'x-device-id': _deviceId ?? '',
