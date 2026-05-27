@@ -3,8 +3,6 @@ import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-// ✅ 1. استيراد مكتبة حماية فايربيز
-import 'package:firebase_app_check/firebase_app_check.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/download_manager.dart';
@@ -68,23 +66,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
   Future<void> _refreshChapterData() async {
     setState(() => _isLoading = true);
     try {
-      var box = await StorageService.openBox('auth_box');
-      final token = box.get('jwt_token');
-      final deviceId = box.get('device_id');
-
-      // ✅ 2. جلب توكن الأمان
-      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
-
       final res = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-subject-content',
         queryParameters: {'subjectId': widget.subjectId},
-        options: Options(headers: {
-          'Authorization': 'Bearer $token',
-          'x-device-id': deviceId,
-          'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-          // ✅ إرسال التوكن للباك إند
-          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
-        }),
       );
 
       if (mounted && res.statusCode == 200) {
@@ -232,24 +216,10 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     );
 
     try {
-      var box = await StorageService.openBox('auth_box');
-      final token = box.get('jwt_token');
-      final deviceId = box.get('device_id');
-
-      // ✅ 3. جلب توكن الأمان
-      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
-
       final res = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-video-id',
         queryParameters: {'lessonId': video['id'].toString()},
         options: Options(
-          headers: {
-            'Authorization': 'Bearer $token',
-            'x-device-id': deviceId,
-            'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-            // ✅ إرسال التوكن للباك إند
-            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
-          },
           receiveTimeout: const Duration(minutes: 3),
           sendTimeout: const Duration(minutes: 3),
         ),
@@ -318,24 +288,10 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     );
 
     try {
-      var box = await StorageService.openBox('auth_box');
-      final token = box.get('jwt_token');
-      final deviceId = box.get('device_id');
-
-      // ✅ 4. جلب توكن الأمان
-      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
-
       final res = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-stream-proxy',
         queryParameters: {'lessonId': video['id'].toString()},
         options: Options(
-          headers: {
-            'Authorization': 'Bearer $token',
-            'x-device-id': deviceId,
-            'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-            // ✅ إرسال التوكن للباك إند
-            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
-          },
           receiveTimeout: const Duration(minutes: 3),
           sendTimeout: const Duration(minutes: 3),
         ),
@@ -415,26 +371,12 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     );
 
     try {
-      var box = await StorageService.openBox('auth_box');
-      final token = box.get('jwt_token');
-      final deviceId = box.get('device_id');
-
-      // ✅ 5. جلب توكن الأمان مرة واحدة
-      final appCheckToken = await FirebaseAppCheck.instance.getToken(false);
-
       // 1. المحاولة الأولى عبر السيرفر الأساسي (get-stream-proxy)
       try {
         final res = await ApiClient.instance.get(
           '$_baseUrl/api/secure/get-stream-proxy',
           queryParameters: {'lessonId': videoId},
           options: Options(
-            headers: {
-              'Authorization': 'Bearer $token',
-              'x-device-id': deviceId,
-              'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-              // ✅ إرسال التوكن
-              if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
-            },
             receiveTimeout: const Duration(minutes: 3),
             sendTimeout: const Duration(minutes: 3),
           ),
@@ -473,13 +415,6 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
         '$_baseUrl/api/secure/get-video-id',
         queryParameters: {'lessonId': videoId},
         options: Options(
-          headers: {
-            'Authorization': 'Bearer $token',
-            'x-device-id': deviceId,
-            'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-            // ✅ إرسال التوكن هنا أيضاً
-            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
-          },
           receiveTimeout: const Duration(minutes: 3),
           sendTimeout: const Duration(minutes: 3),
         ),
@@ -896,49 +831,49 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                     ),
                     const SizedBox(width: 16),
                     Expanded(
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        video['title'].toString().toUpperCase(),
-        style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: AppColors.textPrimary),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      
-      const SizedBox(height: 4),
-      Row(
-        children: [
-          Text(
-            "VIDEO",
-            style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textSecondary.withOpacity(0.7)),
-          ),
-          if (duration != "--:--" && duration != "00:00" && duration.trim().isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6.0),
-              child: Icon(LucideIcons.clock, 
-                  size: 10, color: AppColors.textSecondary.withOpacity(0.5)),
-            ),
-            Text(
-              duration,
-              style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.accentYellow.withOpacity(0.9)),
-            ),
-          ]
-        ],
-      ),
-      
-    ],
-  ),
-),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            video['title'].toString().toUpperCase(),
+                            style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Text(
+                                "VIDEO",
+                                style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textSecondary.withOpacity(0.7)),
+                              ),
+                              if (duration != "--:--" && duration != "00:00" && duration.trim().isNotEmpty) ...[
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                                  child: Icon(LucideIcons.clock, 
+                                      size: 10, color: AppColors.textSecondary.withOpacity(0.5)),
+                                ),
+                                Text(
+                                  duration,
+                                  style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.accentYellow.withOpacity(0.9)),
+                                ),
+                              ]
+                            ],
+                          ),
+                          
+                        ],
+                      ),
+                    ),
 
                     if (_isTeacher)
                       IconButton(
