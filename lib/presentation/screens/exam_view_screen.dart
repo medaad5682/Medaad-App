@@ -5,6 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_app_check/firebase_app_check.dart'; // ✅ تم الاستيراد
 import '../../core/constants/app_colors.dart';
 import 'exam_result_screen.dart';
 import '../../core/services/storage_service.dart';
@@ -47,6 +48,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
   String? _userId;
   String? _deviceId;
   String? _token;
+  String? _appCheckToken; // ✅ متغير لتخزين توكن الحماية
   final String _appSecret = const String.fromEnvironment('APP_SECRET');
 
   final String _baseUrl = ApiConstants.baseUrl;
@@ -67,7 +69,14 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       _token = box.get('jwt_token');
       final name = box.get('first_name') ?? 'Student';
 
-      // تم الاعتماد على ApiClient ولن نحتاج لتمرير الـ Headers يدوياً
+      // ✅ جلب توكن App Check لاستخدامه في الصور
+      try {
+        _appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        debugPrint("App Check Error: $e");
+      }
+
+      // تم الاعتماد على ApiClient ولن نحتاج لتمرير الـ Headers يدوياً للـ API
       final res = await ApiClient.instance.post(
         '$_baseUrl/api/exams/start-attempt',
         data: {'examId': widget.examId, 'studentName': name},
@@ -178,7 +187,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       Map<String, int> finalAnswers = {};
       userAnswers.forEach((k, v) => finalAnswers[k] = v);
 
-      // تم الاعتماد على ApiClient وإزالة الـ Headers اليدوية
+      // تم الاعتماد على ApiClient وإزالة الـ Headers اليدوية للـ API
       final res = await ApiClient.instance.post(
         '$_baseUrl/api/exams/submit-attempt',
         data: {
@@ -263,11 +272,12 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
               maxScale: 4.0,
               child: CachedNetworkImage(
                 imageUrl: imageUrl,
-                // نترك الهيدرز هنا لأن CachedNetworkImage لا يستخدم Dio (بالتالي لا يمر على الـ Interceptor)
+                // ✅ نمرر كل الهيدرز اليدوية لأن CachedNetworkImage لا تمر عبر الـ Interceptor
                 httpHeaders: {
                   'Authorization': 'Bearer $_token',
                   'x-device-id': _deviceId ?? '',
                   'x-app-secret': _appSecret,
+                  if (_appCheckToken != null) 'X-Firebase-AppCheck': _appCheckToken!,
                 },
                 placeholder: (context, url) => Center(
                     child: CircularProgressIndicator(
@@ -499,10 +509,12 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                                   child: CachedNetworkImage(
                                     imageUrl:
                                         '$_baseUrl/api/exams/get-image?file_id=$imageFileId',
+                                    // ✅ إضافة الهيدرز يدوياً في الصورة المصغرة أيضاً
                                     httpHeaders: {
                                       'Authorization': 'Bearer $_token',
                                       'x-device-id': _deviceId ?? '',
                                       'x-app-secret': _appSecret,
+                                      if (_appCheckToken != null) 'X-Firebase-AppCheck': _appCheckToken!,
                                     },
                                     placeholder: (context, url) => Center(
                                         child: CircularProgressIndicator(
