@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // ✅ إضافة Crashlytics
 import 'storage_service.dart';
+import 'package:flutter/foundation.dart'; // ✅ هذا هو الحل للخطأ
 
 class ApiClient {
   static final Dio _dio = Dio()
