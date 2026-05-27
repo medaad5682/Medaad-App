@@ -27,18 +27,9 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
 
   Future<void> _fetchRequests() async {
     try {
-      var box = await StorageService.openBox('auth_box');
-      // ✅ جلب التوكن وبصمة الجهاز بدلاً من user_id
-      final token = box.get('jwt_token');
-      final deviceId = box.get('device_id');
-
+      // ✅ تم الاعتماد على ApiClient دون الحاجة لجلب التوكن أو تمرير الهيدرز يدوياً
       final res = await ApiClient.instance.get(
         '$_baseUrl/api/student/my-requests',
-        options: Options(headers: {
-          'Authorization': 'Bearer $token', // ✅ الهيدر الجديد
-          'x-device-id': deviceId,
-          'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-        }),
       );
 
       if (mounted) {
