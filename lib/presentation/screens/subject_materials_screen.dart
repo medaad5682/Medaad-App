@@ -3,8 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-// ✅ إضافة استيراد Firebase App Check
-import 'package:firebase_app_check/firebase_app_check.dart';
+
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
@@ -61,27 +60,9 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
   Future<void> _fetchContent() async {
     try {
-      var box = await StorageService.openBox('auth_box');
-      final String? token = box.get('jwt_token');
-      final String? deviceId = box.get('device_id');
-
-      // ✅ جلب توكن الـ App Check
-      String? appCheckToken;
-      try {
-        appCheckToken = await FirebaseAppCheck.instance.getToken();
-      } catch (e) {
-        debugPrint("App Check Error: $e");
-      }
-
       final res = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-subject-content',
         queryParameters: {'subjectId': widget.subjectId},
-        options: Options(headers: {
-          'Authorization': 'Bearer $token',
-          'x-device-id': deviceId,
-          'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إرسال توكن App Check للباك اند
-        }),
       );
 
       if (mounted) {
@@ -178,19 +159,12 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                         setState(() => isSubmitting = true);
 
                         try {
-                          var box = await StorageService.openBox('auth_box');
                           final res = await ApiClient.instance.post(
                             '$_baseUrl/api/student/submit-feedback',
                             data: {
                               'chapter_id': chapterId,
                               'content': feedbackController.text.trim(),
                             },
-                            options: Options(headers: {
-                              'Authorization': 'Bearer ${box.get('jwt_token')}',
-                              'x-device-id': box.get('device_id'),
-                              'x-app-secret':
-                                  const String.fromEnvironment('APP_SECRET'),
-                            }),
                           );
 
                           if (res.statusCode == 200) {
@@ -244,7 +218,6 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
           builder: (context, setState) {
             Future<void> fetchFeedbacks() async {
               try {
-                var box = await StorageService.openBox('auth_box');
                 final res = await ApiClient.instance.get(
                   '$_baseUrl/api/teacher/get-feedback',
                   queryParameters: {
@@ -252,11 +225,6 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                     'page': currentPage,
                     'limit': 10,
                   },
-                  options: Options(headers: {
-                    'Authorization': 'Bearer ${box.get('jwt_token')}',
-                    'x-device-id': box.get('device_id'),
-                    'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-                  }),
                 );
 
                 if (res.statusCode == 200) {
