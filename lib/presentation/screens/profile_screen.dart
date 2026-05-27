@@ -106,18 +106,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       var authBox = await StorageService.openBox('auth_box');
       final token = authBox.get('jwt_token');
-      final deviceId = authBox.get('device_id');
 
-      if (token != null && deviceId != null) {
-        // استدعاء API الحذف
+      if (token != null) {
+        // استدعاء API الحذف بالاعتماد على ApiClient
         await ApiClient.instance.delete(
           '$_baseUrl/api/student/delete-account',
           options: Options(
-            headers: {
-              'Authorization': 'Bearer $token',
-              'x-device-id': deviceId,
-              'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-            },
             validateStatus: (status) => status! < 500,
           ),
         );
@@ -161,19 +155,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       var authBox = await StorageService.openBox('auth_box');
       final token = authBox.get('jwt_token');
-      final deviceId = authBox.get('device_id');
 
       // 1. إرسال طلب للسيرفر لحذف التوكن
-      if (token != null && deviceId != null) {
+      if (token != null) {
         try {
+          // استدعاء API تسجيل الخروج بالاعتماد على ApiClient
           await ApiClient.instance.post(
             '$_baseUrl/api/auth/logout',
             options: Options(
-              headers: {
-                'Authorization': 'Bearer $token',
-                'x-device-id': deviceId,
-                'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-              },
               validateStatus: (status) => status! < 500,
               sendTimeout: const Duration(seconds: 3),
             ),
