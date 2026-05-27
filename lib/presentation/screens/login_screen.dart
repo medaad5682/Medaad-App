@@ -177,11 +177,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // ✅ جلب توكن فايربيز لإرساله وتسجيله في الباك إند
       String? fcmToken = box.get('fcm_token');
 
-      // الاعتماد على ApiClient مع تمرير x-fcm-token فقط 
-      // (سيقوم الـ Interceptor بدمجه مع AppCheck وباقي الهيدرز)
+      // الاعتماد على ApiClient مع تمرير x-fcm-token و x-user-id للضيف
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(headers: {
+          'x-user-id': '0', // ✅ تمت إضافته لتوحيد منطق الزائر
           if (fcmToken != null) 'x-fcm-token': fcmToken,
         }),
       );
