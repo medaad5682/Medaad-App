@@ -287,10 +287,17 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initAsGuest(String deviceId, Box box) async {
     try {
-      // الاعتماد على ApiClient دون حقن الهيدرز يدوياً
+      // ✅ استرجاع توكن الإشعارات
+      String? fcmToken = box.get('fcm_token');
+
+      // الاعتماد على ApiClient دون حقن الهيدرز يدوياً باستثناء الهيدرز الخاصة بهذه العملية
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(
+          headers: {
+            'x-user-id': '0', // للزائر (Guest)
+            if (fcmToken != null) 'x-fcm-token': fcmToken, // توكن الإشعارات
+          },
           receiveTimeout: const Duration(seconds: 10),
         ),
       );
@@ -326,10 +333,16 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initAsUser(String userId, String deviceId, Box box) async {
     try {
-      // الاعتماد الكامل على ApiClient لحقن الهيدرز والتوكنز بشكل مركزي
+      // ✅ استرجاع توكن الإشعارات
+      String? fcmToken = box.get('fcm_token');
+
+      // الاعتماد الكامل على ApiClient لحقن الهيدرز والتوكنز بشكل مركزي مع إضافة توكن الإشعارات
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(
+          headers: {
+            if (fcmToken != null) 'x-fcm-token': fcmToken, // توكن الإشعارات
+          },
           receiveTimeout: const Duration(seconds: 10),
         ),
       );
