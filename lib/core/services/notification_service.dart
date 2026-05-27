@@ -5,6 +5,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 // ✅ استيراد مكتبات فايربيز و Hive
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:dio/dio.dart';
 
 // ✅ استيراد المفتاح الخاص بالتوجيه وشاشة الإشعارات
 import '../../main.dart';
