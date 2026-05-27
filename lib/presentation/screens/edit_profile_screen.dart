@@ -216,8 +216,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() => _isLoading = true);
     try {
       var box = await StorageService.openBox('auth_box');
-      final token = box.get('jwt_token');
-      final deviceId = box.get('device_id');
 
       List<String> cashList = _cashNumberControllers
           .map((c) => c.text.trim())
@@ -258,14 +256,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ? '$_baseUrl/api/teacher/update-profile'
           : '$_baseUrl/api/student/update-profile';
 
+      // الاعتماد على ApiClient دون الحاجة لإرسال الهيدرز يدوياً
       final res = await ApiClient.instance.post(
         endpoint,
         data: dataToSend,
-        options: Options(headers: {
-          'Authorization': 'Bearer $token',
-          'x-device-id': deviceId,
-          'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-        }),
       );
 
       if (res.statusCode == 200 && res.data['success'] == true) {
