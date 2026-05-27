@@ -60,14 +60,10 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
       _deviceId = box.get('device_id');
       _token = box.get('jwt_token'); 
 
+      // ✅ الاعتماد على ApiClient دون تمرير الـ Headers يدوياً
       final res = await ApiClient.instance.get(
         '$_baseUrl/api/exams/get-results',
         queryParameters: {'attemptId': widget.attemptId},
-        options: Options(headers: {
-          'Authorization': 'Bearer $_token', 
-          'x-device-id': _deviceId,
-          'x-app-secret': _appSecret,
-        }),
       );
 
       if (mounted && res.statusCode == 200) {
@@ -113,6 +109,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                 child: CachedNetworkImage(
                   imageUrl:
                       '$_baseUrl/api/exams/get-image?file_id=$imageFileId',
+                  // ✅ نترك الهيدرز هنا لأن CachedNetworkImage لا يستخدم الـ ApiClient الخاص بنا
                   httpHeaders: {
                     'Authorization': 'Bearer $_token',
                     'x-device-id': _deviceId ?? '',
