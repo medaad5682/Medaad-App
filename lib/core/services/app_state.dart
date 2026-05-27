@@ -3,8 +3,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'; // ✅ ضروري لـ ThemeMode و ValueNotifier
 import 'package:hive_flutter/hive_flutter.dart';
-// ✅ إضافة استيراد Firebase App Check
-import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../data/models/course_model.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
@@ -250,33 +248,16 @@ class AppState {
     try {
       var box = await StorageService.openBox('auth_box');
       String? token = box.get('jwt_token');
-      // ✅ 1. جلب معرف الجهاز
-      String? deviceId = box.get('device_id');
 
       // التأكد من وجود التوكن قبل الطلب (للمستخدم المسجل فقط)
       if (token == null || isGuest) return;
 
-      // ✅ جلب توكن الـ App Check
-      String? appCheckToken;
-      try {
-        appCheckToken = await FirebaseAppCheck.instance.getToken();
-      } catch (e) {
-        if (kDebugMode) print("App Check Error: $e");
-      }
-
-      // ✅ التعديل هنا: إضافة timestamp لمنع الكاش وإجبار السيرفر على جلب بيانات جديدة
+      // ✅ التعديل هنا: الاعتماد على ApiClient دون تمرير الهيدرز يدوياً وإضافة timestamp لمنع الكاش
       final response = await ApiClient.instance.get(
         '${ApiConstants.apiUrl}/public/get-app-init-data',
         queryParameters: {
           't': DateTime.now().millisecondsSinceEpoch, // 👈 هذا السطر يمنع الكاش
         },
-        options: Options(headers: {
-          'Authorization': 'Bearer $token',
-          'x-device-id':
-              deviceId, // ✅ 2. إرسال معرف الجهاز (بدونه يعتبرك السيرفر ضيفاً)
-          'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إرسال توكن App Check للباك اند
-        }),
       );
 
       if (response.statusCode == 200) {
