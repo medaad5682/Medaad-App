@@ -40,6 +40,11 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        
+        // ✅ التعديل هنا: إجبار نسخة الـ Debug على استخدام توقيع الـ Release
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
     
     compileOptions {
