@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:intl/intl.dart';
@@ -15,7 +14,6 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  final Dio _dio = Dio();
   bool _isLoading = true;
   List<dynamic> _notifications = [];
   String? _errorMessage;
@@ -30,11 +28,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       var box = await Hive.openBox('auth_box');
       String? token = box.get('jwt_token');
-      String? userId = box.get('user_id');
-      String? deviceId = box.get('device_id'); // ✅ استخراج معرف الجهاز
 
-      // ✅ التحقق من وجود جميع بيانات المصادقة بما فيها معرف الجهاز
-      if (token == null || userId == null || deviceId == null) {
+      // ✅ التحقق من تسجيل الدخول (وجود التوكن يكفي للتحقق)
+      if (token == null) {
         if (mounted) {
           setState(() {
             _errorMessage = "الرجاء تسجيل الدخول لعرض الإشعارات.";
@@ -44,14 +40,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return;
       }
 
+      // ✅ الاعتماد على ApiClient دون الحاجة لحقن الهيدرز يدوياً
       final response = await ApiClient.instance.get(
         '${ApiConstants.baseUrl}/api/student/get-notifications',
-        options: Options(headers: {
-          'Authorization': 'Bearer $token',
-          'x-user-id': userId,
-          'x-device-id': deviceId, // ✅ إرسال معرف الجهاز في الهيدر
-          'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-        }),
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
