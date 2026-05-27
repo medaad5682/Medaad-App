@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-// ✅ إضافة استيراد Firebase App Check
-import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
@@ -43,25 +41,15 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 2. جلب بيانات المصادقة المخزنة محلياً
+      // 2. التحقق من تسجيل الدخول محلياً قبل الإرسال
       var box = await StorageService.openBox('auth_box');
-      // ✅ جلب التوكن والبصمة
       final token = box.get('jwt_token');
-      final deviceId = box.get('device_id');
 
-      if (token == null || deviceId == null) {
+      if (token == null) {
         throw Exception("Authentication data not found. Please login again.");
       }
 
-      // ✅ جلب توكن الـ App Check
-      String? appCheckToken;
-      try {
-        appCheckToken = await FirebaseAppCheck.instance.getToken();
-      } catch (e) {
-        debugPrint("App Check Error: $e");
-      }
-
-      // 3. إرسال الطلب مع الـ Headers الصحيحة
+      // 3. إرسال الطلب مع الاعتماد على ApiClient لحقن الـ Headers
       final res = await ApiClient.instance.post(
         '$_baseUrl/api/student/change-password',
         data: {
@@ -69,12 +57,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           'newPassword': _newPassController.text,
         },
         options: Options(
-          headers: {
-            'Authorization': 'Bearer $token', // ✅ الهيدر الجديد
-            'x-device-id': deviceId,
-            'x-app-secret': const String.fromEnvironment('APP_SECRET'),
-            if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken, // ✅ إرسال توكن App Check
-          },
           // لضمان استلام رسائل الخطأ من السيرفر حتى لو كان الكود 400 أو 401
           validateStatus: (status) => status! < 500,
         ),
