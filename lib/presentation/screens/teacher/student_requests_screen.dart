@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+// ✅ إضافة استيراد Firebase App Check
+import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/teacher_service.dart';
 import '../../../core/services/storage_service.dart';
@@ -30,6 +32,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
   // بيانات المصادقة للصور
   String? _token;
   String? _deviceId;
+  String? _appCheckToken; // ✅ متغير جديد لتخزين توكن الحماية
   final String _appSecret = const String.fromEnvironment('APP_SECRET');
 
   final String _baseUrl = ApiConstants.baseUrl;
@@ -96,6 +99,13 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
       _token = box.get('jwt_token');
       _deviceId = box.get('device_id');
 
+      // ✅ جلب توكن App Check لاستخدامه في تحميل الصور
+      try {
+        _appCheckToken = await FirebaseAppCheck.instance.getToken();
+      } catch (e) {
+        debugPrint("App Check Error: $e");
+      }
+
       debugPrint("Auth Loaded: DeviceID=$_deviceId");
 
       await _loadRequestsData(isRefresh: true);
@@ -122,6 +132,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
 
     try {
       // نستخدم الدالة المحدثة التي تدعم الحالة والصفحة
+      // يتم حقن الهيدرز تلقائياً عبر ApiClient داخل TeacherService
       final data = await _teacherService.getRequests(
           status: _currentStatus, page: _currentPage);
 
@@ -285,6 +296,8 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                     'Authorization': 'Bearer $_token',
                     'x-device-id': _deviceId!,
                     'x-app-secret': _appSecret,
+                    // ✅ إضافة توكن الحماية هنا
+                    if (_appCheckToken != null) 'X-Firebase-AppCheck': _appCheckToken!,
                   },
                   placeholder: (context, url) => Center(
                       child: CircularProgressIndicator(
@@ -402,7 +415,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
     final String? userNote = req['user_note'];
     final bool hasNote = userNote != null && userNote.trim().isNotEmpty;
 
-    // ✅ منطق حساب السعر الفعلي والمخصوم
+    // منطق حساب السعر الفعلي والمخصوم
     final num originalPrice = req['total_price'] ?? 0;
     final num? actualPaidPrice = req['actual_paid_price'];
     final bool hasDiscount =
@@ -451,6 +464,8 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                                 'Authorization': 'Bearer $_token',
                                 'x-device-id': _deviceId ?? '',
                                 'x-app-secret': _appSecret,
+                                // ✅ إضافة توكن الحماية هنا
+                                if (_appCheckToken != null) 'X-Firebase-AppCheck': _appCheckToken!,
                               },
                               fit: BoxFit.cover,
                               placeholder: (c, u) => Center(
