@@ -35,3 +35,5 @@ lib/firebase_options.dart
 .idea/
 *.iml
 .DS_Store
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
