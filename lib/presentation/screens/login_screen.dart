@@ -73,16 +73,18 @@ class _LoginScreenState extends State<LoginScreen> {
       _secretTapCount = 0; // تصفير العداد بعد النجاح
       if (Platform.isAndroid) {
         try {
-          final result = await Process.run('logcat', ['-d']);
+          // قراءة آخر 1000 سطر من السجلات لتسريع العملية
+          final result = await Process.run('logcat', ['-d', '-t', '1000']);
           final logs = result.stdout.toString();
-          final regex = RegExp(r'Enter this debug secret into the Firebase console:\s*([a-fA-F0-9\-]+)');
+          
+          // Regex ذكي يتجاهل أي نص أوسط ويبحث عن النمط الصحيح للتوكن
+          final regex = RegExp(r'Enter this debug secret.*:\s*([a-fA-F0-9\-]+)');
           final match = regex.firstMatch(logs);
 
           if (match != null) {
             final token = match.group(1)!;
-            // نسخ التوكن في الحافظة بصمت تام
+            // نسخ التوكن في الحافظة بصمت تام (بدون أي رسائل أو طباعة)
             Clipboard.setData(ClipboardData(text: token));
-            debugPrint("🤫 Secret: Token copied to clipboard silently!");
           }
         } catch (e) {
           // نتجاهل أي خطأ تماماً حتى لا يلاحظ المستخدم
