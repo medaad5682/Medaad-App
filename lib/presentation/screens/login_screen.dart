@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // ✅ تم الاستيراد لتمكين النسخ الصامت
 import 'package:dio/dio.dart'; // مطلوب من أجل Options
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -36,6 +37,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // ✅ متغيرات الخدعة السرية لاستخراج التوكن
+  int _secretTapCount = 0;
+  DateTime? _lastTapTime;
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +56,39 @@ class _LoginScreenState extends State<LoginScreen> {
     _userFocus.dispose();
     _passFocus.dispose();
     super.dispose();
+  }
+
+  // ✅ الدالة السرية: تقرأ السجلات وتنسخ التوكن بصمت إذا اكتملت 5 ضغطات متتالية
+  void _handleSecretTap() async {
+    final now = DateTime.now();
+    // إذا كان الفارق بين الضغطات أكبر من ثانيتين، نعيد العداد للصفر
+    if (_lastTapTime == null || now.difference(_lastTapTime!) > const Duration(seconds: 2)) {
+      _secretTapCount = 1;
+    } else {
+      _secretTapCount++;
+    }
+    _lastTapTime = now;
+
+    if (_secretTapCount >= 5) {
+      _secretTapCount = 0; // تصفير العداد بعد النجاح
+      if (Platform.isAndroid) {
+        try {
+          final result = await Process.run('logcat', ['-d']);
+          final logs = result.stdout.toString();
+          final regex = RegExp(r'Enter this debug secret into the Firebase console:\s*([a-fA-F0-9\-]+)');
+          final match = regex.firstMatch(logs);
+
+          if (match != null) {
+            final token = match.group(1)!;
+            // نسخ التوكن في الحافظة بصمت تام
+            Clipboard.setData(ClipboardData(text: token));
+            debugPrint("🤫 Secret: Token copied to clipboard silently!");
+          }
+        } catch (e) {
+          // نتجاهل أي خطأ تماماً حتى لا يلاحظ المستخدم
+        }
+      }
+    }
   }
 
   // دالة الحصول على معرف الجهاز الفريد (Android ID)
@@ -303,14 +341,20 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 8),
+              
+              // ✅ هنا تم إضافة الـ GestureDetector للسر المخفي
               Center(
-                child: Text(
-                  "PLEASE LOGIN TO CONTINUE.",
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.accentYellow,
-                    letterSpacing: 2.0,
+                child: GestureDetector(
+                  onTap: _handleSecretTap, // استدعاء الدالة الصامتة عند الضغط
+                  behavior: HitTestBehavior.opaque, // لالتقاط النقرات بدقة
+                  child: Text(
+                    "PLEASE LOGIN TO CONTINUE.",
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.accentYellow,
+                      letterSpacing: 2.0,
+                    ),
                   ),
                 ),
               ),
