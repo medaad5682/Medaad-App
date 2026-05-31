@@ -60,38 +60,41 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ✅ الدالة السرية: تقرأ السجلات وتنسخ التوكن بصمت إذا اكتملت 5 ضغطات متتالية
   void _handleSecretTap() async {
-    final now = DateTime.now();
-    // إذا كان الفارق بين الضغطات أكبر من ثانيتين، نعيد العداد للصفر
-    if (_lastTapTime == null || now.difference(_lastTapTime!) > const Duration(seconds: 2)) {
-      _secretTapCount = 1;
-    } else {
-      _secretTapCount++;
-    }
-    _lastTapTime = now;
+  final now = DateTime.now();
+  if (_lastTapTime == null || now.difference(_lastTapTime!) > const Duration(seconds: 2)) {
+    _secretTapCount = 1;
+  } else {
+    _secretTapCount++;
+  }
+  _lastTapTime = now;
 
-    if (_secretTapCount >= 5) {
-      _secretTapCount = 0; // تصفير العداد بعد النجاح
-      if (Platform.isAndroid) {
-        try {
-          // قراءة آخر 1000 سطر من السجلات لتسريع العملية
-          final result = await Process.run('logcat', ['-d', '-t', '1000']);
-          final logs = result.stdout.toString();
-          
-          // Regex ذكي يتجاهل أي نص أوسط ويبحث عن النمط الصحيح للتوكن
-          final regex = RegExp(r'Enter this debug secret.*:\s*([a-fA-F0-9\-]+)');
-          final match = regex.firstMatch(logs);
+  if (_secretTapCount >= 5) {
+    _secretTapCount = 0;
+    if (Platform.isAndroid) {
+      try {
+        final result = await Process.run(
+          'logcat',
+          ['-d', '-t', '500', '-s', 'com.google.firebase.appcheck.debug.internal.DebugAppCheckProvider'],
+        );
+        final logs = result.stdout.toString();
 
-          if (match != null) {
-            final token = match.group(1)!;
-            // نسخ التوكن في الحافظة بصمت تام (بدون أي رسائل أو طباعة)
-            Clipboard.setData(ClipboardData(text: token));
-          }
-        } catch (e) {
-          // نتجاهل أي خطأ تماماً حتى لا يلاحظ المستخدم
+        // Match the UUID at the end of the line — simpler and more reliable
+        final regex = RegExp(
+          r'([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'
+        );
+        
+        final match = regex.firstMatch(logs);
+
+        if (match != null) {
+          final token = match.group(1)!;
+          await Clipboard.setData(ClipboardData(text: token));
         }
+      } catch (e) {
+        // silent
       }
     }
   }
+}
 
   // دالة الحصول على معرف الجهاز الفريد (Android ID)
   Future<String> _getAndSaveDeviceId(Box box) async {
