@@ -1,7 +1,6 @@
 import 'dart:math';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // ✅ تم الاستيراد لتمكين النسخ الصامت و MethodChannel
 import 'package:dio/dio.dart'; // مطلوب من أجل Options
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -26,9 +25,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // ✅ تعريف قناة الاتصال بالـ Native للوصول إلى دالة getDebugToken
-  static const _nativeChannel = MethodChannel('medaad.app.com/audio_protection');
-
   // نستخدم هذا المتحكم لاسم المستخدم أو رقم الهاتف
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -39,10 +35,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final String _baseUrl = ApiConstants.baseUrl;
   bool _isLoading = false;
   String? _errorMessage;
-
-  // ✅ متغيرات الخدعة السرية لاستخراج التوكن
-  int _secretTapCount = 0;
-  DateTime? _lastTapTime;
 
   @override
   void initState() {
@@ -60,70 +52,6 @@ class _LoginScreenState extends State<LoginScreen> {
     _passFocus.dispose();
     super.dispose();
   }
-
-  // ✅ الدالة السرية: تطلب التوكن من الـ Native وتنسخه بصمت إذا اكتملت 5 ضغطات متتالية
-  void _handleSecretTap() async {
-  final now = DateTime.now();
-  if (_lastTapTime == null ||
-      now.difference(_lastTapTime!) > const Duration(seconds: 2)) {
-    _secretTapCount = 1;
-  } else {
-    _secretTapCount++;
-  }
-  _lastTapTime = now;
-
-  // Show tap count visually so you know it's registering
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text('Tap $_secretTapCount/5'),
-      duration: const Duration(milliseconds: 500),
-    ),
-  );
-
-  if (_secretTapCount >= 5) {
-    _secretTapCount = 0;
-    if (Platform.isAndroid) {
-      try {
-        // Step 1: Check if channel works at all
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Calling native...')),
-        );
-
-        final String? token =
-            await _nativeChannel.invokeMethod('getDebugToken');
-
-        // Step 2: Show exactly what came back
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(token != null
-                ? 'Token found: ${token.substring(0, 8)}...'
-                : 'Token is NULL — logcat returned nothing'),
-            duration: const Duration(seconds: 4),
-          ),
-        );
-
-        if (token != null && token.isNotEmpty) {
-          await Clipboard.setData(ClipboardData(text: token));
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ Copied to clipboard!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        // Step 3: Show the actual error instead of hiding it
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    }
-  }
-}
 
   // دالة الحصول على معرف الجهاز الفريد (Android ID)
   Future<String> _getAndSaveDeviceId(Box box) async {
@@ -375,20 +303,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              
-              // ✅ هنا تم إضافة الـ GestureDetector للسر المخفي
               Center(
-                child: GestureDetector(
-                  onTap: _handleSecretTap, // استدعاء الدالة الصامتة عند الضغط
-                  behavior: HitTestBehavior.opaque, // لالتقاط النقرات بدقة
-                  child: Text(
-                    "PLEASE LOGIN TO CONTINUE.",
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.accentYellow,
-                      letterSpacing: 2.0,
-                    ),
+                child: Text(
+                  "PLEASE LOGIN TO CONTINUE.",
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.accentYellow,
+                    letterSpacing: 2.0,
                   ),
                 ),
               ),
