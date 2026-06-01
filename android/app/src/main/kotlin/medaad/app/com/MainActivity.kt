@@ -70,10 +70,6 @@ class MainActivity: FlutterActivity() {
                 "isDeviceRooted" -> {
                     result.success(isDeviceRooted())
                 }
-                // ✅ استخراج توكن App Check (للـ Debug) من السجلات محلياً
-                "getDebugToken" -> {
-                    result.success(getDebugToken())
-                }
                 else -> result.notImplemented()
             }
         }
@@ -105,6 +101,13 @@ class MainActivity: FlutterActivity() {
     }
 
     // [FIX F-04] Multi-vector native root detection.
+    // Supplements the safe_device Flutter package (which relies only on user-space
+    // heuristics easily bypassed by Magisk Hide / Shamiko / LSPosed).
+    // This performs independent checks at the native layer:
+    //   1. Known su binary paths (standard + common Magisk locations)
+    //   2. Attempt to write to /system (only possible on rooted devices)
+    //   3. CPU core count sanity (emulator heuristic)
+    //   4. Build tag check (production builds are always "release-keys")
     private fun isDeviceRooted(): Boolean {
         // 1. Known root binary / app paths
         val rootPaths = arrayOf(
@@ -144,38 +147,6 @@ class MainActivity: FlutterActivity() {
         return false
     }
 
-    // ✅ دالة قراءة سجلات Firebase App Check من داخل النظام (تعمل بكفاءة عالية)
-    private fun getDebugToken(): String? {
-    return try {
-        // Remove the -s filter — search ALL logs instead
-        val process = Runtime.getRuntime().exec(
-            arrayOf("logcat", "-d", "-t", "2000")
-        )
-        val logs = process.inputStream.bufferedReader().readText()
-        process.destroy()
-
-        // Search for the exact text Firebase prints
-        val lines = logs.lines()
-        val targetLine = lines.firstOrNull { 
-            it.contains("Enter this debug secret") || 
-            it.contains("debug secret into the allow list") ||
-            it.contains("DebugAppCheckProvider")
-        }
-
-        // Extract UUID from that line
-        val regex = Regex(
-            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-        )
-        if (targetLine != null) {
-            regex.find(targetLine)?.value
-        } else {
-            // Last resort — find ANY UUID in all logs that looks like App Check token
-            regex.find(logs)?.value
-        }
-    } catch (e: Exception) {
-        null
-    }
-    }
     private fun startRecordingMonitoring() {
         handler = Handler(Looper.getMainLooper())
         recordingCheckRunnable = object : Runnable {
