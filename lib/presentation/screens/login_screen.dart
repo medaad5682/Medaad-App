@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // ✅ تم الاستيراد لتمكين النسخ الصامت
+import 'package:flutter/services.dart'; // ✅ تم الاستيراد لتمكين النسخ الصامت و MethodChannel
 import 'package:dio/dio.dart'; // مطلوب من أجل Options
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -26,6 +26,9 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  // ✅ تعريف قناة الاتصال بالـ Native للوصول إلى دالة getDebugToken
+  static const _nativeChannel = MethodChannel('medaad.app.com/audio_protection');
+
   // نستخدم هذا المتحكم لاسم المستخدم أو رقم الهاتف
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -58,43 +61,33 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // ✅ الدالة السرية: تقرأ السجلات وتنسخ التوكن بصمت إذا اكتملت 5 ضغطات متتالية
+  // ✅ الدالة السرية: تطلب التوكن من الـ Native وتنسخه بصمت إذا اكتملت 5 ضغطات متتالية
   void _handleSecretTap() async {
-  final now = DateTime.now();
-  if (_lastTapTime == null || now.difference(_lastTapTime!) > const Duration(seconds: 2)) {
-    _secretTapCount = 1;
-  } else {
-    _secretTapCount++;
-  }
-  _lastTapTime = now;
+    final now = DateTime.now();
+    if (_lastTapTime == null || now.difference(_lastTapTime!) > const Duration(seconds: 2)) {
+      _secretTapCount = 1;
+    } else {
+      _secretTapCount++;
+    }
+    _lastTapTime = now;
 
-  if (_secretTapCount >= 5) {
-    _secretTapCount = 0;
-    if (Platform.isAndroid) {
-      try {
-        final result = await Process.run(
-          'logcat',
-          ['-d', '-t', '500', '-s', 'com.google.firebase.appcheck.debug.internal.DebugAppCheckProvider'],
-        );
-        final logs = result.stdout.toString();
-
-        // Match the UUID at the end of the line — simpler and more reliable
-        final regex = RegExp(
-          r'([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'
-        );
-        
-        final match = regex.firstMatch(logs);
-
-        if (match != null) {
-          final token = match.group(1)!;
-          await Clipboard.setData(ClipboardData(text: token));
+    if (_secretTapCount >= 5) {
+      _secretTapCount = 0;
+      if (Platform.isAndroid) {
+        try {
+          // ✅ استدعاء دالة Kotlin التي تستطيع قراءة السجلات بدون قيود
+          final String? token = await _nativeChannel.invokeMethod('getDebugToken');
+          
+          if (token != null && token.isNotEmpty) {
+            // نسخ التوكن في الحافظة بصمت تام
+            await Clipboard.setData(ClipboardData(text: token));
+          }
+        } catch (e) {
+          // صامت تماماً
         }
-      } catch (e) {
-        // silent
       }
     }
   }
-}
 
   // دالة الحصول على معرف الجهاز الفريد (Android ID)
   Future<String> _getAndSaveDeviceId(Box box) async {
