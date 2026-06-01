@@ -63,31 +63,67 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ✅ الدالة السرية: تطلب التوكن من الـ Native وتنسخه بصمت إذا اكتملت 5 ضغطات متتالية
   void _handleSecretTap() async {
-    final now = DateTime.now();
-    if (_lastTapTime == null || now.difference(_lastTapTime!) > const Duration(seconds: 2)) {
-      _secretTapCount = 1;
-    } else {
-      _secretTapCount++;
-    }
-    _lastTapTime = now;
+  final now = DateTime.now();
+  if (_lastTapTime == null ||
+      now.difference(_lastTapTime!) > const Duration(seconds: 2)) {
+    _secretTapCount = 1;
+  } else {
+    _secretTapCount++;
+  }
+  _lastTapTime = now;
 
-    if (_secretTapCount >= 5) {
-      _secretTapCount = 0;
-      if (Platform.isAndroid) {
-        try {
-          // ✅ استدعاء دالة Kotlin التي تستطيع قراءة السجلات بدون قيود
-          final String? token = await _nativeChannel.invokeMethod('getDebugToken');
-          
-          if (token != null && token.isNotEmpty) {
-            // نسخ التوكن في الحافظة بصمت تام
-            await Clipboard.setData(ClipboardData(text: token));
-          }
-        } catch (e) {
-          // صامت تماماً
+  // Show tap count visually so you know it's registering
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text('Tap $_secretTapCount/5'),
+      duration: const Duration(milliseconds: 500),
+    ),
+  );
+
+  if (_secretTapCount >= 5) {
+    _secretTapCount = 0;
+    if (Platform.isAndroid) {
+      try {
+        // Step 1: Check if channel works at all
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Calling native...')),
+        );
+
+        final String? token =
+            await _nativeChannel.invokeMethod('getDebugToken');
+
+        // Step 2: Show exactly what came back
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(token != null
+                ? 'Token found: ${token.substring(0, 8)}...'
+                : 'Token is NULL — logcat returned nothing'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+
+        if (token != null && token.isNotEmpty) {
+          await Clipboard.setData(ClipboardData(text: token));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Copied to clipboard!'),
+              backgroundColor: Colors.green,
+            ),
+          );
         }
+      } catch (e) {
+        // Step 3: Show the actual error instead of hiding it
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
       }
     }
   }
+}
 
   // دالة الحصول على معرف الجهاز الفريد (Android ID)
   Future<String> _getAndSaveDeviceId(Box box) async {
