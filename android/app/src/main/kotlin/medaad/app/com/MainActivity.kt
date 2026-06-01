@@ -146,23 +146,36 @@ class MainActivity: FlutterActivity() {
 
     // ✅ دالة قراءة سجلات Firebase App Check من داخل النظام (تعمل بكفاءة عالية)
     private fun getDebugToken(): String? {
-        return try {
-            val process = Runtime.getRuntime().exec(
-                arrayOf("logcat", "-d", "-t", "1000", "-s",
-                    "com.google.firebase.appcheck.debug.internal.DebugAppCheckProvider:D")
-            )
-            val logs = process.inputStream.bufferedReader().readText()
-            process.destroy()
+    return try {
+        // Remove the -s filter — search ALL logs instead
+        val process = Runtime.getRuntime().exec(
+            arrayOf("logcat", "-d", "-t", "2000")
+        )
+        val logs = process.inputStream.bufferedReader().readText()
+        process.destroy()
 
-            val regex = Regex(
-                "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-            )
-            regex.find(logs)?.value
-        } catch (e: Exception) {
-            null
+        // Search for the exact text Firebase prints
+        val lines = logs.lines()
+        val targetLine = lines.firstOrNull { 
+            it.contains("Enter this debug secret") || 
+            it.contains("debug secret into the allow list") ||
+            it.contains("DebugAppCheckProvider")
         }
-    }
 
+        // Extract UUID from that line
+        val regex = Regex(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+        )
+        if (targetLine != null) {
+            regex.find(targetLine)?.value
+        } else {
+            // Last resort — find ANY UUID in all logs that looks like App Check token
+            regex.find(logs)?.value
+        }
+    } catch (e: Exception) {
+        null
+    }
+    }
     private fun startRecordingMonitoring() {
         handler = Handler(Looper.getMainLooper())
         recordingCheckRunnable = object : Runnable {
