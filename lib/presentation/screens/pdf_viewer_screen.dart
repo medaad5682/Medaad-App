@@ -301,7 +301,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   params: _buildPdfParams(),
                 ),
           _buildWatermark(),
-          if (_isDrawingMode && _isOffline)
+          if (_isDrawingMode)
             Positioned(bottom: 40, left: 20, right: 20, child: _buildToolbar()),
         ],
       ),
@@ -539,8 +539,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       scrollHorizontallyByMouseWheel:
           PdfLayoutEngine.scrollHorizontallyByMouseWheelFor(_settings.readingMode),
       scrollPhysics: const BouncingScrollPhysics(),
-      // ✅ تفعيل تحديد النص (لازم لتمييز/تسطير النص الحقيقي) فقط عند تفعيل
-      // أداة التمييز أو التسطير، مع منع النسخ تماماً عبر إخفاء القائمة السياقية.
+      // ✅ تفعيل تحديد النص لأدوات التمييز/التسطير دائماً (أونلاين وأوفلاين)
       textSelectionParams: PdfTextSelectionParams(
         enabled: _isDrawingMode &&
             (_activeTool == PdfTool.highlighter || _activeTool == PdfTool.underline),
@@ -568,14 +567,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         if (pageNumber != null) _activePage = pageNumber;
       },
       pageOverlaysBuilder: (context, pageRect, page) {
-        if (!_isOffline) return [];
-        // تحميل نص الصفحة مسبقاً (مطلوب لرسم التمييز/التسطير بشكل متزامن لاحقاً)
+        // تحميل نص الصفحة مسبقاً (للتمييز/التسطير)
         _textCache.ensureLoaded(page);
 
         return [
           Positioned.fill(
             child: FutureBuilder(
-              future: _loadAnnotationsForPage(page.pageNumber),
+              future: _isOffline ? _loadAnnotationsForPage(page.pageNumber) : Future.value(),
               builder: (context, snapshot) {
                 final lines = _pageDrawings[page.pageNumber] ?? [];
                 final allLines = [...lines];
@@ -583,7 +581,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   allLines.add(_currentLine!);
                 }
 
-                final comments = _pageComments[page.pageNumber] ?? [];
+                final comments = _isOffline ? (_pageComments[page.pageNumber] ?? []) : <dynamic>[];
                 final shapes = _shapeController.shapesForPage(page.pageNumber);
                 final shapePreview = _shapeController.drawingShapeForPage(page.pageNumber);
                 final textNotes = _textNoteController.notesForPage(page.pageNumber);
@@ -591,9 +589,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
                 return Stack(
                   children: [
-                    // طبقة الرسم الحر (القلم/الممحاة) + الأشكال + اكتشاف لمس التمييز/التسطير
+                    // طبقة الرسم الحر (القلم/الممحاة) + الأشكال
+                    // تُمرَّر الإيماءات للـ PDF عندما لا توجد أداة نشطة أو عند استخدام
+                    // أدوات التمييز/التسطير (التي تعتمد على تحديد نص الـ PDF مباشرة)
                     IgnorePointer(
-                      ignoring: !_isDrawingMode,
+                      ignoring: !_isDrawingMode ||
+                          _activeTool == PdfTool.none ||
+                          _activeTool == PdfTool.highlighter ||
+                          _activeTool == PdfTool.underline,
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTapUp: (details) => _handleTapUp(details, context, pageRect, page),
@@ -622,14 +625,29 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           child: MovableTextNote(
                             note: note,
                             pageWidth: pageRect.width,
-                            editable: _isDrawingMode && _activeTool == PdfTool.text,
+                            // قابل للتعديل إذا كانت أداة النص نشطة أو إذا كان وضع التعديل
+                            // مفعّلاً ولا توجد أداة أخرى نشطة (كشف ذكي)
+                            editable: _isDrawingMode &&
+                                (_activeTool == PdfTool.text ||
+                                    _activeTool == PdfTool.none),
                             onDragDelta: (delta) =>
                                 _textNoteController.moveNote(page.pageNumber, note, delta),
                             onTap: () {
-                              if (_isDrawingMode && _activeTool == PdfTool.text) {
+                              if (_isDrawingMode) {
+                                // تفعيل أداة النص تلقائياً عند النقر على مربع نص
+                                if (_activeTool != PdfTool.text) {
+                                  setState(() {
+                                    _activeTool = PdfTool.text;
+                                    _highlightController.activeTool = TextMarkupTool.none;
+                                  });
+                                }
                                 _editTextNote(page.pageNumber, note);
                               }
                             },
+                            onDelete: _isDrawingMode
+                                ? () => _textNoteController.deleteNote(
+                                    page.pageNumber, note)
+                                : null,
                           ),
                         )),
 
@@ -637,16 +655,30 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     ...images.map((img) => Positioned(
                           left: img.dx * pageRect.width,
                           top: img.dy * pageRect.height,
-                          child: MovableResizableImage(
-                            image: img,
-                            pageWidth: pageRect.width,
-                            pageHeight: pageRect.height,
-                            editable: _isDrawingMode && _activeTool == PdfTool.image,
-                            onMoveDelta: (delta) =>
-                                _imageController.moveImage(page.pageNumber, img, delta),
-                            onResizeDelta: (delta) =>
-                                _imageController.resizeImage(page.pageNumber, img, delta),
-                            onDelete: () => _imageController.deleteImage(page.pageNumber, img),
+                          child: GestureDetector(
+                            onTap: () {
+                              // كشف ذكي: النقر على صورة يُفعّل أداة الصورة تلقائياً
+                              if (_isDrawingMode && _activeTool != PdfTool.image) {
+                                setState(() {
+                                  _activeTool = PdfTool.image;
+                                  _highlightController.activeTool = TextMarkupTool.none;
+                                });
+                              }
+                            },
+                            child: MovableResizableImage(
+                              image: img,
+                              pageWidth: pageRect.width,
+                              pageHeight: pageRect.height,
+                              editable: _isDrawingMode &&
+                                  (_activeTool == PdfTool.image ||
+                                      _activeTool == PdfTool.none),
+                              onMoveDelta: (delta) =>
+                                  _imageController.moveImage(page.pageNumber, img, delta),
+                              onResizeDelta: (delta) =>
+                                  _imageController.resizeImage(page.pageNumber, img, delta),
+                              onDelete: () =>
+                                  _imageController.deleteImage(page.pageNumber, img),
+                            ),
                           ),
                         )),
 
@@ -1097,68 +1129,150 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   void _editTextNote(int pageNumber, dynamic note, {bool isNew = false}) {
     final controller = TextEditingController(text: note.text as String);
+    // نسخة مؤقتة من الخصائص للمعاينة الفورية قبل الحفظ
+    int previewColor = note.color as int;
+    double previewFontSize = note.fontSize as double;
+    bool previewBold = note.bold as bool;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.backgroundSecondary,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: isNew,
-                maxLines: 3,
-                textDirection: _autoDirection(controller.text),
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
-                decoration: InputDecoration(
-                  hintText: "اكتب النص هنا...",
-                  hintStyle: TextStyle(color: AppColors.textSecondary),
-                  filled: true,
-                  fillColor: AppColors.backgroundPrimary,
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                ),
-                onChanged: (_) {},
-              ),
-              const SizedBox(height: 12),
-              ColorPaletteRow(
-                selectedColor: Color(note.color as int),
-                onColorSelected: (c) => _textNoteController.updateColor(pageNumber, note, c.value),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton.icon(
-                      onPressed: () {
-                        note.text = controller.text;
-                        _textNoteController.commitNote(pageNumber, note);
-                        Navigator.pop(ctx);
-                      },
-                      icon: Icon(Icons.check, color: AppColors.accentYellow),
-                      label: Text("حفظ", style: TextStyle(color: AppColors.accentYellow)),
-                    ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.backgroundSecondary,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // معاينة حية للنص
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.backgroundPrimary,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Color(previewColor).withOpacity(0.5)),
                   ),
-                  if (!isNew)
-                    TextButton.icon(
-                      onPressed: () {
-                        _textNoteController.deleteNote(pageNumber, note);
-                        Navigator.pop(ctx);
-                      },
-                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                      label: const Text("حذف", style: TextStyle(color: Colors.redAccent)),
+                  child: Text(
+                    controller.text.isNotEmpty ? controller.text : "معاينة النص...",
+                    style: TextStyle(
+                      color: Color(previewColor),
+                      fontSize: previewFontSize * 400, // عرض نسبي للمعاينة
+                      fontWeight: previewBold ? FontWeight.bold : FontWeight.normal,
                     ),
-                ],
-              ),
-            ],
+                    textDirection: _autoDirection(controller.text),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: controller,
+                  autofocus: isNew,
+                  maxLines: 3,
+                  textDirection: _autoDirection(controller.text),
+                  style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
+                  decoration: InputDecoration(
+                    hintText: "اكتب النص هنا...",
+                    hintStyle: TextStyle(color: AppColors.textSecondary),
+                    filled: true,
+                    fillColor: AppColors.backgroundPrimary,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  ),
+                  onChanged: (_) => setSheetState(() {}),
+                ),
+                const SizedBox(height: 10),
+                // لوحة الألوان - معاينة فورية
+                ColorPaletteRow(
+                  selectedColor: Color(previewColor),
+                  onColorSelected: (c) {
+                    setSheetState(() => previewColor = c.value);
+                    // تطبيق المعاينة الفورية على العنصر الحالي
+                    _textNoteController.updateColor(pageNumber, note, c.value);
+                  },
+                ),
+                const SizedBox(height: 8),
+                // حجم الخط
+                Row(
+                  children: [
+                    Icon(Icons.format_size, size: 16, color: AppColors.textSecondary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Slider(
+                        value: previewFontSize.clamp(0.010, 0.060),
+                        min: 0.010,
+                        max: 0.060,
+                        divisions: 10,
+                        activeColor: Color(previewColor),
+                        inactiveColor: Color(previewColor).withOpacity(0.3),
+                        onChanged: (v) {
+                          setSheetState(() => previewFontSize = v);
+                          _textNoteController.updateFontSize(pageNumber, note, v);
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 36,
+                      child: Text(
+                        "${(previewFontSize * 1000).toInt()}",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+                // خط عريض
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text("عريض", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    Switch(
+                      value: previewBold,
+                      activeColor: AppColors.accentYellow,
+                      onChanged: (v) {
+                        setSheetState(() => previewBold = v);
+                        _textNoteController.updateBold(pageNumber, note, v);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    // زر الحذف
+                    if (!isNew)
+                      Expanded(
+                        child: TextButton.icon(
+                          onPressed: () {
+                            _textNoteController.deleteNote(pageNumber, note);
+                            Navigator.pop(ctx);
+                          },
+                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                          label: const Text("حذف", style: TextStyle(color: Colors.redAccent)),
+                        ),
+                      ),
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: () {
+                          note.text = controller.text;
+                          _textNoteController.commitNote(pageNumber, note);
+                          Navigator.pop(ctx);
+                        },
+                        icon: Icon(Icons.check, color: AppColors.accentYellow),
+                        label: Text("حفظ", style: TextStyle(color: AppColors.accentYellow)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1230,6 +1344,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           _textNoteController.defaultColor = c.value;
         });
         _persistToolSettings();
+      },
+      textFontSize: _settings.textFontSize,
+      onTextFontSizeChanged: (v) {
+        setState(() {
+          _settings.textFontSize = v;
+          _textNoteController.defaultFontSize = v;
+        });
+        _persistToolSettings();
+      },
+      textBold: _textNoteController.defaultBold,
+      onTextBoldChanged: (v) {
+        setState(() => _textNoteController.defaultBold = v);
       },
       shapeType: _shapeController.activeType,
       onShapeTypeChanged: (t) => setState(() => _shapeController.activeType = t),
