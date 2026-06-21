@@ -2,7 +2,8 @@
 enum PdfTool {
   none,
   pen,
-  highlighter, // تمييز نص حقيقي (وليس رسم حر كما كان سابقاً)
+  highlighter,        // تمييز نص حقيقي (مرتبط بتحديد النص)
+  freehandHighlighter, // تمييز حر بالرسم اليدوي (هايلايتر قلم)
   eraser,
   comment, // أداة "الملاحظات" القديمة (أيقونة + نص)
   underline,
@@ -20,7 +21,9 @@ extension PdfToolLabel on PdfTool {
       case PdfTool.pen:
         return 'قلم';
       case PdfTool.highlighter:
-        return 'تمييز';
+        return 'تمييز نص';
+      case PdfTool.freehandHighlighter:
+        return 'تمييز حر';
       case PdfTool.eraser:
         return 'ممحاة';
       case PdfTool.comment:

@@ -135,17 +135,32 @@ class PdfShapeController {
   }
 
   void _paintOne(Canvas canvas, Size pageSize, ShapeModel s) {
+    // للمربع: نجبر المسافة على التساوي (أصغر البعدين)
+    double startX = s.startDx;
+    double startY = s.startDy;
+    double endX = s.endDx;
+    double endY = s.endDy;
+
+    if (s.type == ShapeType.square) {
+      final dx = endX - startX;
+      final dy = endY - startY;
+      final side = math.min(dx.abs(), dy.abs());
+      endX = startX + (dx.sign * side);
+      endY = startY + (dy.sign * side);
+    }
+
     final rect = Rect.fromLTRB(
-      math.min(s.startDx, s.endDx) * pageSize.width,
-      math.min(s.startDy, s.endDy) * pageSize.height,
-      math.max(s.startDx, s.endDx) * pageSize.width,
-      math.max(s.startDy, s.endDy) * pageSize.height,
+      math.min(startX, endX) * pageSize.width,
+      math.min(startY, endY) * pageSize.height,
+      math.max(startX, endX) * pageSize.width,
+      math.max(startY, endY) * pageSize.height,
     );
     final borderPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = s.borderWidth * pageSize.width
       ..color = Color(s.borderColor);
-    final fillPaint = s.fillColor != null
+    // السهم لا يحتوي على تعبئة أبداً
+    final fillPaint = (s.fillColor != null && s.type != ShapeType.arrow)
         ? (Paint()
           ..style = PaintingStyle.fill
           ..color = Color(s.fillColor!))
@@ -179,14 +194,22 @@ class PdfShapeController {
     final length = direction.distance;
     if (length < 1) return;
     final unit = direction / length;
-    final arrowSize = math.max(10.0, paint.strokeWidth * 4);
+    final arrowSize = math.max(14.0, paint.strokeWidth * 5);
 
-    // زاوية رأس السهم (حوالي 28 درجة عن خط الاتجاه)
-    const angle = 0.49; // راديان
-    final normal = Offset(-unit.dy, unit.dx);
+    // رأس مثلث حقيقي بزاوية ثابتة ≈ 40 درجة عن كل جانب
+    const halfAngle = 0.35; // راديان (~20 درجة)
+    final cos = math.cos(halfAngle);
+    final sin = math.sin(halfAngle);
 
-    final p1 = end - unit * arrowSize + normal * arrowSize * math.sin(angle);
-    final p2 = end - unit * arrowSize - normal * arrowSize * math.sin(angle);
+    // نقطتا قاعدة المثلث (مع التدوير حول نقطة النهاية)
+    final p1 = Offset(
+      end.dx - arrowSize * (unit.dx * cos - unit.dy * sin),
+      end.dy - arrowSize * (unit.dy * cos + unit.dx * sin),
+    );
+    final p2 = Offset(
+      end.dx - arrowSize * (unit.dx * cos + unit.dy * sin),
+      end.dy - arrowSize * (unit.dy * cos - unit.dx * sin),
+    );
 
     final headPath = Path()
       ..moveTo(end.dx, end.dy)
