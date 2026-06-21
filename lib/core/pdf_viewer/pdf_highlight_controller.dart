@@ -27,7 +27,8 @@ class PdfHighlightController {
   final VoidCallback onChanged;
 
   TextMarkupTool activeTool = TextMarkupTool.none;
-  int activeColor = 0xFFFFEB3B; // أصفر افتراضي للتمييز
+  int highlightColor = 0xFFFFEB3B; // أصفر افتراضي للتمييز
+  int underlineColor = 0xFFEF4444; // أحمر افتراضي للتسطير
   double highlightOpacity = 0.4;
 
   final Map<int, List<HighlightModel>> _highlights = {};
@@ -79,7 +80,7 @@ class PdfHighlightController {
           pageNumber: range.pageNumber,
           start: range.start,
           end: range.end,
-          color: activeColor,
+          color: highlightColor,
           opacity: highlightOpacity,
         ));
         await _persistHighlights(range.pageNumber);
@@ -90,7 +91,7 @@ class PdfHighlightController {
           pageNumber: range.pageNumber,
           start: range.start,
           end: range.end,
-          color: activeColor,
+          color: underlineColor,
         ));
         await _persistUnderlines(range.pageNumber);
       }
