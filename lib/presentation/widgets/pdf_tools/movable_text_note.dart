@@ -4,11 +4,11 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/models/text_note_model.dart';
 
 /// عنصر نص واحد موضوع على صفحة الـ PDF:
-/// - قابل للسحب (في وضع التعديل).
+/// - قابل للسحب المباشر في وضع التعديل (بدون الحاجة لتفعيل أداة النص).
 /// - يحتوي على أيقونة حذف في الزاوية العلوية اليسرى.
 /// - النقر عليه في وضع التعديل يفتح محرر نص موسّع يشمل:
 ///   ضبط حجم الخط، تغيير اللون بمعاينة فورية، وخيار الحذف.
-class MovableTextNote extends StatelessWidget {
+class MovableTextNote extends StatefulWidget {
   final TextNoteModel note;
   final double pageWidth;
   final bool editable;
@@ -27,46 +27,72 @@ class MovableTextNote extends StatelessWidget {
   });
 
   @override
+  State<MovableTextNote> createState() => _MovableTextNoteState();
+}
+
+class _MovableTextNoteState extends State<MovableTextNote> {
+  bool _isDragging = false;
+
+  @override
   Widget build(BuildContext context) {
-    final fontSize = note.fontSize * pageWidth;
+    final fontSize = widget.note.fontSize * widget.pageWidth;
+
     return Stack(
       clipBehavior: Clip.none,
       children: [
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          onPanUpdate: editable
-              ? (details) => onDragDelta(
-                    Offset(details.delta.dx / pageWidth, details.delta.dy / pageWidth))
+          // ── السحب المباشر: يعمل في وضع التعديل بدون الحاجة لتفعيل أداة النص ──
+          onPanStart: widget.editable
+              ? (_) => setState(() => _isDragging = true)
               : null,
+          onPanUpdate: widget.editable
+              ? (details) => widget.onDragDelta(
+                    Offset(
+                      details.delta.dx / widget.pageWidth,
+                      details.delta.dy / widget.pageWidth,
+                    ),
+                  )
+              : null,
+          onPanEnd: widget.editable
+              ? (_) => setState(() => _isDragging = false)
+              : null,
+          onTap: _isDragging ? null : widget.onTap,
           child: Container(
-            constraints: BoxConstraints(maxWidth: pageWidth * 0.8),
+            constraints: BoxConstraints(maxWidth: widget.pageWidth * 0.8),
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            decoration: editable
+            decoration: widget.editable
                 ? BoxDecoration(
                     border: Border.all(
-                        color: AppColors.accentYellow.withOpacity(0.7), width: 1.2),
+                      color: _isDragging
+                          ? AppColors.accentYellow
+                          : AppColors.accentYellow.withOpacity(0.7),
+                      width: _isDragging ? 2.0 : 1.2,
+                    ),
                     borderRadius: BorderRadius.circular(4),
+                    color: _isDragging
+                        ? AppColors.accentYellow.withOpacity(0.05)
+                        : null,
                   )
                 : null,
             child: Text(
-              note.text,
+              widget.note.text,
               style: TextStyle(
-                color: Color(note.color),
+                color: Color(widget.note.color),
                 fontSize: fontSize,
-                fontWeight: note.bold ? FontWeight.bold : FontWeight.normal,
+                fontWeight: widget.note.bold ? FontWeight.bold : FontWeight.normal,
               ),
-              textDirection: _detectDirection(note.text),
+              textDirection: _detectDirection(widget.note.text),
             ),
           ),
         ),
         // أيقونة الحذف في الزاوية العلوية اليسرى (تظهر فقط في وضع التعديل)
-        if (editable && onDelete != null)
+        if (widget.editable && widget.onDelete != null)
           Positioned(
             left: -10,
             top: -10,
             child: GestureDetector(
-              onTap: onDelete,
+              onTap: widget.onDelete,
               child: Container(
                 width: 22,
                 height: 22,
