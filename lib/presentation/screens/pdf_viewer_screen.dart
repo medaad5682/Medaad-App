@@ -1,22 +1,40 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:math';
-import 'dart:ui';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:pdfrx/pdfrx.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/file_crypto_service.dart';
+import '../../core/services/storage_service.dart';
+import '../../core/services/pdf_annotation_store.dart';
+import '../../core/constants/api_constants.dart';
+
 import '../../core/models/drawing_model.dart';
 import '../../core/models/comment_model.dart';
-import '../../core/services/storage_service.dart';
-import '../../core/constants/api_constants.dart';
+import '../../core/models/shape_model.dart';
+import '../../core/models/highlight_model.dart';
+import '../../core/models/pdf_tool_settings.dart';
+
+import '../../core/pdf_viewer/pdf_tool.dart';
+import '../../core/pdf_viewer/pdf_layout_engine.dart';
+import '../../core/pdf_viewer/pdf_page_text_cache.dart';
+import '../../core/pdf_viewer/pdf_highlight_controller.dart';
+import '../../core/pdf_viewer/pdf_shape_controller.dart';
+import '../../core/pdf_viewer/pdf_text_note_controller.dart';
+import '../../core/pdf_viewer/pdf_image_annotation_controller.dart';
+import '../../core/pdf_viewer/palm_rejection_filter.dart';
+
+import '../widgets/pdf_tools/pdf_annotation_toolbar.dart';
+import '../widgets/pdf_tools/movable_text_note.dart';
+import '../widgets/pdf_tools/movable_resizable_image.dart';
+import '../widgets/pdf_tools/color_palette_row.dart';
 
 class PdfViewerScreen extends StatefulWidget {
   final String pdfId;
@@ -32,7 +50,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   final PdfViewerController _pdfController = PdfViewerController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  // --- متغيرات فك التشفير ---
+  // --- متغيرات فك التشفير (بدون أي تغيير عن النسخة الأصلية) ---
   File? _encryptedFile;
   int? _originalFileSize;
   String? _sessionToken;
@@ -47,18 +65,30 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   bool _isOffline = false;
   String _watermarkText = '';
 
-  // --- أدوات الرسم والتعليقات ---
+  // --- إعدادات الأدوات والقراءة (محفوظة بين الجلسات) ---
+  late PdfAnnotationStore _store;
+  PdfToolSettings _settings = PdfToolSettings();
+  CommentDefaults _commentDefaults = CommentDefaults();
+
   bool _isDrawingMode = false;
-  int _selectedTool = 0; // 0=Pen, 1=Highlighter, 2=Eraser, 3=Comment
-  Color _selectedColor = Colors.red;
-  double _penSize = 0.003;
-  double _highlightSize = 0.035;
+  PdfTool _activeTool = PdfTool.none;
+
+  // القلم/الممحاة (الرسم الحر) - يبقى كما كان
+  Map<int, List<DrawingLine>> _pageDrawings = {};
+  DrawingLine? _currentLine;
   double _eraserSize = 0.04;
 
-  Map<int, List<DrawingLine>> _pageDrawings = {};
+  // الملاحظات (Notes)
   Map<int, List<CommentModel>> _pageComments = {};
 
-  DrawingLine? _currentLine;
+  // المحركات الجديدة لكل أداة
+  late PdfHighlightController _highlightController;
+  late PdfShapeController _shapeController;
+  late PdfTextNoteController _textNoteController;
+  late PdfImageAnnotationController _imageController;
+  final PdfPageTextCache _textCache = PdfPageTextCache();
+  final PalmRejectionFilter _palmFilter = PalmRejectionFilter();
+
   int _activePage = 0;
   int _totalPages = 0;
 
@@ -66,7 +96,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void initState() {
     super.initState();
     _sessionToken = _generateSecureToken();
+    _store = PdfAnnotationStore(widget.pdfId);
+    _highlightController = PdfHighlightController(
+      store: _store,
+      textCache: _textCache,
+      onChanged: () => setState(() {}),
+    );
+    _shapeController = PdfShapeController(store: _store, onChanged: () => setState(() {}));
+    _textNoteController = PdfTextNoteController(store: _store, onChanged: () => setState(() {}));
+    _imageController = PdfImageAnnotationController(
+      pdfId: widget.pdfId,
+      store: _store,
+      onChanged: () => setState(() {}),
+    );
     _initWatermarkText();
+    _loadToolSettings();
     _preparePdf();
   }
 
@@ -87,8 +131,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       if (_sessionToken == null) throw Exception("Unauthorized access context");
       if (_encryptedFile == null) throw Exception("File not initialized");
 
-      final decryptedData = await FileCryptoService.readAndDecryptRange(
-          _encryptedFile!, position, size);
+      final decryptedData =
+          await FileCryptoService.readAndDecryptRange(_encryptedFile!, position, size);
 
       if (decryptedData.isNotEmpty) {
         buffer.setRange(0, decryptedData.length, decryptedData);
@@ -104,9 +148,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   Future<void> _initWatermarkText() async {
     String displayText = '';
     if (AppState().userData != null) {
-      displayText = AppState().userData!['phone'] != null
-          ? AppState().userData!['phone']
-          : '';
+      displayText =
+          AppState().userData!['phone'] != null ? AppState().userData!['phone'] : '';
     }
     if (displayText.isEmpty) {
       try {
@@ -117,67 +160,56 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       }
     }
     if (mounted) {
-      setState(() => _watermarkText = displayText.isNotEmpty
-          ? displayText
-          : AppState().userData!['username'] ?? 'Unknown User');
+      setState(() => _watermarkText =
+          displayText.isNotEmpty ? displayText : AppState().userData!['username'] ?? 'Unknown User');
     }
   }
 
-  // ✅ حفظ الرسم والتعليقات معاً
+  Future<void> _loadToolSettings() async {
+    final settings = await PdfAnnotationStore.loadGlobalSettings();
+    final defaults = await PdfAnnotationStore.loadCommentDefaults();
+    if (!mounted) return;
+    setState(() {
+      _settings = settings;
+      _commentDefaults = defaults;
+      _palmFilter.enabled = settings.palmRejectionEnabled;
+      _highlightController.highlightColor = settings.highlighterColor;
+      _highlightController.underlineColor = settings.underlineColor;
+      _highlightController.highlightOpacity = settings.highlighterOpacity;
+      _shapeController.borderColor = settings.shapeBorderColor;
+      _shapeController.fillColor = settings.shapeFillColor;
+      _shapeController.borderWidth = settings.shapeBorderWidth;
+      _textNoteController.defaultColor = settings.textColor;
+      _textNoteController.defaultFontSize = settings.textFontSize;
+    });
+  }
+
+  Future<void> _persistToolSettings() => PdfAnnotationStore.saveGlobalSettings(_settings);
+
+  // ✅ حفظ الرسم والتعليقات (نفس منطق النسخة الأصلية، يستخدم الآن PdfAnnotationStore)
   Future<void> _saveAnnotationsToHive() async {
     try {
-      final box = await StorageService.openBox('pdf_drawings_db');
-
-      // حفظ الرسومات
       for (var entry in _pageDrawings.entries) {
-        if (entry.value.isNotEmpty) {
-          final serialized = entry.value.map((l) => l.toJson()).toList();
-          await box.put('${widget.pdfId}_${entry.key}', serialized);
-        }
+        await _store.saveDrawings(entry.key, entry.value);
       }
-
-      // حفظ التعليقات
       for (var entry in _pageComments.entries) {
-        if (entry.value.isNotEmpty) {
-          final serializedComments =
-              entry.value.map((c) => c.toJson()).toList();
-          await box.put(
-              '${widget.pdfId}_${entry.key}_comments', serializedComments);
-        } else {
-          await box.delete('${widget.pdfId}_${entry.key}_comments');
-        }
+        await _store.saveComments(entry.key, entry.value);
       }
     } catch (_) {}
   }
 
-  // ✅ جلب الرسومات والتعليقات معاً
+  // ✅ جلب كل أنواع التعليقات/الرسومات لصفحة معينة (يضيف الأنواع الجديدة على القديمة)
   Future<void> _loadAnnotationsForPage(int pageNumber) async {
-    final box = await StorageService.openBox('pdf_drawings_db');
-
-    // جلب الرسومات
     if (!_pageDrawings.containsKey(pageNumber)) {
-      final dynamic data = box.get('${widget.pdfId}_$pageNumber');
-      List<DrawingLine> lines = [];
-      if (data != null) {
-        lines = (data as List<dynamic>)
-            .map((e) => DrawingLine.fromJson(Map<String, dynamic>.from(e)))
-            .toList();
-      }
-      _pageDrawings[pageNumber] = lines;
+      _pageDrawings[pageNumber] = await _store.loadDrawings(pageNumber);
     }
-
-    // جلب التعليقات
     if (!_pageComments.containsKey(pageNumber)) {
-      final dynamic commentData =
-          box.get('${widget.pdfId}_${pageNumber}_comments');
-      List<CommentModel> comments = [];
-      if (commentData != null) {
-        comments = (commentData as List<dynamic>)
-            .map((e) => CommentModel.fromJson(Map<String, dynamic>.from(e)))
-            .toList();
-      }
-      _pageComments[pageNumber] = comments;
+      _pageComments[pageNumber] = await _store.loadComments(pageNumber);
     }
+    await _highlightController.ensurePageLoaded(pageNumber);
+    await _shapeController.ensurePageLoaded(pageNumber);
+    await _textNoteController.ensurePageLoaded(pageNumber);
+    await _imageController.ensurePageLoaded(pageNumber);
   }
 
   Future<void> _preparePdf() async {
@@ -197,10 +229,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         if (await file.exists()) {
           final totalSize = await file.length();
 
-          int numChunks =
-              (totalSize / FileCryptoService.ENCRYPTED_CHUNK_SIZE).ceil();
-          int originalSize =
-              totalSize - (numChunks * FileCryptoService.NONCE_LENGTH);
+          int numChunks = (totalSize / FileCryptoService.ENCRYPTED_CHUNK_SIZE).ceil();
+          int originalSize = totalSize - (numChunks * FileCryptoService.NONCE_LENGTH);
 
           if (mounted) {
             setState(() {
@@ -229,18 +259,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         'x-app-secret': const String.fromEnvironment('APP_SECRET'),
       };
 
-      _onlineUrl =
-          '${ApiConstants.apiUrl}/secure/get-pdf?pdfId=${widget.pdfId}';
+      _onlineUrl = '${ApiConstants.apiUrl}/secure/get-pdf?pdfId=${widget.pdfId}';
 
       if (mounted) setState(() => _loading = false);
     } catch (e, stack) {
-      FirebaseCrashlytics.instance
-          .recordError(e, stack, reason: "PDF Secure Load Failed");
-      if (mounted)
+      FirebaseCrashlytics.instance.recordError(e, stack, reason: "PDF Secure Load Failed");
+      if (mounted) {
         setState(() {
           _error = "فشل فتح الملف المحمي.";
           _loading = false;
         });
+      }
     }
   }
 
@@ -278,7 +307,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  // --- Widgets ---
+  // --- Widgets أساسية (محافظة على شكل التطبيق الأصلي) ---
 
   Widget _buildLoadingView() {
     return Scaffold(
@@ -290,9 +319,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             CircularProgressIndicator(color: AppColors.accentYellow),
             const SizedBox(height: 20),
             Text(_loadingMessage,
-                style: TextStyle(
-                    color: AppColors.accentYellow,
-                    fontWeight: FontWeight.bold)),
+                style: TextStyle(color: AppColors.accentYellow, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
@@ -303,10 +330,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     return Scaffold(
         backgroundColor: AppColors.backgroundPrimary,
         appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            leading: const BackButton(color: Colors.white)),
-        body: Center(
-            child: Text(_error!, style: const TextStyle(color: Colors.white))));
+            backgroundColor: Colors.transparent, leading: const BackButton(color: Colors.white)),
+        body: Center(child: Text(_error!, style: const TextStyle(color: Colors.white))));
   }
 
   PreferredSizeWidget _buildAppBar() {
@@ -333,6 +358,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             if (context.mounted) Navigator.pop(context);
           }),
       actions: [
+        _buildReadingModeButton(),
         IconButton(
           icon: Icon(LucideIcons.list, color: AppColors.accentYellow),
           onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
@@ -341,16 +367,60 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
+  /// زر اختيار وضع القراءة (عمودي / أفقي / صفحتان جنباً إلى جنب).
+  Widget _buildReadingModeButton() {
+    return PopupMenuButton<PdfReadingMode>(
+      icon: Icon(_readingModeIcon(_settings.readingMode), color: AppColors.accentYellow),
+      tooltip: 'وضع القراءة',
+      color: AppColors.backgroundSecondary,
+      onSelected: (mode) {
+        setState(() => _settings.readingMode = mode);
+        _persistToolSettings();
+      },
+      itemBuilder: (context) => [
+        _readingModeMenuItem(PdfReadingMode.vertical, 'عمودي', Icons.swap_vert),
+        _readingModeMenuItem(PdfReadingMode.horizontal, 'أفقي', Icons.swap_horiz),
+        _readingModeMenuItem(PdfReadingMode.twoPage, 'صفحتان جنباً إلى جنب', Icons.menu_book),
+      ],
+    );
+  }
+
+  IconData _readingModeIcon(PdfReadingMode mode) {
+    switch (mode) {
+      case PdfReadingMode.vertical:
+        return Icons.swap_vert;
+      case PdfReadingMode.horizontal:
+        return Icons.swap_horiz;
+      case PdfReadingMode.twoPage:
+        return Icons.menu_book;
+    }
+  }
+
+  PopupMenuItem<PdfReadingMode> _readingModeMenuItem(
+      PdfReadingMode mode, String label, IconData icon) {
+    final bool selected = _settings.readingMode == mode;
+    return PopupMenuItem(
+      value: mode,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: selected ? AppColors.accentYellow : AppColors.textSecondary),
+          const SizedBox(width: 10),
+          Text(label,
+              style: TextStyle(
+                  color: selected ? AppColors.accentYellow : AppColors.textPrimary,
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBadge() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: _isOffline
-            ? Colors.green.withOpacity(0.2)
-            : Colors.blue.withOpacity(0.2),
+        color: _isOffline ? Colors.green.withOpacity(0.2) : Colors.blue.withOpacity(0.2),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: _isOffline ? Colors.green : Colors.blue, width: 1),
+        border: Border.all(color: _isOffline ? Colors.green : Colors.blue, width: 1),
       ),
       child: Row(
         children: [
@@ -369,7 +439,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   Widget _buildPenIcon() {
     return GestureDetector(
-      onTap: () => setState(() => _isDrawingMode = !_isDrawingMode),
+      onTap: () => setState(() {
+        _isDrawingMode = !_isDrawingMode;
+        if (!_isDrawingMode) {
+          _activeTool = PdfTool.none;
+          _highlightController.activeTool = TextMarkupTool.none;
+        }
+      }),
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
@@ -377,8 +453,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             shape: BoxShape.circle,
             border: Border.all(color: AppColors.accentYellow.withOpacity(0.5))),
         child: Icon(LucideIcons.penTool,
-            color: _isDrawingMode ? Colors.black : AppColors.accentYellow,
-            size: 16),
+            color: _isDrawingMode ? Colors.black : AppColors.accentYellow, size: 16),
       ),
     );
   }
@@ -419,16 +494,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             padding: const EdgeInsets.fromLTRB(16, 40, 16, 16),
             child: Text("فهرس الصفحات",
                 style: TextStyle(
-                    color: AppColors.accentYellow,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16)),
+                    color: AppColors.accentYellow, fontWeight: FontWeight.bold, fontSize: 16)),
           ),
           const Divider(color: Colors.white10),
           Expanded(
             child: _totalPages == 0
-                ? Center(
-                    child: CircularProgressIndicator(
-                        color: AppColors.accentYellow))
+                ? Center(child: CircularProgressIndicator(color: AppColors.accentYellow))
                 : ListView.builder(
                     itemCount: _totalPages,
                     itemBuilder: (context, index) {
@@ -437,16 +508,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                       return ListTile(
                         title: Text("صفحة $pageNum",
                             style: TextStyle(
-                                color: isCurrent
-                                    ? AppColors.accentYellow
-                                    : AppColors.textPrimary,
-                                fontWeight: isCurrent
-                                    ? FontWeight.bold
-                                    : FontWeight.normal)),
+                                color: isCurrent ? AppColors.accentYellow : AppColors.textPrimary,
+                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal)),
                         leading: Icon(LucideIcons.fileText,
-                            color: isCurrent
-                                ? AppColors.accentYellow
-                                : AppColors.textSecondary,
+                            color: isCurrent ? AppColors.accentYellow : AppColors.textSecondary,
                             size: 18),
                         onTap: () {
                           _pdfController.goToPage(pageNumber: pageNum);
@@ -461,17 +526,36 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
+  // --- إعداد عارض PDF ---
+
   PdfViewerParams _buildPdfParams() {
+    final layout = PdfLayoutEngine.layoutFor(_settings.readingMode);
     return PdfViewerParams(
       backgroundColor: AppColors.backgroundPrimary,
-      textSelectionParams: const PdfTextSelectionParams(enabled: false),
+      layoutPages: layout,
+      pageAnchor: PdfLayoutEngine.anchorStartFor(_settings.readingMode),
+      pageAnchorEnd: PdfLayoutEngine.anchorEndFor(_settings.readingMode),
+      scrollHorizontallyByMouseWheel:
+          PdfLayoutEngine.scrollHorizontallyByMouseWheelFor(_settings.readingMode),
       scrollPhysics: const BouncingScrollPhysics(),
+      // ✅ تفعيل تحديد النص (لازم لتمييز/تسطير النص الحقيقي) فقط عند تفعيل
+      // أداة التمييز أو التسطير، مع منع النسخ تماماً عبر إخفاء القائمة السياقية.
+      textSelectionParams: PdfTextSelectionParams(
+        enabled: _isDrawingMode &&
+            (_activeTool == PdfTool.highlighter || _activeTool == PdfTool.underline),
+        onTextSelectionChange: (selection) =>
+            _highlightController.handleTextSelectionChange(selection, _pdfController),
+      ),
+      buildContextMenu: (context, params) => null, // ✅ منع ظهور قائمة "نسخ" نهائياً
+      pagePaintCallbacks: [
+        _highlightController.paint,
+      ],
       loadingBannerBuilder: (context, bytesDownloaded, totalBytes) {
         return Center(
           child: Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-                color: Colors.black54, borderRadius: BorderRadius.circular(12)),
+            decoration:
+                BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
             child: CircularProgressIndicator(color: AppColors.accentYellow),
           ),
         );
@@ -479,119 +563,140 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       onDocumentChanged: (document) {
         if (mounted) setState(() => _totalPages = document?.pages.length ?? 0);
       },
+      onPageChanged: (pageNumber) {
+        if (pageNumber != null) _activePage = pageNumber;
+      },
       pageOverlaysBuilder: (context, pageRect, page) {
         if (!_isOffline) return [];
+        // تحميل نص الصفحة مسبقاً (مطلوب لرسم التمييز/التسطير بشكل متزامن لاحقاً)
+        _textCache.ensureLoaded(page);
+
         return [
           Positioned.fill(
             child: FutureBuilder(
               future: _loadAnnotationsForPage(page.pageNumber),
               builder: (context, snapshot) {
-                // 1. تجهيز الرسومات
                 final lines = _pageDrawings[page.pageNumber] ?? [];
                 final allLines = [...lines];
-                if (_isDrawingMode &&
-                    _currentLine != null &&
-                    _activePage == page.pageNumber) {
+                if (_isDrawingMode && _currentLine != null && _activePage == page.pageNumber) {
                   allLines.add(_currentLine!);
                 }
 
-                // 2. تجهيز التعليقات
                 final comments = _pageComments[page.pageNumber] ?? [];
+                final shapes = _shapeController.shapesForPage(page.pageNumber);
+                final shapePreview = _shapeController.drawingShapeForPage(page.pageNumber);
+                final textNotes = _textNoteController.notesForPage(page.pageNumber);
+                final images = _imageController.imagesForPage(page.pageNumber);
 
                 return Stack(
                   children: [
-                    // طبقة الرسم والخلفية (تضيف تعليقات جديدة)
+                    // طبقة الرسم الحر (القلم/الممحاة) + الأشكال + اكتشاف لمس التمييز/التسطير
                     IgnorePointer(
                       ignoring: !_isDrawingMode,
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTapUp: (details) {
-                          if (_selectedTool == 3) {
-                            _addComment(
-                                details, context, pageRect, page.pageNumber);
-                          }
-                        },
-                        onPanStart: (details) {
-                          if (_selectedTool != 3)
-                            _startStroke(details, context, pageRect, page);
-                        },
-                        onPanUpdate: (details) {
-                          if (_selectedTool != 3)
-                            _updateStroke(details, context, pageRect);
-                        },
-                        onPanEnd: (details) {
-                          if (_selectedTool != 3) _endStroke(page);
-                        },
+                        onTapUp: (details) => _handleTapUp(details, context, pageRect, page),
+                        onPanStart: (details) =>
+                            _handlePanStart(details, context, pageRect, page),
+                        onPanUpdate: (details) =>
+                            _handlePanUpdate(details, context, pageRect, page),
+                        onPanEnd: (details) => _handlePanEnd(page),
                         child: CustomPaint(
-                          painter: RelativeSketchPainter(
-                              lines: allLines, pageSize: pageRect.size),
+                          painter: _CombinedOverlayPainter(
+                            lines: allLines,
+                            shapes: shapes,
+                            shapePreview: shapePreview,
+                            pageSize: pageRect.size,
+                            shapeController: _shapeController,
+                          ),
                           size: Size.infinite,
                         ),
                       ),
                     ),
 
-                    // طبقة أيقونات التعليقات المضافة مسبقاً
-                    if (_isOffline)
-                      ...comments.map((comment) {
-                        // استخراج اللون الأساسي والشفافية
-                        Color solidColor =
-                            Color(comment.color).withOpacity(1.0);
-                        double currentOpacity = Color(comment.color).opacity;
+                    // طبقة النصوص المكتوبة
+                    ...textNotes.map((note) => Positioned(
+                          left: note.dx * pageRect.width,
+                          top: note.dy * pageRect.height,
+                          child: MovableTextNote(
+                            note: note,
+                            pageWidth: pageRect.width,
+                            editable: _isDrawingMode && _activeTool == PdfTool.text,
+                            onDragDelta: (delta) =>
+                                _textNoteController.moveNote(page.pageNumber, note, delta),
+                            onTap: () {
+                              if (_isDrawingMode && _activeTool == PdfTool.text) {
+                                _editTextNote(page.pageNumber, note);
+                              }
+                            },
+                          ),
+                        )),
 
-                        return Positioned(
-                          left: (comment.dx * pageRect.width) -
-                              (20 * comment.scale),
-                          top: (comment.dy * pageRect.height) -
-                              (20 * comment.scale),
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onScaleStart: _isDrawingMode ? (_) {} : null,
-                            onScaleEnd: _isDrawingMode ? (_) {} : null,
-                            onScaleUpdate: _isDrawingMode
-                                ? (details) {
-                                    setState(() {
-                                      if (details.pointerCount == 1) {
-                                        // ✅ سحب وتحريك فقط (تم إلغاء التكبير بالأصابع)
-                                        comment.dx +=
-                                            details.focalPointDelta.dx /
-                                                pageRect.width;
-                                        comment.dy +=
-                                            details.focalPointDelta.dy /
-                                                pageRect.height;
-                                      }
-                                    });
-                                  }
-                                : null,
-                            onTap: () =>
-                                _showCommentDialog(page.pageNumber, comment),
-                            child: Transform.scale(
-                              scale: comment.scale,
-                              child: Opacity(
-                                opacity:
-                                    currentOpacity, // ✅ تطبيق الشفافية المحددة
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                      color: AppColors.backgroundSecondary
-                                          .withOpacity(0.85),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                          color: solidColor, width: 1.5),
-                                      boxShadow: [
-                                        BoxShadow(
-                                            color:
-                                                Colors.black.withOpacity(0.4),
-                                            blurRadius: 4,
-                                            offset: const Offset(0, 2))
-                                      ]),
-                                  child: Icon(Icons.comment_rounded,
-                                      color: solidColor, size: 24),
-                                ),
+                    // طبقة الصور المُدرجة
+                    ...images.map((img) => Positioned(
+                          left: img.dx * pageRect.width,
+                          top: img.dy * pageRect.height,
+                          child: MovableResizableImage(
+                            image: img,
+                            pageWidth: pageRect.width,
+                            pageHeight: pageRect.height,
+                            editable: _isDrawingMode && _activeTool == PdfTool.image,
+                            onMoveDelta: (delta) =>
+                                _imageController.moveImage(page.pageNumber, img, delta),
+                            onResizeDelta: (delta) =>
+                                _imageController.resizeImage(page.pageNumber, img, delta),
+                            onDelete: () => _imageController.deleteImage(page.pageNumber, img),
+                          ),
+                        )),
+
+                    // طبقة أيقونات الملاحظات (Comments) - نفس المنطق الأصلي
+                    ...comments.map((comment) {
+                      Color solidColor = Color(comment.color).withOpacity(1.0);
+                      double currentOpacity = Color(comment.color).opacity;
+
+                      return Positioned(
+                        left: (comment.dx * pageRect.width) - (20 * comment.scale),
+                        top: (comment.dy * pageRect.height) - (20 * comment.scale),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onScaleStart:
+                              (_isDrawingMode && _activeTool == PdfTool.comment) ? (_) {} : null,
+                          onScaleEnd:
+                              (_isDrawingMode && _activeTool == PdfTool.comment) ? (_) {} : null,
+                          onScaleUpdate: (_isDrawingMode && _activeTool == PdfTool.comment)
+                              ? (details) {
+                                  setState(() {
+                                    if (details.pointerCount == 1) {
+                                      comment.dx += details.focalPointDelta.dx / pageRect.width;
+                                      comment.dy += details.focalPointDelta.dy / pageRect.height;
+                                    }
+                                  });
+                                }
+                              : null,
+                          onTap: () => _showCommentDialog(page.pageNumber, comment),
+                          child: Transform.scale(
+                            scale: comment.scale,
+                            child: Opacity(
+                              opacity: currentOpacity,
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                    color: AppColors.backgroundSecondary.withOpacity(0.85),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: solidColor, width: 1.5),
+                                    boxShadow: [
+                                      BoxShadow(
+                                          color: Colors.black.withOpacity(0.4),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2))
+                                    ]),
+                                child: Icon(Icons.comment_rounded, color: solidColor, size: 24),
                               ),
                             ),
                           ),
-                        );
-                      }),
+                        ),
+                      );
+                    }),
                   ],
                 );
               },
@@ -602,333 +707,593 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  // --- منطق التعليقات ---
+  // --- معالجة الإيماءات الموحّدة (تحترم رفض راحة اليد) ---
 
-  void _addComment(TapUpDetails details, BuildContext context, Rect pageRect,
-      int pageNumber) {
-    if (!_isDrawingMode || _selectedTool != 3) return;
+  bool _palmAllows(PointerDeviceKind? kind) => _palmFilter.isAllowed(kind);
+
+  void _handleTapUp(TapUpDetails details, BuildContext context, Rect pageRect, PdfPage page) {
+    if (!_isDrawingMode) return;
+    if (!_palmAllows(details.kind)) return;
 
     final renderBox = context.findRenderObject() as RenderBox;
     final localPos = renderBox.globalToLocal(details.globalPosition);
-    final relativePoint =
-        Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
+    final relativePoint = Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
 
+    switch (_activeTool) {
+      case PdfTool.comment:
+        _addComment(relativePoint, page.pageNumber);
+        break;
+      case PdfTool.text:
+        final note = _textNoteController.addNote(page.pageNumber, relativePoint);
+        _editTextNote(page.pageNumber, note, isNew: true);
+        break;
+      case PdfTool.highlighter:
+      case PdfTool.underline:
+        // النقر على تمييز/تسطير موجود مسبقاً (دون سحب) يفتح قائمة تعديل اللون أو الحذف،
+        // بدلاً من بدء تحديد نص جديد.
+        _tryEditExistingMarkup(localPos, pageRect, page);
+        break;
+      case PdfTool.shape:
+        _tryEditExistingShape(relativePoint, page.pageNumber);
+        break;
+      case PdfTool.image:
+        // الصور تُضاف من شريط الأدوات مباشرة (زر اختيار صورة)، لا من النقر على الصفحة.
+        break;
+      default:
+        break;
+    }
+  }
+
+  void _tryEditExistingMarkup(Offset localPos, Rect pageRect, PdfPage page) {
+    final pdfPoint = localPos.toPdfPoint(page: page, scaledPageSize: pageRect.size);
+    final result = _highlightController.hitTest(
+      pageNumber: page.pageNumber,
+      pdfX: pdfPoint.x,
+      pdfY: pdfPoint.y,
+    );
+    if (result.highlight != null) {
+      _showMarkupEditSheet(highlight: result.highlight, pageNumber: page.pageNumber);
+    } else if (result.underline != null) {
+      _showMarkupEditSheet(underline: result.underline, pageNumber: page.pageNumber);
+    }
+  }
+
+  void _showMarkupEditSheet({HighlightModel? highlight, UnderlineModel? underline, required int pageNumber}) {
+    final isHighlight = highlight != null;
+    final currentColor = Color(isHighlight ? highlight!.color : underline!.color);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.backgroundSecondary,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(isHighlight ? "تعديل التمييز" : "تعديل التسطير",
+                style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            ColorPaletteRow(
+              selectedColor: currentColor,
+              onColorSelected: (c) {
+                if (isHighlight) {
+                  _highlightController.updateHighlightColor(highlight!, c.value);
+                } else {
+                  _highlightController.updateUnderlineColor(underline!, c.value);
+                }
+                Navigator.pop(ctx);
+              },
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: () {
+                  if (isHighlight) {
+                    _highlightController.deleteHighlight(highlight!);
+                  } else {
+                    _highlightController.deleteUnderline(underline!);
+                  }
+                  Navigator.pop(ctx);
+                },
+                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                label: Text(isHighlight ? "حذف التمييز" : "حذف التسطير",
+                    style: const TextStyle(color: Colors.redAccent)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _tryEditExistingShape(Offset relativePoint, int pageNumber) {
+    final shape = _shapeController.hitTest(pageNumber, relativePoint);
+    if (shape == null) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.backgroundSecondary,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("تعديل الشكل", style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Text("الحدود", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+            ColorPaletteRow(
+              selectedColor: Color(shape.borderColor),
+              onColorSelected: (c) => _shapeController.updateBorderColor(shape, pageNumber, c.value),
+            ),
+            const SizedBox(height: 8),
+            Text("التعبئة", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+            ColorPaletteRow(
+              selectedColor: shape.fillColor != null ? Color(shape.fillColor!) : Colors.transparent,
+              isTransparentSelected: shape.fillColor == null,
+              allowTransparentOption: true,
+              onTransparentSelected: () => _shapeController.updateFillColor(shape, pageNumber, null),
+              onColorSelected: (c) => _shapeController.updateFillColor(shape, pageNumber, c.value),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: () {
+                  _shapeController.deleteShape(shape, pageNumber);
+                  Navigator.pop(ctx);
+                },
+                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                label: const Text("حذف الشكل", style: TextStyle(color: Colors.redAccent)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handlePanStart(DragStartDetails details, BuildContext context, Rect pageRect, PdfPage page) {
+    if (!_isDrawingMode) return;
+    if (!_palmAllows(details.kind)) return;
+
+    final renderBox = context.findRenderObject() as RenderBox;
+    final localPos = renderBox.globalToLocal(details.globalPosition);
+    final relativePoint = Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
+
+    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser) {
+      _activePage = page.pageNumber;
+      setState(() {
+        _currentLine = DrawingLine(
+          points: [relativePoint],
+          color: _activeTool == PdfTool.eraser ? 0 : _settings.penColor,
+          strokeWidth: _activeTool == PdfTool.eraser ? _eraserSize : _settings.penThickness,
+          isHighlighter: false,
+          isEraser: _activeTool == PdfTool.eraser,
+          opacity: _activeTool == PdfTool.eraser ? 1.0 : _settings.penOpacity,
+        );
+      });
+    } else if (_activeTool == PdfTool.shape) {
+      _shapeController.startDrawing(page.pageNumber, relativePoint);
+    }
+  }
+
+  void _handlePanUpdate(DragUpdateDetails details, BuildContext context, Rect pageRect, PdfPage page) {
+    if (!_isDrawingMode) return;
+    if (!_palmAllows(details.kind)) return;
+
+    final renderBox = context.findRenderObject() as RenderBox;
+    final localPos = renderBox.globalToLocal(details.globalPosition);
+    final relativePoint = Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
+
+    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser) {
+      if (_currentLine != null) setState(() => _currentLine!.points.add(relativePoint));
+    } else if (_activeTool == PdfTool.shape) {
+      _shapeController.updateDrawing(relativePoint);
+    }
+  }
+
+  void _handlePanEnd(PdfPage page) {
+    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser) {
+      if (_currentLine != null) {
+        setState(() {
+          _pageDrawings.putIfAbsent(page.pageNumber, () => []).add(_currentLine!);
+          _store.saveDrawings(page.pageNumber, _pageDrawings[page.pageNumber]!);
+          _currentLine = null;
+        });
+      }
+    } else if (_activeTool == PdfTool.shape) {
+      _shapeController.endDrawing();
+    }
+  }
+
+  // --- منطق الملاحظات (Comments) - محافظ على نفس السلوك الأصلي تماماً ---
+
+  void _addComment(Offset relativePoint, int pageNumber) {
     final newComment = CommentModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       text: '',
       dx: relativePoint.dx,
       dy: relativePoint.dy,
-      color: _selectedColor.value, // يبدأ باللون المختار مع شفافية كاملة
+      color: _commentDefaults.color,
+      scale: _commentDefaults.scale,
     );
-    // تعيين الحجم الافتراضي إذا لم يكن مهيأ
-    newComment.scale = 1.0;
-
     _showCommentDialog(pageNumber, newComment, isNew: true);
   }
 
-  void _showCommentDialog(int pageNumber, CommentModel comment,
-      {bool isNew = false}) {
-    TextEditingController controller =
-        TextEditingController(text: comment.text);
+  void _showCommentDialog(int pageNumber, CommentModel comment, {bool isNew = false}) {
+    TextEditingController controller = TextEditingController(text: comment.text);
 
     showDialog(
         context: context,
         barrierDismissible: !isNew,
-        builder: (ctx) => StatefulBuilder(
-                // ✅ استخدام StatefulBuilder لتحديث أشرطة التحكم فوراً
-                builder: (context, setDialogState) {
+        builder: (ctx) => StatefulBuilder(builder: (context, setDialogState) {
               return AlertDialog(
                   backgroundColor: AppColors.backgroundSecondary,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   title: Row(
                     children: [
-                      Icon(Icons.comment_rounded,
-                          color: Color(comment.color).withOpacity(1.0)),
+                      Icon(Icons.comment_rounded, color: Color(comment.color).withOpacity(1.0)),
                       const SizedBox(width: 8),
                       Text(isNew ? "إضافة تعليق" : "التعليق",
-                          style: TextStyle(
-                              color: AppColors.textPrimary, fontSize: 16)),
+                          style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
                     ],
                   ),
                   content: SingleChildScrollView(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // ✅ إصلاح خلط العربي/الإنجليزي: نسمح لـ Flutter بتحديد اتجاه
+                        // كل فقرة تلقائياً بدلاً من فرض اتجاه واحد ثابت يكسر ترتيب الكلمات.
                         TextField(
                           controller: controller,
                           maxLines: 4,
-                          enabled:
-                              _isDrawingMode, // لا يمكن التعديل إذا كان القلم مغلقاً
+                          enabled: _isDrawingMode,
+                          textDirection: _autoDirection(controller.text),
+                          textAlign: TextAlign.start,
                           style: TextStyle(color: AppColors.textPrimary),
+                          onChanged: (_) => setDialogState(() {}),
                           decoration: InputDecoration(
-                            hintText: _isDrawingMode
-                                ? "اكتب ملاحظاتك هنا..."
-                                : "لا يوجد نص...",
-                            hintStyle:
-                                TextStyle(color: AppColors.textSecondary),
+                            hintText: _isDrawingMode ? "اكتب ملاحظاتك هنا..." : "لا يوجد نص...",
+                            hintStyle: TextStyle(color: AppColors.textSecondary),
                             filled: true,
                             fillColor: AppColors.backgroundPrimary,
                             border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none),
+                                borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                           ),
                         ),
                         if (_isDrawingMode) ...[
-                          const SizedBox(height: 20),
-                          // ✅ شريط التحكم في حجم التعليق
+                          const SizedBox(height: 16),
+                          ColorPaletteRow(
+                            selectedColor: Color(comment.color).withOpacity(1.0),
+                            onColorSelected: (c) {
+                              setDialogState(() {
+                                final opacity = Color(comment.color).opacity;
+                                comment.color = c.withOpacity(opacity).value;
+                              });
+                              setState(() {});
+                            },
+                          ),
+                          const SizedBox(height: 16),
                           Align(
                             alignment: Alignment.centerRight,
-                            child: Text(
-                                "حجم الأيقونة: ${(comment.scale).toStringAsFixed(1)}",
-                                style: TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12)),
+                            child: Text("حجم الأيقونة: ${(comment.scale).toStringAsFixed(1)}",
+                                style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                           ),
                           Slider(
                               value: comment.scale,
                               min: 0.5,
                               max: 4.0,
                               activeColor: AppColors.accentYellow,
-                              inactiveColor:
-                                  AppColors.accentYellow.withOpacity(0.3),
+                              inactiveColor: AppColors.accentYellow.withOpacity(0.3),
                               onChanged: (val) {
                                 setDialogState(() => comment.scale = val);
-                                setState(
-                                    () {}); // تحديث الشاشة الرئيسية لرؤية التغيير فوراً
+                                setState(() {});
                               }),
                           const SizedBox(height: 10),
-                          // ✅ شريط التحكم في الشفافية
                           Align(
                             alignment: Alignment.centerRight,
                             child: Text(
                                 "الشفافية: ${(Color(comment.color).opacity * 100).toInt()}%",
-                                style: TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12)),
+                                style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                           ),
                           Slider(
                               value: Color(comment.color).opacity,
                               min: 0.1,
                               max: 1.0,
                               activeColor: AppColors.accentYellow,
-                              inactiveColor:
-                                  AppColors.accentYellow.withOpacity(0.3),
+                              inactiveColor: AppColors.accentYellow.withOpacity(0.3),
                               onChanged: (val) {
                                 setDialogState(() {
-                                  // تغيير قيمة الألفا للون وحفظه
                                   Color baseColor = Color(comment.color);
-                                  comment.color =
-                                      baseColor.withOpacity(val).value;
+                                  comment.color = baseColor.withOpacity(val).value;
                                 });
-                                setState(
-                                    () {}); // تحديث الشاشة الرئيسية لرؤية التغيير فوراً
+                                setState(() {});
                               }),
+                          const SizedBox(height: 10),
+                          // ✅ حفظ هذا الشكل كافتراضي للملاحظات القادمة
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                _commentDefaults = CommentDefaults(
+                                  color: Color(comment.color).withOpacity(1.0).value,
+                                  scale: comment.scale,
+                                );
+                                PdfAnnotationStore.saveCommentDefaults(_commentDefaults);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("تم حفظ الإعدادات الافتراضية")),
+                                );
+                              },
+                              icon:
+                                  Icon(Icons.bookmark_outline, size: 16, color: AppColors.accentYellow),
+                              label: Text("حفظ كافتراضي",
+                                  style: TextStyle(color: AppColors.accentYellow, fontSize: 12)),
+                            ),
+                          ),
                         ]
                       ],
                     ),
                   ),
                   actions: [
-                    if (!isNew &&
-                        _isDrawingMode) // يظهر زر الحذف فقط في وضع القلم
+                    if (!isNew && _isDrawingMode)
                       TextButton(
                         onPressed: () {
-                          setState(
-                              () => _pageComments[pageNumber]?.remove(comment));
+                          setState(() {
+                            _pageComments[pageNumber]?.remove(comment);
+                            _store.saveComments(pageNumber, _pageComments[pageNumber] ?? []);
+                          });
                           Navigator.pop(ctx);
                         },
                         child: const Text("حذف",
-                            style: TextStyle(
-                                color: Colors.redAccent,
-                                fontWeight: FontWeight.bold)),
+                            style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
                       ),
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
                       child: Text(_isDrawingMode ? "إلغاء" : "إغلاق",
                           style: const TextStyle(color: Colors.grey)),
                     ),
-                    if (_isDrawingMode) // يظهر زر الحفظ فقط في وضع التعديل
+                    if (_isDrawingMode)
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.accentYellow,
-                            foregroundColor: Colors.black),
+                            backgroundColor: AppColors.accentYellow, foregroundColor: Colors.black),
                         onPressed: () {
                           setState(() {
                             comment.text = controller.text;
                             if (isNew && comment.text.trim().isNotEmpty) {
-                              if (_pageComments[pageNumber] == null)
-                                _pageComments[pageNumber] = [];
-                              _pageComments[pageNumber]!.add(comment);
+                              _pageComments.putIfAbsent(pageNumber, () => []).add(comment);
                             }
+                            _store.saveComments(pageNumber, _pageComments[pageNumber] ?? []);
                           });
                           Navigator.pop(ctx);
                         },
-                        child: const Text("حفظ",
-                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        child: const Text("حفظ", style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                   ]);
             }));
   }
 
-  // --- منطق الرسم ---
+  /// يحدد اتجاه النص تلقائياً بناءً على أول حرف قوي (نفس منطق أداة النص الجديدة)
+  /// لإصلاح مشكلة خلط النص العربي والإنجليزي في الملاحظات.
+  TextDirection _autoDirection(String text) {
+    for (final rune in text.runes) {
+      if (rune >= 0x0600 && rune <= 0x06FF) return TextDirection.rtl;
+      if ((rune >= 0x0041 && rune <= 0x005A) || (rune >= 0x0061 && rune <= 0x007A)) {
+        return TextDirection.ltr;
+      }
+    }
+    return TextDirection.rtl;
+  }
 
-  void _startStroke(DragStartDetails details, BuildContext context,
-      Rect pageRect, PdfPage page) {
-    if (!_isDrawingMode) return;
-    final renderBox = context.findRenderObject() as RenderBox;
-    final localPos = renderBox.globalToLocal(details.globalPosition);
-    final relativePoint =
-        Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
-    setState(() {
-      _activePage = page.pageNumber;
-      double width = _selectedTool == 2
-          ? _eraserSize
-          : (_selectedTool == 1 ? _highlightSize : _penSize);
-      _currentLine = DrawingLine(
-        points: [relativePoint],
-        color: _selectedTool == 2 ? 0 : _selectedColor.value,
-        strokeWidth: width,
-        isHighlighter: _selectedTool == 1,
-        isEraser: _selectedTool == 2,
-      );
+  // --- منطق أداة النص (Text Tool) ---
+
+  void _editTextNote(int pageNumber, dynamic note, {bool isNew = false}) {
+    final controller = TextEditingController(text: note.text as String);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.backgroundSecondary,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: isNew,
+                maxLines: 3,
+                textDirection: _autoDirection(controller.text),
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
+                decoration: InputDecoration(
+                  hintText: "اكتب النص هنا...",
+                  hintStyle: TextStyle(color: AppColors.textSecondary),
+                  filled: true,
+                  fillColor: AppColors.backgroundPrimary,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                ),
+                onChanged: (_) {},
+              ),
+              const SizedBox(height: 12),
+              ColorPaletteRow(
+                selectedColor: Color(note.color as int),
+                onColorSelected: (c) => _textNoteController.updateColor(pageNumber, note, c.value),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton.icon(
+                      onPressed: () {
+                        note.text = controller.text;
+                        _textNoteController.commitNote(pageNumber, note);
+                        Navigator.pop(ctx);
+                      },
+                      icon: Icon(Icons.check, color: AppColors.accentYellow),
+                      label: Text("حفظ", style: TextStyle(color: AppColors.accentYellow)),
+                    ),
+                  ),
+                  if (!isNew)
+                    TextButton.icon(
+                      onPressed: () {
+                        _textNoteController.deleteNote(pageNumber, note);
+                        Navigator.pop(ctx);
+                      },
+                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                      label: const Text("حذف", style: TextStyle(color: Colors.redAccent)),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) {
+      if (note.text.toString().trim().isEmpty) {
+        _textNoteController.commitNote(pageNumber, note);
+      }
     });
   }
 
-  void _updateStroke(
-      DragUpdateDetails details, BuildContext context, Rect pageRect) {
-    if (!_isDrawingMode || _currentLine == null) return;
-    final renderBox = context.findRenderObject() as RenderBox;
-    final localPos = renderBox.globalToLocal(details.globalPosition);
-    final relativePoint =
-        Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
-    setState(() => _currentLine!.points.add(relativePoint));
-  }
-
-  void _endStroke(PdfPage page) {
-    if (_currentLine != null) {
-      setState(() {
-        if (_pageDrawings[page.pageNumber] == null)
-          _pageDrawings[page.pageNumber] = [];
-        _pageDrawings[page.pageNumber]!.add(_currentLine!);
-        _currentLine = null;
-      });
-    }
-  }
+  // --- شريط الأدوات الموحّد ---
 
   Widget _buildToolbar() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-          color: Colors.grey[900],
-          borderRadius: BorderRadius.circular(25),
-          boxShadow: [const BoxShadow(color: Colors.black54, blurRadius: 10)]),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _toolIcon(LucideIcons.penTool, 0),
-                const SizedBox(width: 8),
-                _toolIcon(LucideIcons.highlighter, 1),
-                const SizedBox(width: 8),
-                _toolIcon(LucideIcons.eraser, 2),
-                const SizedBox(width: 8),
-                _toolIcon(LucideIcons.messageSquare, 3),
-                const SizedBox(width: 12),
-                IconButton(
-                  icon: const Icon(LucideIcons.undo,
-                      color: Colors.white, size: 20),
-                  onPressed: () {
-                    if (_pageDrawings[_activePage]?.isNotEmpty ?? false) {
-                      setState(() => _pageDrawings[_activePage]!.removeLast());
-                    }
-                  },
-                ),
-                const SizedBox(width: 8),
-                Container(width: 1, height: 24, color: Colors.grey),
-                const SizedBox(width: 12),
-                if (_selectedTool != 2) ...[
-                  _colorCircle(Colors.red),
-                  _colorCircle(Colors.blue),
-                  _colorCircle(Colors.green),
-                  _colorCircle(Colors.yellow),
-                  _colorCircle(Colors.white),
-                ],
-              ],
-            ),
-          ),
-          if (_selectedTool != 3) const SizedBox(height: 8),
-          if (_selectedTool != 3) _sizeSlider(),
-        ],
-      ),
-    );
-  }
-
-  Widget _sizeSlider() {
-    return Slider(
-      value: _selectedTool == 2
-          ? _eraserSize
-          : (_selectedTool == 1 ? _highlightSize : _penSize),
-      min: 0.001,
-      max: 0.08,
-      activeColor: _selectedTool == 2 ? Colors.white : _selectedColor,
-      onChanged: (val) => setState(() {
-        if (_selectedTool == 2)
-          _eraserSize = val;
-        else if (_selectedTool == 1)
-          _highlightSize = val;
-        else
-          _penSize = val;
+    return PdfAnnotationToolbar(
+      activeTool: _activeTool,
+      onToolTap: (tool) => setState(() {
+        _activeTool = tool;
+        // مزامنة الأداة النشطة مع محرك التمييز/التسطير الحقيقي (مطلوب لتفعيل
+        // معالجة التحديد بشكل صحيح في onTextSelectionChange).
+        _highlightController.activeTool = tool == PdfTool.highlighter
+            ? TextMarkupTool.highlight
+            : (tool == PdfTool.underline ? TextMarkupTool.underline : TextMarkupTool.none);
       }),
+      penColor: Color(_settings.penColor),
+      penThickness: _settings.penThickness,
+      penOpacity: _settings.penOpacity,
+      onPenColorChanged: (c) {
+        setState(() => _settings.penColor = c.value);
+        _persistToolSettings();
+      },
+      onPenThicknessChanged: (v) {
+        setState(() => _settings.penThickness = v);
+        _persistToolSettings();
+      },
+      onPenOpacityChanged: (v) {
+        setState(() => _settings.penOpacity = v);
+        _persistToolSettings();
+      },
+      highlighterColor: Color(_settings.highlighterColor),
+      highlighterOpacity: _settings.highlighterOpacity,
+      onHighlighterColorChanged: (c) {
+        setState(() {
+          _settings.highlighterColor = c.value;
+          _highlightController.highlightColor = c.value;
+        });
+        _persistToolSettings();
+      },
+      onHighlighterOpacityChanged: (v) {
+        setState(() {
+          _settings.highlighterOpacity = v;
+          _highlightController.highlightOpacity = v;
+        });
+        _persistToolSettings();
+      },
+      underlineColor: Color(_settings.underlineColor),
+      onUnderlineColorChanged: (c) {
+        setState(() {
+          _settings.underlineColor = c.value;
+          _highlightController.underlineColor = c.value;
+        });
+        _persistToolSettings();
+      },
+      eraserSize: _eraserSize,
+      onEraserSizeChanged: (v) => setState(() => _eraserSize = v),
+      textColor: Color(_settings.textColor),
+      onTextColorChanged: (c) {
+        setState(() {
+          _settings.textColor = c.value;
+          _textNoteController.defaultColor = c.value;
+        });
+        _persistToolSettings();
+      },
+      shapeType: _shapeController.activeType,
+      onShapeTypeChanged: (t) => setState(() => _shapeController.activeType = t),
+      shapeBorderColor: Color(_settings.shapeBorderColor),
+      onShapeBorderColorChanged: (c) {
+        setState(() {
+          _settings.shapeBorderColor = c.value;
+          _shapeController.borderColor = c.value;
+        });
+        _persistToolSettings();
+      },
+      shapeFillColor: _settings.shapeFillColor != null ? Color(_settings.shapeFillColor!) : null,
+      onShapeFillColorChanged: (c) {
+        setState(() {
+          _settings.shapeFillColor = c?.value;
+          _shapeController.fillColor = c?.value;
+        });
+        _persistToolSettings();
+      },
+      shapeBorderWidth: _settings.shapeBorderWidth,
+      onShapeBorderWidthChanged: (v) {
+        setState(() {
+          _settings.shapeBorderWidth = v;
+          _shapeController.borderWidth = v;
+        });
+        _persistToolSettings();
+      },
+      onUndo: _handleUndo,
+      onPickImage: () => _imageController.pickAndAddImage(_activePage),
+      palmRejectionEnabled: _settings.palmRejectionEnabled,
+      onPalmRejectionChanged: (enabled) {
+        setState(() {
+          _settings.palmRejectionEnabled = enabled;
+          _palmFilter.enabled = enabled;
+        });
+        _persistToolSettings();
+      },
     );
   }
 
-  Widget _toolIcon(IconData icon, int index) {
-    return Container(
-      decoration: BoxDecoration(
-          color: _selectedTool == index
-              ? AppColors.accentYellow.withOpacity(0.2)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8)),
-      child: IconButton(
-        icon: Icon(icon,
-            color:
-                _selectedTool == index ? AppColors.accentYellow : Colors.grey,
-            size: 20),
-        onPressed: () => setState(() => _selectedTool = index),
-      ),
-    );
-  }
-
-  Widget _colorCircle(Color color) {
-    return GestureDetector(
-      onTap: () => setState(() {
-        _selectedColor = color;
-        if (_selectedTool == 2) _selectedTool = 0;
-      }),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: _selectedColor == color
-                ? Border.all(color: Colors.white, width: 2)
-                : null),
-      ),
-    );
+  void _handleUndo() {
+    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser) {
+      if (_pageDrawings[_activePage]?.isNotEmpty ?? false) {
+        setState(() => _pageDrawings[_activePage]!.removeLast());
+        _store.saveDrawings(_activePage, _pageDrawings[_activePage]!);
+      }
+    }
   }
 }
 
-class RelativeSketchPainter extends CustomPainter {
+/// رسّام موحّد للرسم الحر (القلم/الممحاة) والأشكال (مع معاينة فورية أثناء السحب).
+class _CombinedOverlayPainter extends CustomPainter {
   final List<DrawingLine> lines;
+  final List<ShapeModel> shapes;
+  final ShapeModel? shapePreview;
   final Size pageSize;
+  final PdfShapeController shapeController;
 
-  RelativeSketchPainter({required this.lines, required this.pageSize});
+  _CombinedOverlayPainter({
+    required this.lines,
+    required this.shapes,
+    required this.shapePreview,
+    required this.pageSize,
+    required this.shapeController,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -936,7 +1301,7 @@ class RelativeSketchPainter extends CustomPainter {
     for (var line in lines) {
       final paint = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeCap = line.isHighlighter ? StrokeCap.butt : StrokeCap.round
+        ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
         ..strokeWidth = line.strokeWidth * pageSize.width;
 
@@ -944,27 +1309,24 @@ class RelativeSketchPainter extends CustomPainter {
         paint.blendMode = BlendMode.clear;
         paint.color = Colors.transparent;
       } else {
-        paint.color =
-            Color(line.color).withOpacity(line.isHighlighter ? 0.35 : 1.0);
-        if (line.isHighlighter) paint.blendMode = BlendMode.darken;
+        paint.color = Color(line.color).withOpacity(line.opacity);
       }
 
       if (line.points.length > 1) {
         final path = Path();
-        path.moveTo(line.points[0].dx * pageSize.width,
-            line.points[0].dy * pageSize.height);
+        path.moveTo(line.points[0].dx * pageSize.width, line.points[0].dy * pageSize.height);
         for (int i = 1; i < line.points.length; i++) {
-          path.lineTo(line.points[i].dx * pageSize.width,
-              line.points[i].dy * pageSize.height);
+          path.lineTo(line.points[i].dx * pageSize.width, line.points[i].dy * pageSize.height);
         }
         canvas.drawPath(path, paint);
       } else if (line.points.isNotEmpty) {
-        var p = Offset(line.points[0].dx * pageSize.width,
-            line.points[0].dy * pageSize.height);
+        var p = Offset(line.points[0].dx * pageSize.width, line.points[0].dy * pageSize.height);
         canvas.drawPoints(PointMode.points, [p], paint);
       }
     }
     canvas.restore();
+
+    shapeController.paintShapes(canvas, pageSize, shapes, preview: shapePreview);
   }
 
   @override
