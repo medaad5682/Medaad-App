@@ -39,6 +39,10 @@ class PdfAnnotationToolbar extends StatelessWidget {
   // النص
   final Color textColor;
   final ValueChanged<Color> onTextColorChanged;
+  final double textFontSize;
+  final ValueChanged<double> onTextFontSizeChanged;
+  final bool textBold;
+  final ValueChanged<bool> onTextBoldChanged;
 
   // الأشكال
   final ShapeType shapeType;
@@ -76,6 +80,10 @@ class PdfAnnotationToolbar extends StatelessWidget {
     required this.onEraserSizeChanged,
     required this.textColor,
     required this.onTextColorChanged,
+    required this.textFontSize,
+    required this.onTextFontSizeChanged,
+    required this.textBold,
+    required this.onTextBoldChanged,
     required this.shapeType,
     required this.onShapeTypeChanged,
     required this.shapeBorderColor,
@@ -133,7 +141,7 @@ class PdfAnnotationToolbar extends StatelessWidget {
           const SizedBox(width: 6),
           _toolIcon(Icons.image_outlined, PdfTool.image, onTapOverride: onPickImage),
           const SizedBox(width: 6),
-          _toolIcon(Icons.auto_fix_normal, PdfTool.eraser),
+          _toolIcon(Icons.auto_fix_off, PdfTool.eraser),
           const SizedBox(width: 6),
           _toolIcon(Icons.comment_outlined, PdfTool.comment),
           const SizedBox(width: 10),
@@ -288,7 +296,52 @@ class PdfAnnotationToolbar extends StatelessWidget {
   }
 
   Widget _textPanel(BuildContext context) {
-    return ColorPaletteRow(selectedColor: textColor, onColorSelected: onTextColorChanged);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // لوحة الألوان مع معاينة فورية
+        ColorPaletteRow(selectedColor: textColor, onColorSelected: onTextColorChanged),
+        const SizedBox(height: 6),
+        // حجم الخط
+        Row(
+          children: [
+            Icon(Icons.format_size, size: 16, color: AppColors.textSecondary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Slider(
+                value: textFontSize.clamp(0.010, 0.060),
+                min: 0.010,
+                max: 0.060,
+                divisions: 10,
+                activeColor: textColor,
+                inactiveColor: textColor.withOpacity(0.25),
+                onChanged: onTextFontSizeChanged,
+              ),
+            ),
+            SizedBox(
+              width: 36,
+              child: Text(
+                "${(textFontSize * 1000).toInt()}",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+              ),
+            ),
+          ],
+        ),
+        // خط عريض
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text("عريض", style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+            Switch(
+              value: textBold,
+              activeColor: AppColors.accentYellow,
+              onChanged: onTextBoldChanged,
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   Widget _shapePanel(BuildContext context) {

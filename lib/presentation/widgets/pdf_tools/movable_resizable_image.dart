@@ -4,15 +4,18 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/models/image_annotation_model.dart';
 
-/// عنصر صورة واحدة موضوعة على صفحة الـ PDF: قابلة للسحب وتغيير الحجم
-/// عبر مقبض في الزاوية السفلية اليمنى، مع زر حذف يظهر فقط في وضع التعديل.
+/// عنصر صورة واحدة موضوعة على صفحة الـ PDF:
+/// - قابلة للسحب والتحريك بالضغط على جسم الصورة.
+/// - مقابض تغيير الحجم في **أربع زوايا** (يمين-أسفل، يسار-أسفل، يمين-أعلى، يسار-أعلى).
+/// - زر حذف (سلة) في الزاوية العلوية اليسرى.
+/// - جميع عناصر التحكم تظهر فقط في وضع التعديل.
 class MovableResizableImage extends StatelessWidget {
   final ImageAnnotationModel image;
   final double pageWidth;
   final double pageHeight;
   final bool editable;
-  final ValueChanged<Offset> onMoveDelta; // نسبي لعرض/ارتفاع الصفحة
-  final ValueChanged<Offset> onResizeDelta; // نسبي لعرض/ارتفاع الصفحة
+  final ValueChanged<Offset> onMoveDelta;
+  final ValueChanged<Offset> onResizeDelta;
   final VoidCallback onDelete;
 
   const MovableResizableImage({
@@ -30,6 +33,8 @@ class MovableResizableImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final widthPx = image.width * pageWidth;
     final heightPx = image.height * pageHeight;
+    const handleSize = 24.0;
+    const handleOffset = handleSize / 2;
 
     return SizedBox(
       width: widthPx,
@@ -37,17 +42,21 @@ class MovableResizableImage extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
+          // جسم الصورة - السحب للتحريك
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onPanUpdate: editable
                 ? (details) => onMoveDelta(
-                      Offset(details.delta.dx / pageWidth, details.delta.dy / pageHeight),
-                    )
+                      Offset(details.delta.dx / pageWidth,
+                          details.delta.dy / pageHeight))
                 : null,
             child: Container(
+              width: widthPx,
+              height: heightPx,
               decoration: BoxDecoration(
                 border: editable
-                    ? Border.all(color: AppColors.accentYellow.withOpacity(0.7), width: 1.5)
+                    ? Border.all(
+                        color: AppColors.accentYellow.withOpacity(0.8), width: 1.5)
                     : null,
               ),
               child: Image.file(
@@ -58,48 +67,87 @@ class MovableResizableImage extends StatelessWidget {
                 errorBuilder: (context, error, stack) => Container(
                   color: Colors.black26,
                   alignment: Alignment.center,
-                  child: const Icon(Icons.broken_image_outlined, color: Colors.white54),
+                  child:
+                      const Icon(Icons.broken_image_outlined, color: Colors.white54),
                 ),
               ),
             ),
           ),
+
           if (editable) ...[
-            // مقبض تغيير الحجم
+            // ── مقبض يمين-أسفل ──
             Positioned(
-              right: -10,
-              bottom: -10,
-              child: GestureDetector(
-                onPanUpdate: (details) => onResizeDelta(
-                  Offset(details.delta.dx / pageWidth, details.delta.dy / pageHeight),
-                ),
-                child: Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: AppColors.accentYellow,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 1.5),
-                  ),
-                  child: const Icon(Icons.open_in_full, size: 12, color: Colors.black),
-                ),
+              right: -handleOffset,
+              bottom: -handleOffset,
+              child: _ResizeHandle(
+                icon: Icons.open_in_full,
+                onDelta: (d) =>
+                    onResizeDelta(Offset(d.dx / pageWidth, d.dy / pageHeight)),
               ),
             ),
-            // زر الحذف
+            // ── مقبض يسار-أسفل ──
             Positioned(
-              right: -10,
-              top: -10,
+              left: -handleOffset,
+              bottom: -handleOffset,
+              child: _ResizeHandle(
+                icon: Icons.open_in_full,
+                onDelta: (d) => onResizeDelta(
+                    Offset(-d.dx / pageWidth, d.dy / pageHeight)),
+              ),
+            ),
+            // ── مقبض يمين-أعلى ──
+            Positioned(
+              right: -handleOffset,
+              top: -handleOffset,
+              child: _ResizeHandle(
+                icon: Icons.open_in_full,
+                onDelta: (d) => onResizeDelta(
+                    Offset(d.dx / pageWidth, -d.dy / pageHeight)),
+              ),
+            ),
+            // ── زر الحذف (سلة) في يسار-أعلى ──
+            Positioned(
+              left: -handleOffset,
+              top: -handleOffset,
               child: GestureDetector(
                 onTap: onDelete,
                 child: Container(
-                  width: 22,
-                  height: 22,
-                  decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
-                  child: const Icon(Icons.close, size: 14, color: Colors.white),
+                  width: handleSize,
+                  height: handleSize,
+                  decoration: const BoxDecoration(
+                      color: Colors.redAccent, shape: BoxShape.circle),
+                  child:
+                      const Icon(Icons.delete_outline, size: 13, color: Colors.white),
                 ),
               ),
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// مقبض دائري صغير لتغيير الحجم بالسحب.
+class _ResizeHandle extends StatelessWidget {
+  final IconData icon;
+  final ValueChanged<Offset> onDelta;
+
+  const _ResizeHandle({required this.icon, required this.onDelta});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onPanUpdate: (details) => onDelta(details.delta),
+      child: Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          color: AppColors.accentYellow,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 1.5),
+        ),
+        child: Icon(icon, size: 12, color: Colors.black),
       ),
     );
   }
