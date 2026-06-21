@@ -56,9 +56,21 @@ class PdfHighlightController {
       store.saveUnderlines(pageNumber, _underlines[pageNumber] ?? const []);
 
   /// يُستدعى من PdfTextSelectionParams.onTextSelectionChange.
-  /// عندما يكون أحد أدوات التمييز/التسطير نشطاً وينتهي المستخدم من تحديد نص،
-  /// نحوّل التحديد فوراً إلى تمييز/تسطير دائم ثم نلغي التحديد (بحيث لا تظهر
-  /// مقابض/قائمة "نسخ" بعد الانتهاء).
+  /// نحفظ كائن التحديد الحالي فقط دون تطبيق التمييز/التسطير فوراً،
+  /// حتى يتمكن المستخدم من ضبط نقطتَي البداية والنهاية بحرية.
+  /// يُطبَّق التمييز/التسطير فقط عند استدعاء [applyPendingSelection].
+  PdfTextSelection? _pendingSelection;
+
+  void updatePendingSelection(PdfTextSelection selection) {
+    _pendingSelection = selection.hasSelectedText ? selection : null;
+  }
+
+  /// يُستدعى من زر قائمة السياق بعد أن يُثبّت المستخدم تحديده.
+  Future<void> applyPendingSelection(PdfViewerController controller) async {
+    final selection = _pendingSelection;
+    if (selection == null) return;
+    await handleTextSelectionChange(selection, controller);
+  }
   Future<void> handleTextSelectionChange(
     PdfTextSelection selection,
     PdfViewerController controller,

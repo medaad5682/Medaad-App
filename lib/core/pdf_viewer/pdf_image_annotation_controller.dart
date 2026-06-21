@@ -75,11 +75,37 @@ class PdfImageAnnotationController {
     onChanged();
   }
 
-  /// تغيير الحجم بسحب الزاوية السفلية اليمنى (الأكثر شيوعاً في تطبيقات التحرير).
+  /// تغيير الحجم أثناء السحب (معاينة مباشرة).
   /// [deltaRelative] هو مقدار التغيير النسبي في العرض/الارتفاع.
   Future<void> resizeImage(int pageNumber, ImageAnnotationModel img, Offset deltaRelative) async {
-    img.width = (img.width + deltaRelative.dx).clamp(0.05, 1.0);
+    img.width  = (img.width  + deltaRelative.dx).clamp(0.05, 1.0);
     img.height = (img.height + deltaRelative.dy).clamp(0.05, 1.0);
+    // لا نحفظ أثناء السحب — يُحفظ فقط عند setFinalSize
+  }
+
+  /// يُستدعى مرة واحدة عند رفع الإصبع لحفظ الحجم النهائي بدقة.
+  /// [finalWidth] و[finalHeight] هي القيم الحالية في النموذج كما هي بعد التعديل.
+  Future<void> setFinalSize(
+    int pageNumber,
+    ImageAnnotationModel img,
+    double finalWidth,
+    double finalHeight,
+  ) async {
+    img.width  = finalWidth.clamp(0.05, 1.0);
+    img.height = finalHeight.clamp(0.05, 1.0);
+    await _persist(pageNumber);
+    onChanged();
+  }
+
+  /// يُستدعى عند انتهاء تحريك الحافة (يحفظ الموضع الجديد بدقة).
+  Future<void> setFinalPosition(
+    int pageNumber,
+    ImageAnnotationModel img,
+    double finalDx,
+    double finalDy,
+  ) async {
+    img.dx = finalDx;
+    img.dy = finalDy;
     await _persist(pageNumber);
     onChanged();
   }

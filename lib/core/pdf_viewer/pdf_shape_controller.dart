@@ -205,8 +205,9 @@ class PdfShapeController {
   }
 
   /// يرسم سهماً من [start] إلى [end].
-  /// الخط يمتد من البداية حتى **قاعدة رأس السهم** (لا يتجاوزه أبداً)،
-  /// ورأس السهم (مثلث مملوء) يشكّل طرف السهم الحقيقي بدون أي خط يخترقه.
+  /// الخط يمتد من البداية حتى **قاعدة رأس السهم** حيث تلتقي قاعدة المثلث بالخط
+  /// بدون أن يخترق الخط رأس السهم أو يتجاوزه. نقطة الرأس الحقيقية تُحرَّك
+  /// قليلاً نحو المنتصف حتى تبدو القاعدة والخط متصلَين بصرياً.
   void _paintArrow(Canvas canvas, Offset start, Offset end, Paint paint) {
     final direction = end - start;
     final length = direction.distance;
@@ -214,19 +215,25 @@ class PdfShapeController {
 
     final unit = direction / length;
     final arrowSize = math.max(18.0, paint.strokeWidth * 5);
-
-    // ── رأس السهم (مثلث): قاعدته على مسافة arrowSize من النهاية ──
     const halfAngle = 0.40; // ~23 درجة
-    final cos = math.cos(halfAngle);
-    final sin = math.sin(halfAngle);
 
-    // نقطة قاعدة المثلث المركزية (حيث ينتهي الخط)
+    // ── نحرّك نقطة الرأس قليلاً داخلياً (20%) لتبدو القاعدة وكأنها تلتصق بالخط ──
+    final tipInset = arrowSize * 0.20;
+    final visualTip = Offset(
+      end.dx - tipInset * unit.dx,
+      end.dy - tipInset * unit.dy,
+    );
+
+    // قاعدة المثلث: على مسافة arrowSize من النقطة الأصلية end
     final arrowBase = Offset(
       end.dx - arrowSize * unit.dx,
       end.dy - arrowSize * unit.dy,
     );
 
-    // نقطتا الجانبين
+    final cos = math.cos(halfAngle);
+    final sin = math.sin(halfAngle);
+
+    // نقطتا الجانبين (تُحسب من النقطة الأصلية end لتحافظ على الزاوية الصحيحة)
     final p1 = Offset(
       end.dx - arrowSize * (unit.dx * cos - unit.dy * sin),
       end.dy - arrowSize * (unit.dy * cos + unit.dx * sin),
@@ -239,9 +246,9 @@ class PdfShapeController {
     // ── الخط: من البداية حتى قاعدة رأس السهم (لا يتجاوزه) ──
     canvas.drawLine(start, arrowBase, paint..strokeCap = StrokeCap.round);
 
-    // ── رأس السهم (مثلث مملوء): رأسه عند [end] ──
+    // ── رأس السهم (مثلث مملوء): رأسه عند visualTip لاتصال بصري مع الخط ──
     final headPath = Path()
-      ..moveTo(end.dx, end.dy)
+      ..moveTo(visualTip.dx, visualTip.dy)
       ..lineTo(p1.dx, p1.dy)
       ..lineTo(p2.dx, p2.dy)
       ..close();
