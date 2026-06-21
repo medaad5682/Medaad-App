@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/models/text_note_model.dart';
-import 'color_palette_row.dart';
 
 /// عنصر نص واحد موضوع على صفحة الـ PDF: قابل للسحب (في وضع التعديل)،
 /// والنقر عليه يفتح محرر نص + خيارات لون/حذف.
@@ -68,68 +67,5 @@ class MovableTextNote extends StatelessWidget {
       }
     }
     return TextDirection.rtl; // افتراضي مناسب لتطبيق عربي
-  }
-}
-
-/// قائمة خيارات سريعة تظهر بجانب نص محدد (تغيير اللون / غامق / حذف).
-class TextNoteOptionsSheet extends StatefulWidget {
-  final TextNoteModel note;
-  final ValueChanged<Color> onColorChanged;
-  final ValueChanged<bool> onBoldChanged;
-  final VoidCallback onDelete;
-
-  const TextNoteOptionsSheet({
-    super.key,
-    required this.note,
-    required this.onColorChanged,
-    required this.onBoldChanged,
-    required this.onDelete,
-  });
-
-  @override
-  State<TextNoteOptionsSheet> createState() => _TextNoteOptionsSheetState();
-}
-
-class _TextNoteOptionsSheetState extends State<TextNoteOptionsSheet> {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.backgroundSecondary,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ColorPaletteRow(
-            selectedColor: Color(widget.note.color),
-            onColorSelected: widget.onColorChanged,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text("غامق", style: TextStyle(color: AppColors.textPrimary, fontSize: 13)),
-                  value: widget.note.bold,
-                  activeColor: AppColors.accentYellow,
-                  onChanged: widget.onBoldChanged,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(
-            width: double.infinity,
-            child: TextButton.icon(
-              onPressed: widget.onDelete,
-              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              label: const Text("حذف النص", style: TextStyle(color: Colors.redAccent)),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
