@@ -180,6 +180,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       _shapeController.borderColor = settings.shapeBorderColor;
       _shapeController.fillColor = settings.shapeFillColor;
       _shapeController.borderWidth = settings.shapeBorderWidth;
+      // ✅ تطبيق الإعدادات المحفوظة للملاحظات على المتحكم مباشرة
       _textNoteController.defaultColor = settings.textColor;
       _textNoteController.defaultFontSize = settings.textFontSize;
       // سماكة الهايلايتر الحر محفوظة في _settings.freehandHighlighterThickness
@@ -369,7 +370,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  /// زر اختيار وضع القراءة (عمودي / أفقي / صفحتان جنباً إلى جنب).
+  /// زر اختيار وضع القراءة (عمودي / أفقي).
   Widget _buildReadingModeButton() {
     return PopupMenuButton<PdfReadingMode>(
       icon: Icon(_readingModeIcon(_settings.readingMode), color: AppColors.accentYellow),
@@ -382,7 +383,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       itemBuilder: (context) => [
         _readingModeMenuItem(PdfReadingMode.vertical, 'عمودي', Icons.swap_vert),
         _readingModeMenuItem(PdfReadingMode.horizontal, 'أفقي', Icons.swap_horiz),
-        _readingModeMenuItem(PdfReadingMode.twoPage, 'صفحتان جنباً إلى جنب', Icons.menu_book),
       ],
     );
   }
@@ -393,8 +393,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         return Icons.swap_vert;
       case PdfReadingMode.horizontal:
         return Icons.swap_horiz;
-      case PdfReadingMode.twoPage:
-        return Icons.menu_book;
     }
   }
 
@@ -540,14 +538,47 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       scrollHorizontallyByMouseWheel:
           PdfLayoutEngine.scrollHorizontallyByMouseWheelFor(_settings.readingMode),
       scrollPhysics: PdfLayoutEngine.scrollPhysicsFor(_settings.readingMode),
-      // ✅ تفعيل تحديد النص لأدوات التمييز/التسطير دائماً (أونلاين وأوفلاين)
+      // ✅ تحديد النص الطبيعي: يُفعَّل دائماً في وضع الهايلايتر/التسطير
+      // مع قائمة سياق مخصصة تحتوي على "تمييز" فقط (دون نسخ)
       textSelectionParams: PdfTextSelectionParams(
         enabled: _isDrawingMode &&
             (_activeTool == PdfTool.highlighter || _activeTool == PdfTool.underline),
         onTextSelectionChange: (selection) =>
             _highlightController.handleTextSelectionChange(selection, _pdfController),
       ),
-      buildContextMenu: (context, params) => null, // ✅ منع ظهور قائمة "نسخ" نهائياً
+      // قائمة سياق مخصصة: تعرض "تمييز" أو "تسطير" فقط وتمنع النسخ
+      buildContextMenu: (context, params) {
+        if (!_isDrawingMode) return null;
+        if (_activeTool != PdfTool.highlighter && _activeTool != PdfTool.underline) return null;
+        final label = _activeTool == PdfTool.highlighter ? 'تمييز' : 'تسطير';
+        return Material(
+          color: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.backgroundSecondary,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
+            ),
+            child: TextButton.icon(
+              onPressed: () async {
+                await _highlightController.handleTextSelectionChange(
+                  params.selection,
+                  _pdfController,
+                );
+              },
+              icon: Icon(
+                _activeTool == PdfTool.highlighter
+                    ? Icons.format_color_fill
+                    : Icons.format_underline,
+                color: AppColors.accentYellow,
+                size: 18,
+              ),
+              label: Text(label,
+                  style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
+            ),
+          ),
+        );
+      },
       pagePaintCallbacks: [
         _highlightController.paint,
       ],
@@ -664,11 +695,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           child: MovableTextNote(
                             note: note,
                             pageWidth: pageRect.width,
-                            // قابل للتعديل إذا كانت أداة النص نشطة أو إذا كان وضع التعديل
-                            // مفعّلاً ولا توجد أداة أخرى نشطة (كشف ذكي)
-                            editable: _isDrawingMode &&
-                                (_activeTool == PdfTool.text ||
-                                    _activeTool == PdfTool.none),
+                            // ✅ الملاحظات قابلة للسحب في أي وضع تعديل (كشف ذكي)
+                            // النقر يفتح المحرر فقط إذا كانت أداة النص نشطة أو none
+                            editable: _isDrawingMode,
                             onDragDelta: (delta) =>
                                 _textNoteController.moveNote(page.pageNumber, note, delta),
                             onTap: () {
@@ -890,6 +919,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void _tryEditExistingShape(Offset relativePoint, int pageNumber) {
     final shape = _shapeController.hitTest(pageNumber, relativePoint);
     if (shape == null) return;
+
+    // حساب الحجم الحالي كنسبة مئوية للاستخدام في slider التكبير/التصغير
+    // نبدأ دائماً من 1.0 (الحجم الحالي للشكل = 100%)
+    double sizeScale = 1.0;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -905,6 +939,37 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             children: [
               Text("تعديل الشكل", style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
+              // ── شريط تغيير الحجم ──
+              Row(
+                children: [
+                  Icon(Icons.photo_size_select_large, size: 16, color: AppColors.textSecondary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Slider(
+                      value: sizeScale.clamp(0.2, 3.0),
+                      min: 0.2,
+                      max: 3.0,
+                      divisions: 28,
+                      activeColor: AppColors.accentYellow,
+                      inactiveColor: AppColors.accentYellow.withOpacity(0.3),
+                      onChanged: (v) {
+                        // نحسب نسبة التغيير بالنسبة للقيمة الحالية للـ slider
+                        final factor = v / sizeScale;
+                        _shapeController.resizeShape(shape, pageNumber, factor);
+                        setSheetState(() => sizeScale = v);
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 42,
+                    child: Text(
+                      "${(sizeScale * 100).toInt()}%",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
               Text("الحدود", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
               ColorPaletteRow(
                 selectedColor: Color(shape.borderColor),
@@ -1048,13 +1113,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   // --- منطق الملاحظات (Comments) - محافظ على نفس السلوك الأصلي تماماً ---
 
   void _addComment(Offset relativePoint, int pageNumber) {
+    // ✅ إنشاء ملاحظة جديدة بالإعدادات الافتراضية المحفوظة (اللون + الحجم + الشفافية)
     final newComment = CommentModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       text: '',
       dx: relativePoint.dx,
       dy: relativePoint.dy,
-      color: _commentDefaults.color,
-      scale: _commentDefaults.scale,
+      color: _commentDefaults.color,   // اللون مع الشفافية المحفوظة
+      scale: _commentDefaults.scale,   // الحجم المحفوظ
     );
     _showCommentDialog(pageNumber, newComment, isNew: true);
   }
@@ -1149,13 +1215,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                                 setState(() {});
                               }),
                           const SizedBox(height: 10),
-                          // ✅ حفظ هذا الشكل كافتراضي للملاحظات القادمة
+                          // ✅ حفظ هذا الشكل كافتراضي للملاحظات القادمة (اللون + الشفافية + الحجم)
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton.icon(
                               onPressed: () {
+                                // نحفظ اللون كاملاً بما فيه الشفافية
                                 _commentDefaults = CommentDefaults(
-                                  color: Color(comment.color).withOpacity(1.0).value,
+                                  color: comment.color, // يتضمن قيمة الشفافية الحالية
                                   scale: comment.scale,
                                 );
                                 PdfAnnotationStore.saveCommentDefaults(_commentDefaults);
