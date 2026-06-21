@@ -28,6 +28,10 @@ class PdfAnnotationToolbar extends StatelessWidget {
   final ValueChanged<Color> onHighlighterColorChanged;
   final ValueChanged<double> onHighlighterOpacityChanged;
 
+  // الهايلايتر الحر
+  final double freehandHighlighterThickness;
+  final ValueChanged<double> onFreehandHighlighterThicknessChanged;
+
   // التسطير
   final Color underlineColor;
   final ValueChanged<Color> onUnderlineColorChanged;
@@ -74,6 +78,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
     required this.highlighterOpacity,
     required this.onHighlighterColorChanged,
     required this.onHighlighterOpacityChanged,
+    required this.freehandHighlighterThickness,
+    required this.onFreehandHighlighterThicknessChanged,
     required this.underlineColor,
     required this.onUnderlineColorChanged,
     required this.eraserSize,
@@ -133,6 +139,9 @@ class PdfAnnotationToolbar extends StatelessWidget {
           const SizedBox(width: 6),
           _toolIcon(Icons.border_color, PdfTool.highlighter),
           const SizedBox(width: 6),
+          // هايلايتر حر (رسم يدوي)
+          _toolIcon(Icons.brush, PdfTool.freehandHighlighter),
+          const SizedBox(width: 6),
           _toolIcon(Icons.format_underlined, PdfTool.underline),
           const SizedBox(width: 6),
           _toolIcon(Icons.text_fields, PdfTool.text),
@@ -141,7 +150,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
           const SizedBox(width: 6),
           _toolIcon(Icons.image_outlined, PdfTool.image, onTapOverride: onPickImage),
           const SizedBox(width: 6),
-          _toolIcon(Icons.auto_fix_off, PdfTool.eraser),
+          // أيقونة الممحاة الحقيقية
+          _toolIcon(Icons.cleaning_services_rounded, PdfTool.eraser),
           const SizedBox(width: 6),
           _toolIcon(Icons.comment_outlined, PdfTool.comment),
           const SizedBox(width: 10),
@@ -207,6 +217,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
         return _penPanel(context);
       case PdfTool.highlighter:
         return _highlighterPanel(context);
+      case PdfTool.freehandHighlighter:
+        return _freehandHighlighterPanel(context);
       case PdfTool.underline:
         return _underlinePanel(context);
       case PdfTool.eraser:
@@ -344,6 +356,66 @@ class PdfAnnotationToolbar extends StatelessWidget {
     );
   }
 
+  Widget _freehandHighlighterPanel(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ColorPaletteRow(selectedColor: highlighterColor, onColorSelected: onHighlighterColorChanged),
+        const SizedBox(height: 6),
+        // الشفافية
+        Row(
+          children: [
+            Icon(Icons.opacity, size: 16, color: AppColors.textSecondary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Slider(
+                value: highlighterOpacity,
+                min: 0.1,
+                max: 0.8,
+                activeColor: highlighterColor,
+                inactiveColor: highlighterColor.withOpacity(0.25),
+                onChanged: onHighlighterOpacityChanged,
+              ),
+            ),
+            SizedBox(
+              width: 36,
+              child: Text(
+                "${(highlighterOpacity * 100).toInt()}%",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+              ),
+            ),
+          ],
+        ),
+        // السماكة
+        Row(
+          children: [
+            Icon(Icons.line_weight, size: 16, color: AppColors.textSecondary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Slider(
+                value: freehandHighlighterThickness,
+                min: 0.008,
+                max: 0.06,
+                activeColor: highlighterColor,
+                inactiveColor: highlighterColor.withOpacity(0.25),
+                onChanged: onFreehandHighlighterThicknessChanged,
+              ),
+            ),
+            SizedBox(
+              width: 36,
+              child: Text(
+                "${(freehandHighlighterThickness * 1000).toInt()}",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _shapePanel(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -367,19 +439,22 @@ class PdfAnnotationToolbar extends StatelessWidget {
             child: ColorPaletteRow(selectedColor: shapeBorderColor, onColorSelected: onShapeBorderColorChanged),
           ),
         ]),
-        const SizedBox(height: 6),
-        Row(children: [
-          Text("التعبئة: ", style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
-          Expanded(
-            child: ColorPaletteRow(
-              selectedColor: shapeFillColor ?? Colors.transparent,
-              onColorSelected: (c) => onShapeFillColorChanged(c),
-              allowTransparentOption: true,
-              isTransparentSelected: shapeFillColor == null,
-              onTransparentSelected: () => onShapeFillColorChanged(null),
+        // إخفاء خيار التعبئة للسهم (الأسهم لا تحتوي منطقة مملوءة)
+        if (shapeType != ShapeType.arrow) ...[
+          const SizedBox(height: 6),
+          Row(children: [
+            Text("التعبئة: ", style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+            Expanded(
+              child: ColorPaletteRow(
+                selectedColor: shapeFillColor ?? Colors.transparent,
+                onColorSelected: (c) => onShapeFillColorChanged(c),
+                allowTransparentOption: true,
+                isTransparentSelected: shapeFillColor == null,
+                onTransparentSelected: () => onShapeFillColorChanged(null),
+              ),
             ),
-          ),
-        ]),
+          ]),
+        ],
         const SizedBox(height: 6),
         ThicknessOpacityControls(
           thickness: shapeBorderWidth,
