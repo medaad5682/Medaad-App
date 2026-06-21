@@ -182,6 +182,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       _shapeController.borderWidth = settings.shapeBorderWidth;
       _textNoteController.defaultColor = settings.textColor;
       _textNoteController.defaultFontSize = settings.textFontSize;
+      // سماكة الهايلايتر الحر محفوظة في _settings.freehandHighlighterThickness
     });
   }
 
@@ -538,7 +539,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       pageAnchorEnd: PdfLayoutEngine.anchorEndFor(_settings.readingMode),
       scrollHorizontallyByMouseWheel:
           PdfLayoutEngine.scrollHorizontallyByMouseWheelFor(_settings.readingMode),
-      scrollPhysics: const BouncingScrollPhysics(),
+      scrollPhysics: PdfLayoutEngine.scrollPhysicsFor(_settings.readingMode),
       // ✅ تفعيل تحديد النص لأدوات التمييز/التسطير دائماً (أونلاين وأوفلاين)
       textSelectionParams: PdfTextSelectionParams(
         enabled: _isDrawingMode &&
@@ -589,7 +590,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
                 return Stack(
                   children: [
-                    // طبقة الرسم الحر (القلم/الممحاة) + الأشكال
+                    // طبقة الرسم الحر (القلم/الممحاة/هايلايتر حر) + الأشكال (رسم جديد)
                     // تُمرَّر الإيماءات للـ PDF عندما لا توجد أداة نشطة أو عند استخدام
                     // أدوات التمييز/التسطير (التي تعتمد على تحديد نص الـ PDF مباشرة)
                     IgnorePointer(
@@ -617,6 +618,44 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                         ),
                       ),
                     ),
+
+                    // طبقة الأشكال القابلة للسحب (تعمل حتى بدون تفعيل أداة الأشكال)
+                    if (_isDrawingMode)
+                      ...shapes.map((shape) {
+                        final left = math.min(shape.startDx, shape.endDx) * pageRect.width;
+                        final top = math.min(shape.startDy, shape.endDy) * pageRect.height;
+                        final right = math.max(shape.startDx, shape.endDx) * pageRect.width;
+                        final bottom = math.max(shape.startDy, shape.endDy) * pageRect.height;
+                        return Positioned(
+                          left: left,
+                          top: top,
+                          width: right - left,
+                          height: bottom - top,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            // السحب لتحريك الشكل
+                            onPanUpdate: _activeTool == PdfTool.shape || _activeTool == PdfTool.none
+                                ? (details) => _shapeController.moveShape(
+                                      shape,
+                                      page.pageNumber,
+                                      Offset(
+                                        details.delta.dx / pageRect.width,
+                                        details.delta.dy / pageRect.height,
+                                      ),
+                                    )
+                                : null,
+                            // النقر لفتح نافذة التعديل
+                            onTap: () => _tryEditExistingShape(
+                              Offset(
+                                (left + (right - left) / 2) / pageRect.width,
+                                (top + (bottom - top) / 2) / pageRect.height,
+                              ),
+                              page.pageNumber,
+                            ),
+                            child: const SizedBox.expand(),
+                          ),
+                        );
+                      }),
 
                     // طبقة النصوص المكتوبة
                     ...textNotes.map((note) => Positioned(
@@ -769,6 +808,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       case PdfTool.shape:
         _tryEditExistingShape(relativePoint, page.pageNumber);
         break;
+      case PdfTool.none:
+        // كشف ذكي: النقر على شكل موجود يفتح نافذة التعديل حتى بدون تفعيل أداة الأشكال
+        _tryEditExistingShape(relativePoint, page.pageNumber);
+        break;
       case PdfTool.image:
         // الصور تُضاف من شريط الأدوات مباشرة (زر اختيار صورة)، لا من النقر على الصفحة.
         break;
@@ -850,44 +893,87 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.backgroundSecondary,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text("تعديل الشكل", style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Text("الحدود", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-            ColorPaletteRow(
-              selectedColor: Color(shape.borderColor),
-              onColorSelected: (c) => _shapeController.updateBorderColor(shape, pageNumber, c.value),
-            ),
-            const SizedBox(height: 8),
-            Text("التعبئة", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-            ColorPaletteRow(
-              selectedColor: shape.fillColor != null ? Color(shape.fillColor!) : Colors.transparent,
-              isTransparentSelected: shape.fillColor == null,
-              allowTransparentOption: true,
-              onTransparentSelected: () => _shapeController.updateFillColor(shape, pageNumber, null),
-              onColorSelected: (c) => _shapeController.updateFillColor(shape, pageNumber, c.value),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                onPressed: () {
-                  _shapeController.deleteShape(shape, pageNumber);
-                  Navigator.pop(ctx);
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) => Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.backgroundSecondary,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("تعديل الشكل", style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Text("الحدود", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+              ColorPaletteRow(
+                selectedColor: Color(shape.borderColor),
+                onColorSelected: (c) {
+                  _shapeController.updateBorderColor(shape, pageNumber, c.value);
+                  setSheetState(() {});
                 },
-                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                label: const Text("حذف الشكل", style: TextStyle(color: Colors.redAccent)),
               ),
-            ),
-          ],
+              // سماكة الحدود
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.line_weight, size: 16, color: AppColors.textSecondary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Slider(
+                      value: shape.borderWidth.clamp(0.001, 0.02),
+                      min: 0.001,
+                      max: 0.02,
+                      activeColor: Color(shape.borderColor),
+                      inactiveColor: Color(shape.borderColor).withOpacity(0.3),
+                      onChanged: (v) {
+                        _shapeController.updateBorderWidth(shape, pageNumber, v);
+                        setSheetState(() {});
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 36,
+                    child: Text(
+                      "${(shape.borderWidth * 1000).toInt()}",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+              // خيار التعبئة (مخفي للسهم)
+              if (shape.type != ShapeType.arrow) ...[
+                const SizedBox(height: 8),
+                Text("التعبئة", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                ColorPaletteRow(
+                  selectedColor: shape.fillColor != null ? Color(shape.fillColor!) : Colors.transparent,
+                  isTransparentSelected: shape.fillColor == null,
+                  allowTransparentOption: true,
+                  onTransparentSelected: () {
+                    _shapeController.updateFillColor(shape, pageNumber, null);
+                    setSheetState(() {});
+                  },
+                  onColorSelected: (c) {
+                    _shapeController.updateFillColor(shape, pageNumber, c.value);
+                    setSheetState(() {});
+                  },
+                ),
+              ],
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: () {
+                    _shapeController.deleteShape(shape, pageNumber);
+                    Navigator.pop(ctx);
+                  },
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                  label: const Text("حذف الشكل", style: TextStyle(color: Colors.redAccent)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -901,17 +987,29 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final localPos = renderBox.globalToLocal(details.globalPosition);
     final relativePoint = Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
 
-    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser) {
+    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter) {
       _activePage = page.pageNumber;
       setState(() {
-        _currentLine = DrawingLine(
-          points: [relativePoint],
-          color: _activeTool == PdfTool.eraser ? 0 : _settings.penColor,
-          strokeWidth: _activeTool == PdfTool.eraser ? _eraserSize : _settings.penThickness,
-          isHighlighter: false,
-          isEraser: _activeTool == PdfTool.eraser,
-          opacity: _activeTool == PdfTool.eraser ? 1.0 : _settings.penOpacity,
-        );
+        if (_activeTool == PdfTool.freehandHighlighter) {
+          // هايلايتر حر: خط عريض شفاف بنمط تمييز
+          _currentLine = DrawingLine(
+            points: [relativePoint],
+            color: _settings.highlighterColor,
+            strokeWidth: _settings.freehandHighlighterThickness,
+            isHighlighter: true,
+            isEraser: false,
+            opacity: _settings.highlighterOpacity,
+          );
+        } else {
+          _currentLine = DrawingLine(
+            points: [relativePoint],
+            color: _activeTool == PdfTool.eraser ? 0 : _settings.penColor,
+            strokeWidth: _activeTool == PdfTool.eraser ? _eraserSize : _settings.penThickness,
+            isHighlighter: false,
+            isEraser: _activeTool == PdfTool.eraser,
+            opacity: _activeTool == PdfTool.eraser ? 1.0 : _settings.penOpacity,
+          );
+        }
       });
     } else if (_activeTool == PdfTool.shape) {
       _shapeController.startDrawing(page.pageNumber, relativePoint);
@@ -926,7 +1024,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final localPos = renderBox.globalToLocal(details.globalPosition);
     final relativePoint = Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
 
-    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser) {
+    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter) {
       if (_currentLine != null) setState(() => _currentLine!.points.add(relativePoint));
     } else if (_activeTool == PdfTool.shape) {
       _shapeController.updateDrawing(relativePoint);
@@ -934,7 +1032,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   void _handlePanEnd(PdfPage page) {
-    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser) {
+    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter) {
       if (_currentLine != null) {
         setState(() {
           _pageDrawings.putIfAbsent(page.pageNumber, () => []).add(_currentLine!);
@@ -1313,6 +1411,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       },
       highlighterColor: Color(_settings.highlighterColor),
       highlighterOpacity: _settings.highlighterOpacity,
+      freehandHighlighterThickness: _settings.freehandHighlighterThickness,
+      onFreehandHighlighterThicknessChanged: (v) {
+        setState(() => _settings.freehandHighlighterThickness = v);
+        _persistToolSettings();
+      },
       onHighlighterColorChanged: (c) {
         setState(() {
           _settings.highlighterColor = c.value;
@@ -1397,7 +1500,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   void _handleUndo() {
-    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser) {
+    if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter) {
       if (_pageDrawings[_activePage]?.isNotEmpty ?? false) {
         setState(() => _pageDrawings[_activePage]!.removeLast());
         _store.saveDrawings(_activePage, _pageDrawings[_activePage]!);
@@ -1406,7 +1509,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 }
 
-/// رسّام موحّد للرسم الحر (القلم/الممحاة) والأشكال (مع معاينة فورية أثناء السحب).
+/// رسّام موحّد للرسم الحر (القلم/الممحاة/هايلايتر) والأشكال (مع معاينة فورية أثناء السحب).
 class _CombinedOverlayPainter extends CustomPainter {
   final List<DrawingLine> lines;
   final List<ShapeModel> shapes;
@@ -1435,6 +1538,11 @@ class _CombinedOverlayPainter extends CustomPainter {
       if (line.isEraser) {
         paint.blendMode = BlendMode.clear;
         paint.color = Colors.transparent;
+      } else if (line.isHighlighter) {
+        // هايلايتر حر: نستخدم BlendMode.multiply للتداخل مع محتوى الصفحة
+        paint.blendMode = BlendMode.multiply;
+        paint.color = Color(line.color).withOpacity(line.opacity);
+        paint.strokeCap = StrokeCap.butt; // حواف مستقيمة لمظهر الهايلايتر
       } else {
         paint.color = Color(line.color).withOpacity(line.opacity);
       }
