@@ -4,15 +4,15 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../models/pdf_tool_settings.dart';
 
-/// يولّد دوال تخطيط الصفحات (layoutPages) المناسبة لكل وضع قراءة،
-/// بالإضافة إلى إعدادات الـ Anchor والتمرير المرافقة لكل وضع.
+/// يولّد دوال تخطيط الصفحات (layoutPages) المناسبة لكل وضع قراءة.
 ///
-/// - [PdfReadingMode.vertical]: التخطيط الافتراضي للمكتبة (null) - تمرير عمودي صفحة تلو الأخرى.
-/// - [PdfReadingMode.horizontal]: كل الصفحات بجانب بعضها أفقياً، تمرير بالسحب يمين/يسار.
-/// - [PdfReadingMode.twoPage]: صفحتان جنباً إلى جنب (يمين/يسار)، تمرير عمودي بين كل "فرد" من الصفحات.
+/// - [PdfReadingMode.vertical]   : تمرير عمودي متصل (افتراضي المكتبة).
+/// - [PdfReadingMode.horizontal] : صفحة واحدة بالضبط في كل مرة، التمرير يساراً/يميناً،
+///                                 بدون توسيط تلقائي للصفحة التالية.
+/// - [PdfReadingMode.twoPage]    : صفحتان جنباً إلى جنب مرئيتان فقط في كل مرة؛
+///                                 الصفحات الأخرى خارج نطاق العرض.
 class PdfLayoutEngine {
-  /// يبني [PdfPageLayoutFunction]? المناسبة لوضع القراءة. إرجاع null يعني استخدام
-  /// التخطيط الافتراضي للمكتبة (عمودي).
+  /// يبني [PdfPageLayoutFunction]? المناسبة لوضع القراءة.
   static PdfPageLayoutFunction? layoutFor(PdfReadingMode mode) {
     switch (mode) {
       case PdfReadingMode.vertical:
@@ -24,7 +24,6 @@ class PdfLayoutEngine {
     }
   }
 
-  /// نقطة الالتقام (anchor) المناسبة للبداية حسب وضع القراءة.
   static PdfPageAnchor anchorStartFor(PdfReadingMode mode) {
     switch (mode) {
       case PdfReadingMode.horizontal:
@@ -45,80 +44,120 @@ class PdfLayoutEngine {
     }
   }
 
-  /// هل يجب أن تتم عملية التمرير بعجلة الفأرة أفقياً (لأجهزة الديسكتوب فقط؛ لا تأثير على اللمس)
   static bool scrollHorizontallyByMouseWheelFor(PdfReadingMode mode) {
     return mode == PdfReadingMode.horizontal || mode == PdfReadingMode.twoPage;
   }
 
-  // -------------------------- التخطيط الأفقي --------------------------
-  // كل الصفحات توضع بجانب بعضها في خط واحد أفقي، بمسافة [margin] بينها.
-  static PdfPageLayout _horizontalLayout(List<PdfPage> pages, PdfViewerParams params) {
-    final height = pages.fold(0.0, (prev, page) => math.max(prev, page.height)) + params.margin * 2;
-    final pageLayouts = <Rect>[];
-    double x = params.margin;
-    for (final page in pages) {
-      pageLayouts.add(
-        Rect.fromLTWH(
-          x,
-          (height - page.height) / 2, // توسيط عمودي للصفحات ذات الأبعاد المختلفة
-          page.width,
-          page.height,
-        ),
-      );
-      x += page.width + params.margin;
-    }
-    return PdfPageLayout(pageLayouts: pageLayouts, documentSize: Size(x, height));
-  }
-
-  // -------------------------- التخطيط ثنائي الصفحة (جنباً إلى جنب) --------------------------
-  // تُعرض الصفحات في أزواج (يسار/يمين) بترتيب من اليسار إلى اليمين،
-  // مع استخدام أول صفحة كصفحة غلاف منفردة قبل بدء الأزواج (لمحاذاة الصفحات الزوجية/الفردية كما في كتاب مطبوع).
-  static PdfPageLayout _twoPageLayout(List<PdfPage> pages, PdfViewerParams params) {
+  // ──────────────────────────────────────────────────────────────────────────
+  // الوضع الأفقي: كل صفحة تشغل عرض الـ Viewport بالكامل.
+  // الصفحات تُوضع بجانب بعضها بدون فجوة بينها (margin = 0)
+  // حتى يكون التمرير بالضبط من صفحة لصفحة بدون توسيط تلقائي.
+  // ──────────────────────────────────────────────────────────────────────────
+  static PdfPageLayout _horizontalLayout(
+      List<PdfPage> pages, PdfViewerParams params) {
     if (pages.isEmpty) {
       return PdfPageLayout(pageLayouts: const [], documentSize: Size.zero);
     }
 
-    final width = pages.fold(0.0, (prev, page) => math.max(prev, page.width));
+    // نستخدم أقصى ارتفاع صفحة لتحديد ارتفاع المستند (مع هامش رأسي بسيط)
+    final maxHeight =
+        pages.fold(0.0, (prev, p) => math.max(prev, p.height)) +
+            params.margin * 2;
+
     final pageLayouts = <Rect>[];
-    const coverOffset = 1; // الصفحة الأولى تُعرض منفردة في المنتصف كغلاف
+    double x = 0; // لا هامش أفقي بين الصفحات
 
-    double y = params.margin;
-    for (int i = 0; i < pages.length; i++) {
-      final page = pages[i];
-      final pos = i + coverOffset;
-      final isLeft = (pos & 1) == 0;
-
-      final otherSide = (pos ^ 1) - coverOffset;
-      final rowHeight = (otherSide >= 0 && otherSide < pages.length)
-          ? math.max(page.height, pages[otherSide].height)
-          : page.height;
-
-      double left;
-      if (i == 0) {
-        // صفحة الغلاف: تُوسَّط على عرض الصفحتين معاً بدلاً من الالتصاق بجانب واحد
-        left = params.margin + width + params.margin / 2 - page.width / 2;
-      } else {
-        left = isLeft ? (params.margin + width - page.width) : (params.margin * 2 + width);
-      }
-
+    for (final page in pages) {
       pageLayouts.add(
         Rect.fromLTWH(
-          left,
-          y + (rowHeight - page.height) / 2,
+          x,
+          (maxHeight - page.height) / 2, // توسيط عمودي فقط
           page.width,
           page.height,
         ),
       );
-
-      // الانتقال للصفّ التالي بعد إغلاق الزوج (أو بعد صفحة الغلاف المنفردة)
-      if (i == 0 || pos.isOdd || i + 1 == pages.length) {
-        y += rowHeight + params.margin;
-      }
+      x += page.width; // الصفحة التالية تبدأ مباشرة بعد الحالية
     }
 
     return PdfPageLayout(
       pageLayouts: pageLayouts,
-      documentSize: Size((params.margin + width) * 2 + params.margin, y),
+      documentSize: Size(x, maxHeight),
+    );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // وضع الصفحتين: صفحتان مرئيتان فقط في كل وقت، التمرير يُخفي الصفحات الأخرى.
+  // كل زوج يأخذ الـ Viewport عرضاً وارتفاعاً، فلا تظهر صفحات قبل/بعد الزوج
+  // الحالي حتى يتمرر المستخدم يساراً أو يميناً.
+  // ──────────────────────────────────────────────────────────────────────────
+  static PdfPageLayout _twoPageLayout(
+      List<PdfPage> pages, PdfViewerParams params) {
+    if (pages.isEmpty) {
+      return PdfPageLayout(pageLayouts: const [], documentSize: Size.zero);
+    }
+
+    // أقصى عرض وارتفاع لصفحة واحدة (نفترض صفحات A4 موحدة نسبياً)
+    final maxW = pages.fold(0.0, (prev, p) => math.max(prev, p.width));
+    final maxH = pages.fold(0.0, (prev, p) => math.max(prev, p.height));
+
+    // عرض "الشاشة الافتراضية" = صفحتان جنباً إلى جنب
+    final screenW = maxW * 2;
+    final screenH = maxH + params.margin * 2;
+
+    final pageLayouts = <Rect>[];
+    // الصفحة الأولى تُعرض كغلاف منفرد في المنتصف
+    // بقية الصفحات في أزواج (يسار / يمين)
+    const coverOffset = 1;
+    // كل "شاشة" تبدأ عند مضاعف screenW
+    // صفحة الغلاف: screen index 0
+    // الزوج الأول (ص2+ص3): screen index 1
+    // الزوج الثاني (ص4+ص5): screen index 2  ...
+
+    // -- صفحة الغلاف --
+    final coverPage = pages[0];
+    pageLayouts.add(
+      Rect.fromLTWH(
+        (screenW - coverPage.width) / 2,           // وسط الشاشة
+        (screenH - coverPage.height) / 2,
+        coverPage.width,
+        coverPage.height,
+      ),
+    );
+
+    // -- الأزواج --
+    for (int i = 1; i < pages.length; i += 2) {
+      final pos = i + coverOffset; // مؤشر الشاشة
+      final screenIndex = (pos / 2).ceil(); // 1-based screen index
+      final screenX = screenIndex * screenW;
+
+      final leftPage = pages[i];
+      pageLayouts.add(
+        Rect.fromLTWH(
+          screenX + (maxW - leftPage.width),        // محاذاة يمين المساحة اليسرى
+          (screenH - leftPage.height) / 2,
+          leftPage.width,
+          leftPage.height,
+        ),
+      );
+
+      if (i + 1 < pages.length) {
+        final rightPage = pages[i + 1];
+        pageLayouts.add(
+          Rect.fromLTWH(
+            screenX + maxW,                          // بداية المساحة اليمنى
+            (screenH - rightPage.height) / 2,
+            rightPage.width,
+            rightPage.height,
+          ),
+        );
+      }
+    }
+
+    // عدد "الشاشات" = 1 (غلاف) + (pages.length - 1 / 2) أزواج
+    final totalScreens = 1 + ((pages.length - 1) / 2).ceil();
+    return PdfPageLayout(
+      pageLayouts: pageLayouts,
+      documentSize: Size(totalScreens * screenW, screenH),
     );
   }
 }

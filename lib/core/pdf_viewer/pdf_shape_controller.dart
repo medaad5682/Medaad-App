@@ -38,7 +38,6 @@ class PdfShapeController {
   Future<void> _persist(int pageNumber) => store.saveShapes(pageNumber, _shapes[pageNumber] ?? const []);
 
   void startDrawing(int pageNumber, Offset relativePoint) {
-    if (!isActive) return;
     _drawingPage = pageNumber;
     _drawingShape = ShapeModel(
       id: '${DateTime.now().microsecondsSinceEpoch}',
