@@ -1,25 +1,5 @@
-/// أوضاع قراءة الـ PDF
-enum PdfReadingMode {
-  vertical,   // التمرير العمودي (الوضع الحالي/الافتراضي)
-  horizontal, // التمرير الأفقي (صفحة واحدة في كل مرة، بالسحب لليمين/اليسار)
-              // الحركة العمودية مُعطَّلة كلياً في هذا الوضع
-}
-
-extension PdfReadingModeX on PdfReadingMode {
-  static PdfReadingMode fromIndex(int? i) {
-    // نتعامل مع القيم القديمة: 0=vertical, 1=horizontal, 2=twoPage(محذوف→horizontal)
-    if (i == null || i < 0) return PdfReadingMode.vertical;
-    if (i == 0) return PdfReadingMode.vertical;
-    if (i == 1) return PdfReadingMode.horizontal;
-    // القيمة 2 كانت twoPage، نُعيدها إلى horizontal
-    return PdfReadingMode.horizontal;
-  }
-}
-
 /// إعدادات الأدوات المحفوظة بين الجلسات (لا تتعلق بملف PDF معين، بل عامة للقارئ)
 class PdfToolSettings {
-  PdfReadingMode readingMode;
-
   // القلم
   int penColor;
   double penThickness; // نسبي لعرض الصفحة
@@ -48,7 +28,6 @@ class PdfToolSettings {
   double freehandHighlighterThickness;
 
   PdfToolSettings({
-    this.readingMode = PdfReadingMode.vertical,
     this.penColor = 0xFFEF4444,
     this.penThickness = 0.003,
     this.penOpacity = 1.0,
@@ -65,7 +44,6 @@ class PdfToolSettings {
   });
 
   Map<String, dynamic> toJson() => {
-        'mode': readingMode.index,
         'pc': penColor,
         'pt': penThickness,
         'po': penOpacity,
@@ -84,7 +62,6 @@ class PdfToolSettings {
   factory PdfToolSettings.fromJson(Map<String, dynamic>? json) {
     if (json == null) return PdfToolSettings();
     return PdfToolSettings(
-      readingMode: PdfReadingModeX.fromIndex(json['mode'] as int?),
       penColor: json['pc'] as int? ?? 0xFFEF4444,
       penThickness: (json['pt'] as num?)?.toDouble() ?? 0.003,
       penOpacity: (json['po'] as num?)?.toDouble() ?? 1.0,
