@@ -7,7 +7,7 @@ import '../services/pdf_annotation_store.dart';
 /// يدير أدوات الأشكال الهندسية (سهم/دائرة/مربع/مستطيل):
 /// - الرسم بالسحب (نقطة بداية إلى نقطة نهاية) بنظام إحداثيات نسبي لكل صفحة.
 /// - الرسم الفعلي على الـ Canvas.
-/// - تحريك وحذف الأشكال الموجودة.
+/// - تحريك وتغيير الحجم وحذف الأشكال الموجودة.
 class PdfShapeController {
   PdfShapeController({
     required this.store,
@@ -86,6 +86,23 @@ class PdfShapeController {
     onChanged();
   }
 
+  /// تغيير حجم الشكل بعامل تكبير/تصغير (0.5 = نصف الحجم، 2.0 = ضعف الحجم).
+  /// يتمحور التغيير حول مركز الشكل الحالي.
+  Future<void> resizeShape(ShapeModel shape, int pageNumber, double scaleFactor) async {
+    final cx = (shape.startDx + shape.endDx) / 2;
+    final cy = (shape.startDy + shape.endDy) / 2;
+    final halfW = ((shape.endDx - shape.startDx).abs() / 2) * scaleFactor;
+    final halfH = ((shape.endDy - shape.startDy).abs() / 2) * scaleFactor;
+    final signX = shape.endDx >= shape.startDx ? 1.0 : -1.0;
+    final signY = shape.endDy >= shape.startDy ? 1.0 : -1.0;
+    shape.startDx = cx - halfW * signX;
+    shape.startDy = cy - halfH * signY;
+    shape.endDx = cx + halfW * signX;
+    shape.endDy = cy + halfH * signY;
+    await _persist(pageNumber);
+    onChanged();
+  }
+
   Future<void> updateBorderColor(ShapeModel shape, int pageNumber, int color) async {
     shape.borderColor = color;
     await _persist(pageNumber);
@@ -124,8 +141,7 @@ class PdfShapeController {
     return null;
   }
 
-  /// يرسم كل أشكال صفحة معينة (بما فيها الشكل الجاري رسمه إن وُجد) على Canvas
-  /// بأبعاد [pageSize] (نظام رسم نسبي يتطابق مع بقية الأدوات في هذا الملف).
+  /// يرسم كل أشكال صفحة معينة (بما فيها الشكل الجاري رسمه إن وُجد) على Canvas.
   void paintShapes(Canvas canvas, Size pageSize, List<ShapeModel> shapes, {ShapeModel? preview}) {
     final all = [...shapes];
     if (preview != null) all.add(preview);
@@ -135,18 +151,19 @@ class PdfShapeController {
   }
 
   void _paintOne(Canvas canvas, Size pageSize, ShapeModel s) {
-    // للمربع: نجبر المسافة على التساوي (أصغر البعدين)
     double startX = s.startDx;
     double startY = s.startDy;
     double endX = s.endDx;
     double endY = s.endDy;
 
+    // ── المربع: نضمن أبعاداً متساوية تماماً (مربع حقيقي) ──
     if (s.type == ShapeType.square) {
       final dx = endX - startX;
       final dy = endY - startY;
+      // نأخذ أصغر البُعدين كطول الضلع لضمان التساوي المطلق
       final side = math.min(dx.abs(), dy.abs());
-      endX = startX + (dx.sign * side);
-      endY = startY + (dy.sign * side);
+      endX = startX + (dx < 0 ? -side : side);
+      endY = startY + (dy < 0 ? -side : side);
     }
 
     final rect = Rect.fromLTRB(
@@ -187,21 +204,29 @@ class PdfShapeController {
     }
   }
 
+  /// يرسم سهماً من [start] إلى [end].
+  /// الخط يمتد من البداية حتى **قاعدة رأس السهم** (لا يتجاوزه أبداً)،
+  /// ورأس السهم (مثلث مملوء) يشكّل طرف السهم الحقيقي بدون أي خط يخترقه.
   void _paintArrow(Canvas canvas, Offset start, Offset end, Paint paint) {
-    canvas.drawLine(start, end, paint..strokeCap = StrokeCap.round);
-
     final direction = end - start;
     final length = direction.distance;
     if (length < 1) return;
-    final unit = direction / length;
-    final arrowSize = math.max(14.0, paint.strokeWidth * 5);
 
-    // رأس مثلث حقيقي بزاوية ثابتة ≈ 40 درجة عن كل جانب
-    const halfAngle = 0.35; // راديان (~20 درجة)
+    final unit = direction / length;
+    final arrowSize = math.max(18.0, paint.strokeWidth * 5);
+
+    // ── رأس السهم (مثلث): قاعدته على مسافة arrowSize من النهاية ──
+    const halfAngle = 0.40; // ~23 درجة
     final cos = math.cos(halfAngle);
     final sin = math.sin(halfAngle);
 
-    // نقطتا قاعدة المثلث (مع التدوير حول نقطة النهاية)
+    // نقطة قاعدة المثلث المركزية (حيث ينتهي الخط)
+    final arrowBase = Offset(
+      end.dx - arrowSize * unit.dx,
+      end.dy - arrowSize * unit.dy,
+    );
+
+    // نقطتا الجانبين
     final p1 = Offset(
       end.dx - arrowSize * (unit.dx * cos - unit.dy * sin),
       end.dy - arrowSize * (unit.dy * cos + unit.dx * sin),
@@ -211,6 +236,10 @@ class PdfShapeController {
       end.dy - arrowSize * (unit.dy * cos - unit.dx * sin),
     );
 
+    // ── الخط: من البداية حتى قاعدة رأس السهم (لا يتجاوزه) ──
+    canvas.drawLine(start, arrowBase, paint..strokeCap = StrokeCap.round);
+
+    // ── رأس السهم (مثلث مملوء): رأسه عند [end] ──
     final headPath = Path()
       ..moveTo(end.dx, end.dy)
       ..lineTo(p1.dx, p1.dy)
