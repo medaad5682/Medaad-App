@@ -42,6 +42,9 @@ class PdfToolSettings {
   // رفض راحة اليد
   bool palmRejectionEnabled;
 
+  // الهايلايتر الحر
+  double freehandHighlighterThickness;
+
   PdfToolSettings({
     this.readingMode = PdfReadingMode.vertical,
     this.penColor = 0xFFEF4444,
@@ -56,6 +59,7 @@ class PdfToolSettings {
     this.shapeFillColor,
     this.shapeBorderWidth = 0.004,
     this.palmRejectionEnabled = false,
+    this.freehandHighlighterThickness = 0.025, // سماكة افتراضية للهايلايتر الحر
   });
 
   Map<String, dynamic> toJson() => {
@@ -72,6 +76,7 @@ class PdfToolSettings {
         'sfc': shapeFillColor,
         'sbw': shapeBorderWidth,
         'palm': palmRejectionEnabled,
+        'fht': freehandHighlighterThickness,
       };
 
   factory PdfToolSettings.fromJson(Map<String, dynamic>? json) {
@@ -90,6 +95,7 @@ class PdfToolSettings {
       shapeFillColor: json['sfc'] as int?,
       shapeBorderWidth: (json['sbw'] as num?)?.toDouble() ?? 0.004,
       palmRejectionEnabled: json['palm'] as bool? ?? false,
+      freehandHighlighterThickness: (json['fht'] as num?)?.toDouble() ?? 0.025,
     );
   }
 }
