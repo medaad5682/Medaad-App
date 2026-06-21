@@ -546,7 +546,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         onTextSelectionChange: (selection) =>
             _highlightController.handleTextSelectionChange(selection, _pdfController),
       ),
-      // قائمة سياق مخصصة: تعرض "تمييز" أو "تسطير" فقط وتمنع النسخ
+      // قائمة سياق مخصصة: تعرض "تمييز" أو "تسطير" فقط وتمنع النسخ.
+      // ملاحظة: onTextSelectionChange أعلاه يُطبّق التمييز تلقائياً عند انتهاء التحديد،
+      // لذا تكفي القائمة كمؤشر بصري فقط دون الحاجة لاستدعاء إضافي.
       buildContextMenu: (context, params) {
         if (!_isDrawingMode) return null;
         if (_activeTool != PdfTool.highlighter && _activeTool != PdfTool.underline) return null;
@@ -560,12 +562,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
             ),
             child: TextButton.icon(
-              onPressed: () async {
-                await _highlightController.handleTextSelectionChange(
-                  params.selection,
-                  _pdfController,
-                );
-              },
+              // التمييز يتم تلقائياً عبر onTextSelectionChange عند انتهاء التحديد؛
+              // زر القائمة يُغلق القائمة فقط (لمنع ظهور خيار النسخ الافتراضي).
+              onPressed: () {},
               icon: Icon(
                 _activeTool == PdfTool.highlighter
                     ? Icons.format_color_fill
