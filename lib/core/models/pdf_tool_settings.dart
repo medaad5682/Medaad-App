@@ -1,16 +1,18 @@
 /// أوضاع قراءة الـ PDF
 enum PdfReadingMode {
-  vertical, // التمرير العمودي (الوضع الحالي/الافتراضي)
+  vertical,   // التمرير العمودي (الوضع الحالي/الافتراضي)
   horizontal, // التمرير الأفقي (صفحة واحدة في كل مرة، بالسحب لليمين/اليسار)
-  twoPage, // عرض صفحتين جنباً إلى جنب
+              // الحركة العمودية مُعطَّلة كلياً في هذا الوضع
 }
 
 extension PdfReadingModeX on PdfReadingMode {
   static PdfReadingMode fromIndex(int? i) {
-    if (i == null || i < 0 || i >= PdfReadingMode.values.length) {
-      return PdfReadingMode.vertical;
-    }
-    return PdfReadingMode.values[i];
+    // نتعامل مع القيم القديمة: 0=vertical, 1=horizontal, 2=twoPage(محذوف→horizontal)
+    if (i == null || i < 0) return PdfReadingMode.vertical;
+    if (i == 0) return PdfReadingMode.vertical;
+    if (i == 1) return PdfReadingMode.horizontal;
+    // القيمة 2 كانت twoPage، نُعيدها إلى horizontal
+    return PdfReadingMode.horizontal;
   }
 }
 
@@ -59,7 +61,7 @@ class PdfToolSettings {
     this.shapeFillColor,
     this.shapeBorderWidth = 0.004,
     this.palmRejectionEnabled = false,
-    this.freehandHighlighterThickness = 0.025, // سماكة افتراضية للهايلايتر الحر
+    this.freehandHighlighterThickness = 0.025,
   });
 
   Map<String, dynamic> toJson() => {
