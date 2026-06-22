@@ -89,6 +89,7 @@ class PdfHighlightController {
     if (selection == null) return;
     await handleTextSelectionChange(selection, controller);
   }
+
   Future<void> handleTextSelectionChange(
     PdfTextSelection selection,
     PdfViewerController controller,
@@ -96,16 +97,29 @@ class PdfHighlightController {
     if (activeTool == TextMarkupTool.none) return;
     if (!selection.hasSelectedText) return;
 
-    final ranges = await selection.getSelectedTextRanges();
+    // ── Fix: retry once if getSelectedTextRanges returns empty ──
+    // On some decrypted PDF pages, the first call returns [] due to
+    // a race between the decryption pipeline and the text layer. A brief
+    // wait + one retry reliably resolves it.
+    List<PdfTextRangeWithFragments> ranges = await selection.getSelectedTextRanges();
+    if (ranges.isEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      ranges = await selection.getSelectedTextRanges();
+    }
     if (ranges.isEmpty) return;
 
+    bool anyApplied = false;
     for (final range in ranges) {
       if (range.start >= range.end) continue;
 
-      // ── Fix: ensure page data is loaded before persisting ──
-      // On some pages the highlights/underlines map may not be initialized yet
-      // (the page was never scrolled into view), so we load it first.
+      // ── Fix: ensure page text is fully loaded before persisting ──
+      // On some pages the text layer may not yet be cached even though
+      // the page is visible; waiting for it prevents silent save failures.
       await ensurePageLoaded(range.pageNumber);
+
+      // ── Extra fix: pre-warm the text cache for this page ──
+      // Verifies character data will be available for rendering/hit-testing.
+      await textCache.ensureLoadedByPageNumber(range.pageNumber, controller);
 
       final id = '${DateTime.now().microsecondsSinceEpoch}_${range.pageNumber}_${range.start}';
 
@@ -120,6 +134,7 @@ class PdfHighlightController {
           opacity: highlightOpacity,
         ));
         await _persistHighlights(range.pageNumber);
+        anyApplied = true;
       } else if (activeTool == TextMarkupTool.underline) {
         final list = _underlines.putIfAbsent(range.pageNumber, () => []);
         list.add(UnderlineModel(
@@ -130,8 +145,11 @@ class PdfHighlightController {
           color: underlineColor,
         ));
         await _persistUnderlines(range.pageNumber);
+        anyApplied = true;
       }
     }
+
+    if (!anyApplied) return;
 
     // إلغاء التحديد فوراً بعد تحويله إلى تمييز/تسطير دائم، بدلاً من تركه قابلاً للنسخ.
     await controller.textSelectionDelegate.clearTextSelection();
