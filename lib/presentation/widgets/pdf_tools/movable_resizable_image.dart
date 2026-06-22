@@ -7,16 +7,29 @@ import '../../../core/models/image_annotation_model.dart';
 /// عنصر صورة واحدة موضوعة على صفحة الـ PDF:
 /// - قابلة للسحب والتحريك بالضغط على جسم الصورة.
 /// - زر حذف في الزاوية العلوية اليسرى.
-/// - مقبض تكبير/تصغير شامل في الزاوية السفلية اليمنى (يعمل بشكل صحيح).
-/// - مقابض تغيير الحجم على منتصف كل ضلع (أعلى/أسفل/يسار/يمين).
-/// - جميع عناصر التحكم تظهر فقط في وضع التعديل.
+/// - مقابض تغيير الحجم على المنتصفات والزاوية:
+///   • منتصف اليمين  → يوسّع/يُضيّق الحافة اليمنى أفقياً فقط.
+///   • منتصف اليسار  → يوسّع/يُضيّق الحافة اليسرى أفقياً فقط (تحريك + تغيير عرض).
+///   • منتصف الأعلى  → يوسّع/يُضيّق الحافة العليا رأسياً فقط (تحريك + تغيير ارتفاع).
+///   • منتصف الأسفل  → يوسّع/يُضيّق الحافة السفلية رأسياً فقط.
+///   • الزاوية السفلية اليمنى → تغيير متناسب للعرض والارتفاع معاً.
+/// - الحجم النهائي يُحفَظ بدقة عند رفع الإصبع (onPanEnd).
 class MovableResizableImage extends StatefulWidget {
   final ImageAnnotationModel image;
   final double pageWidth;
   final double pageHeight;
   final bool editable;
   final ValueChanged<Offset> onMoveDelta;
+
+  /// [onResizeDelta] يُستدعى أثناء السحب (معاينة مباشرة).
   final ValueChanged<Offset> onResizeDelta;
+
+  /// [onResizeEnd] يُستدعى مرة واحدة عند رفع الإصبع لحفظ الحجم النهائي الدقيق.
+  final void Function(double finalWidth, double finalHeight) onResizeEnd;
+
+  /// [onMoveEnd] يُستدعى عند انتهاء سحب الحافة اليسرى/العليا لتثبيت موضع الصورة.
+  final void Function(double finalDx, double finalDy)? onMoveEnd;
+
   final VoidCallback onDelete;
 
   const MovableResizableImage({
@@ -27,6 +40,8 @@ class MovableResizableImage extends StatefulWidget {
     required this.editable,
     required this.onMoveDelta,
     required this.onResizeDelta,
+    required this.onResizeEnd,
+    this.onMoveEnd,
     required this.onDelete,
   });
 
@@ -35,23 +50,35 @@ class MovableResizableImage extends StatefulWidget {
 }
 
 class _MovableResizableImageState extends State<MovableResizableImage> {
+  // دلتا محلية مؤقتة أثناء السحب فقط — تُصفَّر عند رفع الإصبع
   double _localDw = 0;
   double _localDh = 0;
 
-  // دوال مساعدة لإرجاع أبعاد الصورة الفعلية حسب المعاينة المحلية
-  double get _widthPx => widget.image.width * widget.pageWidth + _localDw;
-  double get _heightPx => widget.image.height * widget.pageHeight + _localDh;
+  double get _widthPx  => (widget.image.width  * widget.pageWidth  + _localDw).clamp(40.0, double.infinity);
+  double get _heightPx => (widget.image.height * widget.pageHeight + _localDh).clamp(40.0, double.infinity);
+
+  // ── مساعد: إرسال resize + حفظ الحجم النهائي عند رفع الإصبع ──
+  void _commitResize() {
+    setState(() {
+      _localDw = 0;
+      _localDh = 0;
+    });
+    widget.onResizeEnd(
+      widget.image.width,
+      widget.image.height,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    const handleSize = 28.0;
+    const handleSize   = 28.0;
     const handleOffset = handleSize / 2;
 
-    final w = _widthPx.clamp(40.0, double.infinity);
-    final h = _heightPx.clamp(40.0, double.infinity);
+    final w = _widthPx;
+    final h = _heightPx;
 
     return SizedBox(
-      width: w,
+      width:  w,
       height: h,
       child: Stack(
         clipBehavior: Clip.none,
@@ -68,7 +95,7 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
                   }
                 : null,
             child: Container(
-              width: w,
+              width:  w,
               height: h,
               decoration: BoxDecoration(
                 border: widget.editable
@@ -79,7 +106,7 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
               ),
               child: Image.file(
                 File(widget.image.path),
-                width: w,
+                width:  w,
                 height: h,
                 fit: BoxFit.fill,
                 gaplessPlayback: true,
@@ -96,11 +123,11 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
             // ── زر الحذف: الزاوية العلوية اليسرى ──
             Positioned(
               left: -handleOffset,
-              top: -handleOffset,
+              top:  -handleOffset,
               child: GestureDetector(
                 onTap: widget.onDelete,
                 child: Container(
-                  width: handleSize,
+                  width:  handleSize,
                   height: handleSize,
                   decoration: const BoxDecoration(
                     color: Colors.redAccent,
@@ -111,89 +138,104 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
               ),
             ),
 
-            // ── مقبض تكبير/تصغير شامل: الزاوية السفلية اليمنى ──
+            // ── منتصف اليمين: يحرّك الحافة اليمنى أفقياً فقط ──
             Positioned(
               right: -handleOffset,
+              top:   h / 2 - handleOffset,
+              child: _ResizeHandle(
+                icon: Icons.drag_handle,
+                rotate: true,
+                onDelta: (d) {
+                  final newW = (w + d.dx).clamp(40.0, double.infinity);
+                  final dw   = newW - w;
+                  setState(() => _localDw += dw);
+                  widget.onResizeDelta(Offset(dw / widget.pageWidth, 0));
+                },
+                onEnd: _commitResize,
+              ),
+            ),
+
+            // ── منتصف اليسار: يحرّك الحافة اليسرى أفقياً فقط ──
+            Positioned(
+              left: -handleOffset,
+              top:  h / 2 - handleOffset,
+              child: _ResizeHandle(
+                icon: Icons.drag_handle,
+                rotate: true,
+                onDelta: (d) {
+                  // الحافة اليسرى: يزيد العرض عند السحب لليسار (dx سالب)
+                  final newW = (w - d.dx).clamp(40.0, double.infinity);
+                  final dw   = newW - w;
+                  setState(() => _localDw += dw);
+                  widget.onResizeDelta(Offset(dw / widget.pageWidth, 0));
+                  // تحريك الصورة يساراً لتثبيت الحافة اليمنى
+                  widget.onMoveDelta(Offset(-dw / widget.pageWidth, 0));
+                },
+                onEnd: () {
+                  setState(() { _localDw = 0; });
+                  widget.onResizeEnd(widget.image.width, widget.image.height);
+                  widget.onMoveEnd?.call(widget.image.dx, widget.image.dy);
+                },
+              ),
+            ),
+
+            // ── منتصف الأعلى: يحرّك الحافة العليا رأسياً فقط ──
+            Positioned(
+              top:  -handleOffset,
+              left: w / 2 - handleOffset,
+              child: _ResizeHandle(
+                icon: Icons.drag_handle,
+                rotate: false,
+                onDelta: (d) {
+                  final newH = (h - d.dy).clamp(40.0, double.infinity);
+                  final dh   = newH - h;
+                  setState(() => _localDh += dh);
+                  widget.onResizeDelta(Offset(0, dh / widget.pageHeight));
+                  widget.onMoveDelta(Offset(0, -dh / widget.pageHeight));
+                },
+                onEnd: () {
+                  setState(() { _localDh = 0; });
+                  widget.onResizeEnd(widget.image.width, widget.image.height);
+                  widget.onMoveEnd?.call(widget.image.dx, widget.image.dy);
+                },
+              ),
+            ),
+
+            // ── منتصف الأسفل: يحرّك الحافة السفلية رأسياً فقط ──
+            Positioned(
               bottom: -handleOffset,
-              child: _EdgeHandle(
+              left:   w / 2 - handleOffset,
+              child: _ResizeHandle(
+                icon: Icons.drag_handle,
+                rotate: false,
+                onDelta: (d) {
+                  final newH = (h + d.dy).clamp(40.0, double.infinity);
+                  final dh   = newH - h;
+                  setState(() => _localDh += dh);
+                  widget.onResizeDelta(Offset(0, dh / widget.pageHeight));
+                },
+                onEnd: _commitResize,
+              ),
+            ),
+
+            // ── الزاوية السفلية اليمنى: تغيير متناسب (عرض وارتفاع معاً) ──
+            Positioned(
+              right:  -handleOffset,
+              bottom: -handleOffset,
+              child: _ResizeHandle(
                 icon: Icons.open_in_full,
+                rotate: false,
                 onDelta: (d) {
                   setState(() {
                     _localDw += d.dx;
                     _localDh += d.dy;
                   });
-                  widget.onResizeDelta(
-                    Offset(d.dx / widget.pageWidth, d.dy / widget.pageHeight),
-                  );
+                  widget.onResizeDelta(Offset(
+                    d.dx / widget.pageWidth,
+                    d.dy / widget.pageHeight,
+                  ));
                 },
-                onEnd: () => setState(() {
-                  _localDw = 0;
-                  _localDh = 0;
-                }),
-              ),
-            ),
-
-            // ── مقبض الحافة العلوية: يُصغّر/يُكبّر من الأعلى (يُحرّك الحافة العليا) ──
-            Positioned(
-              top: -handleOffset,
-              left: w / 2 - handleOffset,
-              child: _EdgeHandle(
-                icon: Icons.unfold_less,
-                onDelta: (d) {
-                  final newH = (h - d.dy).clamp(40.0, double.infinity);
-                  final dh = newH - h;
-                  setState(() => _localDh += dh);
-                  // تغيير الارتفاع فقط (الحافة العليا تتحرك = تغيير الـ dy والارتفاع)
-                  widget.onResizeDelta(Offset(0, -d.dy / widget.pageHeight));
-                  // تحريك الصورة للأعلى بمقدار التغيير لتثبيت الحافة السفلية
-                  widget.onMoveDelta(Offset(0, d.dy / widget.pageHeight));
-                },
-                onEnd: () => setState(() => _localDh = 0),
-              ),
-            ),
-
-            // ── مقبض الحافة السفلية: يُصغّر/يُكبّر من الأسفل ──
-            Positioned(
-              bottom: -handleOffset,
-              left: w / 2 - handleOffset,
-              child: _EdgeHandle(
-                icon: Icons.unfold_more,
-                onDelta: (d) {
-                  setState(() => _localDh += d.dy);
-                  widget.onResizeDelta(Offset(0, d.dy / widget.pageHeight));
-                },
-                onEnd: () => setState(() => _localDh = 0),
-              ),
-            ),
-
-            // ── مقبض الحافة اليسرى: يُصغّر/يُكبّر من اليسار ──
-            Positioned(
-              left: -handleOffset,
-              top: h / 2 - handleOffset,
-              child: _EdgeHandle(
-                icon: Icons.unfold_less,
-                onDelta: (d) {
-                  final newW = (w - d.dx).clamp(40.0, double.infinity);
-                  final dw = newW - w;
-                  setState(() => _localDw += dw);
-                  widget.onResizeDelta(Offset(-d.dx / widget.pageWidth, 0));
-                  widget.onMoveDelta(Offset(d.dx / widget.pageWidth, 0));
-                },
-                onEnd: () => setState(() => _localDw = 0),
-              ),
-            ),
-
-            // ── مقبض الحافة اليمنى: يُصغّر/يُكبّر من اليمين ──
-            Positioned(
-              right: -handleOffset,
-              top: h / 2 - handleOffset,
-              child: _EdgeHandle(
-                icon: Icons.unfold_more,
-                onDelta: (d) {
-                  setState(() => _localDw += d.dx);
-                  widget.onResizeDelta(Offset(d.dx / widget.pageWidth, 0));
-                },
-                onEnd: () => setState(() => _localDw = 0),
+                onEnd: _commitResize,
               ),
             ),
           ],
@@ -204,12 +246,19 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
 }
 
 /// مقبض دائري صغير لتغيير الحجم بالسحب.
-class _EdgeHandle extends StatelessWidget {
+/// [rotate] = true يعرض الأيقونة مُدارة 90° (للحواف الأفقية → سحب رأسي).
+class _ResizeHandle extends StatelessWidget {
   final IconData icon;
+  final bool rotate;
   final ValueChanged<Offset> onDelta;
   final VoidCallback onEnd;
 
-  const _EdgeHandle({required this.icon, required this.onDelta, required this.onEnd});
+  const _ResizeHandle({
+    required this.icon,
+    required this.rotate,
+    required this.onDelta,
+    required this.onEnd,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -218,7 +267,7 @@ class _EdgeHandle extends StatelessWidget {
       onPanUpdate: (details) => onDelta(details.delta),
       onPanEnd: (_) => onEnd(),
       child: Container(
-        width: 28,
+        width:  28,
         height: 28,
         decoration: BoxDecoration(
           color: AppColors.accentYellow,
@@ -228,7 +277,10 @@ class _EdgeHandle extends StatelessWidget {
             BoxShadow(color: Colors.black38, blurRadius: 4, offset: Offset(0, 2)),
           ],
         ),
-        child: Icon(icon, size: 14, color: Colors.black),
+        child: RotatedBox(
+          quarterTurns: rotate ? 1 : 0,
+          child: Icon(icon, size: 14, color: Colors.black),
+        ),
       ),
     );
   }
