@@ -101,7 +101,7 @@ class PdfHighlightController {
     // On some decrypted PDF pages, the first call returns [] due to
     // a race between the decryption pipeline and the text layer. A brief
     // wait + one retry reliably resolves it.
-    List<PdfTextRangeWithFragments> ranges = await selection.getSelectedTextRanges();
+    List<PdfTextRange> ranges = await selection.getSelectedTextRanges();
     if (ranges.isEmpty) {
       await Future<void>.delayed(const Duration(milliseconds: 120));
       ranges = await selection.getSelectedTextRanges();
