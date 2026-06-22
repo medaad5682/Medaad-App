@@ -656,11 +656,42 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         if (mounted) setState(() => _totalPages = document?.pages.length ?? 0);
       },
       onPageChanged: (pageNumber) {
-        if (pageNumber != null) _activePage = pageNumber;
+        if (pageNumber != null) {
+          _activePage = pageNumber;
+          // ── Fix (highlight/underline): pre-warm text cache for the new page
+          // and its immediate neighbours so getSelectedTextRanges never races
+          // against an empty cache on any page.
+          if (_pdfController != null) {
+            final ctrl = _pdfController!;
+            final doc = ctrl.document;
+            if (doc != null) {
+              final total = doc.pages.length;
+              for (int p = (pageNumber - 1).clamp(1, total);
+                  p <= (pageNumber + 1).clamp(1, total);
+                  p++) {
+                _textCache.ensureLoadedByPageNumber(p, ctrl);
+              }
+            }
+          }
+        }
       },
       pageOverlaysBuilder: (context, pageRect, page) {
         // تحميل نص الصفحة مسبقاً (للتمييز/التسطير)
+        // ── Fix: also pre-warm the page before and after, so that when the
+        // user scrolls half a page and selects text the cache is already hot.
         _textCache.ensureLoaded(page);
+        if (_pdfController != null) {
+          final doc = _pdfController!.document;
+          if (doc != null) {
+            final total = doc.pages.length;
+            if (page.pageNumber > 1) {
+              _textCache.ensureLoadedByPageNumber(page.pageNumber - 1, _pdfController!);
+            }
+            if (page.pageNumber < total) {
+              _textCache.ensureLoadedByPageNumber(page.pageNumber + 1, _pdfController!);
+            }
+          }
+        }
 
         return [
           Positioned.fill(
@@ -685,23 +716,19 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     ...images.map((img) => Positioned(
                           left: img.dx * pageRect.width,
                           top: img.dy * pageRect.height,
-                          child: GestureDetector(
-                            onTap: () {
-                              // كشف ذكي: النقر على صورة يُفعّل أداة الصورة تلقائياً
-                              if (_isDrawingMode && _activeTool != PdfTool.image) {
-                                setState(() {
-                                  _activeTool = PdfTool.image;
-                                  _highlightController.activeTool = TextMarkupTool.none;
-                                });
-                              }
-                            },
-                            child: MovableResizableImage(
+                          // ── Fix (image tool): removed the GestureDetector onTap that
+                          // used to auto-switch _activeTool to PdfTool.image when the
+                          // user tapped an existing image. That caused scrolling, panning
+                          // and zooming to freeze because the viewer's internal gesture
+                          // arena was captured by the image-tool overlay.
+                          // Images are now always editable (movable/resizable/deletable)
+                          // while in drawing mode regardless of which tool is active,
+                          // and tapping one does NOT change the active tool.
+                          child: MovableResizableImage(
                               image: img,
                               pageWidth: pageRect.width,
                               pageHeight: pageRect.height,
-                              editable: _isDrawingMode &&
-                                  (_activeTool == PdfTool.image ||
-                                      _activeTool == PdfTool.none),
+                              editable: _isDrawingMode,
                               onMoveDelta: (delta) =>
                                   _imageController.moveImage(page.pageNumber, img, delta),
                               onResizeDelta: (delta) =>
@@ -713,7 +740,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                               onDelete: () =>
                                   _imageController.deleteImage(page.pageNumber, img),
                             ),
-                          ),
                         )),
 
                     // طبقة الرسم الحر (القلم/الممحاة/هايلايتر حر) + الأشكال (رسم جديد)
@@ -1542,6 +1568,24 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         _highlightController.activeTool = tool == PdfTool.highlighter
             ? TextMarkupTool.highlight
             : (tool == PdfTool.underline ? TextMarkupTool.underline : TextMarkupTool.none);
+        // ── Fix (highlight/underline): eagerly pre-warm the text cache for the
+        // current page (and neighbours) the moment the user activates either
+        // markup tool, so it is guaranteed to be ready before they finish
+        // selecting text and press the context-menu button.
+        if ((tool == PdfTool.highlighter || tool == PdfTool.underline) &&
+            _pdfController != null) {
+          final ctrl = _pdfController!;
+          final doc = ctrl.document;
+          if (doc != null) {
+            final total = doc.pages.length;
+            final cur = _activePage > 0 ? _activePage : 1;
+            for (int p = (cur - 1).clamp(1, total);
+                p <= (cur + 1).clamp(1, total);
+                p++) {
+              _textCache.ensureLoadedByPageNumber(p, ctrl);
+            }
+          }
+        }
       }),
       penColor: Color(_settings.penColor),
       penThickness: _settings.penThickness,
