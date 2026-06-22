@@ -29,6 +29,31 @@ class PdfPageTextCache {
     return future;
   }
 
+  /// نسخة بديلة تستخدم [PdfViewerController] لتحميل نص صفحة بالرقم فقط
+  /// (بدون الحاجة إلى كائن [PdfPage]) — مفيدة عند التطبيق من قائمة السياق
+  /// حيث لا يتوفر كائن الصفحة مباشرة.
+  /// إذا كانت الصفحة محمّلة بالفعل، تُعيد القيمة المخزّنة فوراً.
+  Future<PdfPageText?> ensureLoadedByPageNumber(
+    int pageNumber,
+    PdfViewerController controller,
+  ) async {
+    final existing = _cache[pageNumber];
+    if (existing != null) return existing;
+
+    final inFlight = _loading[pageNumber];
+    if (inFlight != null) return inFlight;
+
+    try {
+      final doc = controller.document;
+      if (doc == null) return null;
+      if (pageNumber < 1 || pageNumber > doc.pages.length) return null;
+      final page = doc.pages[pageNumber - 1];
+      return ensureLoaded(page);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void clear() {
     _cache.clear();
     _loading.clear();
