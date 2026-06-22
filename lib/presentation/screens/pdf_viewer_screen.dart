@@ -49,7 +49,15 @@ class PdfViewerScreen extends StatefulWidget {
 }
 
 class _PdfViewerScreenState extends State<PdfViewerScreen> {
-  final PdfViewerController _pdfController = PdfViewerController();
+  // ── Fix: first-open stuck loading ──
+  // A new UniqueKey is assigned after _preparePdf() completes so the PdfViewer
+  // widget is always constructed fresh (never recycled from a previous route).
+  // Without this, Flutter may reuse a stale internal viewer state from a prior
+  // navigation, causing the viewer to never fire its onDocumentChanged callback
+  // on the very first open after app launch.
+  Key _viewerKey = UniqueKey();
+
+  PdfViewerController _pdfController = PdfViewerController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   // --- متغيرات فك التشفير (بدون أي تغيير عن النسخة الأصلية) ---
@@ -237,10 +245,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           int originalSize = totalSize - (numChunks * FileCryptoService.NONCE_LENGTH);
 
           if (mounted) {
+            // ── Fix: force fresh PdfViewer to avoid first-open stuck loading ──
             setState(() {
               _isOffline = true;
               _encryptedFile = file;
               _originalFileSize = originalSize;
+              _pdfController = PdfViewerController();
+              _viewerKey = UniqueKey();
               _loading = false;
             });
           }
@@ -279,7 +290,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
       _onlineUrl = '${ApiConstants.apiUrl}/secure/get-pdf?pdfId=${widget.pdfId}';
 
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        // ── Fix: force fresh PdfViewer to avoid first-open stuck loading ──
+        setState(() {
+          _pdfController = PdfViewerController();
+          _viewerKey = UniqueKey();
+          _loading = false;
+        });
+      }
     } catch (e, stack) {
       FirebaseCrashlytics.instance.recordError(e, stack, reason: "PDF Secure Load Failed");
       if (mounted) {
@@ -305,6 +323,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         children: [
           _isOffline && _encryptedFile != null && _originalFileSize != null
               ? PdfViewer.custom(
+                  key: _viewerKey,
                   fileSize: _originalFileSize!,
                   read: _customRead,
                   sourceName: _encryptedFile!.path,
@@ -312,6 +331,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   params: _buildPdfParams(),
                 )
               : PdfViewer.uri(
+                  key: _viewerKey,
                   Uri.parse(_onlineUrl!),
                   headers: _onlineHeaders,
                   controller: _pdfController,
