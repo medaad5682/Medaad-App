@@ -50,14 +50,15 @@ class PdfViewerScreen extends StatefulWidget {
 
 class _PdfViewerScreenState extends State<PdfViewerScreen> {
   // ── Fix: first-open stuck loading ──
-  // A new UniqueKey is assigned after _preparePdf() completes so the PdfViewer
-  // widget is always constructed fresh (never recycled from a previous route).
-  // Without this, Flutter may reuse a stale internal viewer state from a prior
-  // navigation, causing the viewer to never fire its onDocumentChanged callback
-  // on the very first open after app launch.
+  // _pdfController is declared nullable and only initialized inside _preparePdf()
+  // so it is never attached to a PdfViewer until the document is ready.
+  // A new UniqueKey + new controller are assigned together, guaranteeing a
+  // completely fresh widget subtree on every open (including the very first one
+  // after app launch where Flutter might otherwise reuse stale internal state).
   Key _viewerKey = UniqueKey();
 
-  PdfViewerController _pdfController = PdfViewerController();
+  // Null until _preparePdf() succeeds; the build() method guards against null.
+  PdfViewerController? _pdfController;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   // --- متغيرات فك التشفير (بدون أي تغيير عن النسخة الأصلية) ---
@@ -246,6 +247,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
           if (mounted) {
             // ── Fix: force fresh PdfViewer to avoid first-open stuck loading ──
+            // Create the controller INSIDE setState so it is never attached to
+            // any widget until this exact rebuild — preventing a stale-controller
+            // race on the first open after app launch.
             setState(() {
               _isOffline = true;
               _encryptedFile = file;
@@ -292,6 +296,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
       if (mounted) {
         // ── Fix: force fresh PdfViewer to avoid first-open stuck loading ──
+        // Create the controller INSIDE setState so it is never attached to
+        // any widget until this exact rebuild — preventing a stale-controller
+        // race on the first open after app launch.
         setState(() {
           _pdfController = PdfViewerController();
           _viewerKey = UniqueKey();
@@ -313,6 +320,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   Widget build(BuildContext context) {
     if (_loading) return _buildLoadingView();
     if (_error != null) return _buildErrorView();
+    // _pdfController is guaranteed non-null here: _preparePdf() always
+    // assigns it before setting _loading = false.
+    final controller = _pdfController!;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -327,14 +337,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   fileSize: _originalFileSize!,
                   read: _customRead,
                   sourceName: _encryptedFile!.path,
-                  controller: _pdfController,
+                  controller: controller,
                   params: _buildPdfParams(),
                 )
               : PdfViewer.uri(
                   key: _viewerKey,
                   Uri.parse(_onlineUrl!),
                   headers: _onlineHeaders,
-                  controller: _pdfController,
+                  controller: controller,
                   params: _buildPdfParams(),
                 ),
           _buildWatermark(),
@@ -495,7 +505,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     itemCount: _totalPages,
                     itemBuilder: (context, index) {
                       final pageNum = index + 1;
-                      final isCurrent = _pdfController.pageNumber == pageNum;
+                      final isCurrent = _pdfController?.pageNumber == pageNum;
                       return ListTile(
                         title: Text("صفحة $pageNum",
                             style: TextStyle(
@@ -505,7 +515,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                             color: isCurrent ? AppColors.accentYellow : AppColors.textSecondary,
                             size: 18),
                         onTap: () {
-                          _pdfController.goToPage(pageNumber: pageNum);
+                          _pdfController?.goToPage(pageNumber: pageNum);
                           Navigator.pop(context);
                         },
                       );
@@ -554,7 +564,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             child: TextButton.icon(
               onPressed: () async {
                 // نطبّق التمييز/التسطير الآن بعد أن انتهى المستخدم من ضبط التحديد
-                await _highlightController.applyPendingSelection(_pdfController);
+                await _highlightController.applyPendingSelection(_pdfController!);
               },
               icon: Icon(
                 _activeTool == PdfTool.highlighter
