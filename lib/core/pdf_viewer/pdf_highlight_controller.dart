@@ -103,7 +103,7 @@ class PdfHighlightController {
       try {
         final doc = controller.document;
         if (doc != null) {
-          final activePage = controller.visiblePageNumbers.firstOrNull ?? 1;
+          final activePage = controller.pageNumber ?? 1;
           for (int p = (activePage - 1).clamp(1, doc.pages.length);
               p <= (activePage + 1).clamp(1, doc.pages.length);
               p++) {
