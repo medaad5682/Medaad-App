@@ -59,15 +59,33 @@ class PdfHighlightController {
   /// نحفظ كائن التحديد الحالي فقط دون تطبيق التمييز/التسطير فوراً،
   /// حتى يتمكن المستخدم من ضبط نقطتَي البداية والنهاية بحرية.
   /// يُطبَّق التمييز/التسطير فقط عند استدعاء [applyPendingSelection].
+  ///
+  /// Fix: we only UPDATE the pending selection when it actually has selected
+  /// text. We never clear it here, because on some PDF pages the selection
+  /// object fires a transient "no selection" event mid-gesture (while the user
+  /// is still adjusting handles), which was silently nulling out a valid
+  /// selection and making Highlight/Underline appear to do nothing.
+  /// The selection is cleared explicitly in [applyPendingSelection] after it
+  /// has been committed.
   PdfTextSelection? _pendingSelection;
 
   void updatePendingSelection(PdfTextSelection selection) {
-    _pendingSelection = selection.hasSelectedText ? selection : null;
+    if (selection.hasSelectedText) {
+      _pendingSelection = selection;
+    }
+    // ── intentionally NOT clearing _pendingSelection when empty ──
+  }
+
+  /// Clears any pending selection (call after committing or cancelling).
+  void clearPendingSelection() {
+    _pendingSelection = null;
   }
 
   /// يُستدعى من زر قائمة السياق بعد أن يُثبّت المستخدم تحديده.
   Future<void> applyPendingSelection(PdfViewerController controller) async {
     final selection = _pendingSelection;
+    // Clear first so a re-tap doesn't apply the same selection twice.
+    clearPendingSelection();
     if (selection == null) return;
     await handleTextSelectionChange(selection, controller);
   }
@@ -83,6 +101,12 @@ class PdfHighlightController {
 
     for (final range in ranges) {
       if (range.start >= range.end) continue;
+
+      // ── Fix: ensure page data is loaded before persisting ──
+      // On some pages the highlights/underlines map may not be initialized yet
+      // (the page was never scrolled into view), so we load it first.
+      await ensurePageLoaded(range.pageNumber);
+
       final id = '${DateTime.now().microsecondsSinceEpoch}_${range.pageNumber}_${range.start}';
 
       if (activeTool == TextMarkupTool.highlight) {
