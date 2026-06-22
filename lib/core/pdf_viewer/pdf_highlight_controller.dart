@@ -125,38 +125,8 @@ class PdfHighlightController {
     for (final range in ranges) {
       if (range.start >= range.end) continue;
 
-      // ── Fix: ensure page text is fully loaded before persisting ──
       await ensurePageLoaded(range.pageNumber);
-
-      // ── Fix (charRects validation): pre-warm the text cache AND verify that
-      // the loaded PdfPageText has non-empty charRects before saving the
-      // annotation. On pages 2-4 of encrypted/compressed PDFs, the first
-      // loadStructuredText() call can return an empty charRects because
-      // PDFium hasn't finished decoding the page yet. Saving indices into an
-      // empty charRects would produce an annotation that is stored correctly
-      // but can never be rendered (lineRectsForRange always returns []).
-      // We retry loading until charRects is populated (or we time out).
-      PdfPageText? pageText = await textCache.ensureLoadedByPageNumber(range.pageNumber, controller);
-      if (pageText == null || pageText.charRects.isEmpty) {
-        // Invalidate stale entry and retry with increasing delays
-        textCache.invalidate(range.pageNumber);
-        const charRetryDelays = [100, 200, 400, 800, 1500];
-        for (final delayMs in charRetryDelays) {
-          await Future<void>.delayed(Duration(milliseconds: delayMs));
-          pageText = await textCache.ensureLoadedByPageNumber(range.pageNumber, controller);
-          if (pageText != null && pageText.charRects.isNotEmpty) break;
-          // Invalidate again so ensureLoadedByPageNumber actually retries
-          textCache.invalidate(range.pageNumber);
-        }
-      }
-      // If charRects is still empty after all retries, skip this range to
-      // avoid saving annotation indices that will never render.
-      if (pageText == null || pageText.charRects.isEmpty) continue;
-
-      // Clamp indices to the valid charRects range to guard against edge cases.
-      final validStart = range.start.clamp(0, pageText.charRects.length);
-      final validEnd = range.end.clamp(0, pageText.charRects.length);
-      if (validEnd <= validStart) continue;
+      await textCache.ensureLoadedByPageNumber(range.pageNumber, controller);
 
       final id = '${DateTime.now().microsecondsSinceEpoch}_${range.pageNumber}_${range.start}';
 
@@ -165,8 +135,8 @@ class PdfHighlightController {
         list.add(HighlightModel(
           id: id,
           pageNumber: range.pageNumber,
-          start: validStart,
-          end: validEnd,
+          start: range.start,
+          end: range.end,
           color: highlightColor,
           opacity: highlightOpacity,
         ));
@@ -177,8 +147,8 @@ class PdfHighlightController {
         list.add(UnderlineModel(
           id: id,
           pageNumber: range.pageNumber,
-          start: validStart,
-          end: validEnd,
+          start: range.start,
+          end: range.end,
           color: underlineColor,
         ));
         await _persistUnderlines(range.pageNumber);
@@ -312,37 +282,15 @@ class PdfHighlightController {
       return;
     }
 
-    // ── Fix (rendering): pdfrx pre-translates the canvas to the page's
-    // top-left corner before calling pagePaintCallbacks, so all drawing
-    // coordinates must be relative to (0, 0) — not to the absolute scroll
-    // position of the page inside the document.
-    //
-    // toRectInDocument(page, pageRect) adds pageRect.left/top to every rect
-    // it produces. If we pass the real (absolute) pageRect, that offset is
-    // added on top of the canvas translation → double-offset → rects land far
-    // below / to the right of the actual page, and are completely invisible.
-    //
-    // The correct fix: pass a page-local reference rect anchored at (0, 0)
-    // with the same pixel dimensions as the real pageRect.  The scaling and
-    // PDF-Y-axis flip inside toRectInDocument then work correctly, and no
-    // spurious offset is added.
-    final localPageRect = Rect.fromLTWH(0, 0, pageRect.width, pageRect.height);
-
-    // ── Fix (stale empty-charRects): if we have annotations on this page but
-    // the cached PdfPageText has no charRects, the text was loaded before
-    // PDFium finished decoding the page (happens on pages 2-4 of encrypted /
-    // compressed PDFs). Invalidate the stale entry and request a fresh load
-    // so the next frame can draw the annotations.
-    final hasAnnotations = highlightsForPage(page.pageNumber).isNotEmpty ||
-        underlinesForPage(page.pageNumber).isNotEmpty;
-    if (hasAnnotations && pageText.charRects.isEmpty) {
-      textCache.invalidate(page.pageNumber);
-      // ignore: discarded_futures
-      textCache.ensureLoaded(page).then((_) {
-        onChanged();
-      });
-      return;
-    }
+    // toRectInDocument needs the real absolute pageRect (the page's position
+    // inside the scrollable document) so it can correctly map PDF coordinates
+    // to Flutter screen coordinates. The canvas is NOT pre-translated by pdfrx
+    // before calling pagePaintCallbacks — it uses the global scroll coordinate
+    // system. A previous attempt used localPageRect = Rect(0,0,w,h) under the
+    // mistaken belief that the canvas was pre-translated; that caused:
+    //   • Page 1 highlights to appear slightly above/left (small top offset lost)
+    //   • Page 2+ highlights to appear on page 1's canvas (large top offset lost,
+    //     coords collapse back into page 1's screen area)
 
     // رسم التمييز (طبقة تحت النص، شبه شفافة)
     for (final h in highlightsForPage(page.pageNumber)) {
@@ -351,26 +299,14 @@ class PdfHighlightController {
         start: h.start,
         end: h.end,
       );
-      // ── Fix (stale charRects race): lineRectsForRange returns [] when
-      // charRects is populated but the saved start/end indices fall outside
-      // the current charRects range. This shouldn't happen in normal usage,
-      // but as a safety net: if we got a non-empty pageText yet still got no
-      // rects for an annotation, invalidate and retry on the next frame.
-      if (lineRects.isEmpty) {
-        textCache.invalidate(page.pageNumber);
-        // ignore: discarded_futures
-        textCache.ensureLoaded(page).then((_) {
-          onChanged();
-        });
-        return;
-      }
+      if (lineRects.isEmpty) continue;
       final paint = Paint()
         ..style = PaintingStyle.fill
         ..color = Color(h.color).withOpacity(h.opacity);
       for (final r in lineRects) {
         // تكبير طفيف رأسياً ليغطي التمييز كامل ارتفاع السطر بشكل طبيعي
         final flutterRect =
-            r.inflate(0, r.height * 0.12).toRectInDocument(page: page, pageRect: localPageRect);
+            r.inflate(0, r.height * 0.12).toRectInDocument(page: page, pageRect: pageRect);
         canvas.drawRect(flutterRect, paint);
       }
     }
@@ -382,21 +318,14 @@ class PdfHighlightController {
         start: u.start,
         end: u.end,
       );
-      if (lineRects.isEmpty) {
-        textCache.invalidate(page.pageNumber);
-        // ignore: discarded_futures
-        textCache.ensureLoaded(page).then((_) {
-          onChanged();
-        });
-        return;
-      }
+      if (lineRects.isEmpty) continue;
       final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = u.thickness
         ..strokeCap = StrokeCap.round
         ..color = Color(u.color);
       for (final r in lineRects) {
-        final flutterRect = r.toRectInDocument(page: page, pageRect: localPageRect);
+        final flutterRect = r.toRectInDocument(page: page, pageRect: pageRect);
         canvas.drawLine(
           Offset(flutterRect.left, flutterRect.bottom),
           Offset(flutterRect.right, flutterRect.bottom),
