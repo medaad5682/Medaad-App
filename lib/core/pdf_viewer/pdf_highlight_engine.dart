@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:pdfrx/pdfrx.dart';
 
 import '../models/highlight_model.dart';
@@ -31,7 +30,6 @@ class PdfHighlightEngine {
     for (int i = 1; i < rects.length; i++) {
       final r = rects[i];
       final prev = currentLine.last;
-      
       // اعتبار حرفين على نفس السطر إذا تقاربت مراكزهم عمودياً
       final prevCenterY = (prev.top + prev.bottom) / 2;
       final curCenterY = (r.top + r.bottom) / 2;
@@ -46,35 +44,17 @@ class PdfHighlightEngine {
     }
     lines.add(currentLine);
 
-    // تحويل كل سطر إلى مستطيل واحد (الحد الأدنى/الأقصى لكل بُعد) بطريقة آمنة
+    // تحويل كل سطر إلى مستطيل واحد (الحد الأدنى/الأقصى لكل بُعد)
     return lines.map((line) {
-      double minX = double.infinity, maxX = double.negativeInfinity;
-      double minY = double.infinity, maxY = double.negativeInfinity;
-
+      double left = double.infinity, right = double.negativeInfinity;
+      double top = double.negativeInfinity, bottom = double.infinity;
       for (final r in line) {
-        // نأخذ القيم الدنيا والقصوى المطلقة لكل حرف متجاهلين اتجاه الإحداثيات
-        final rMinX = math.min(r.left, r.right);
-        final rMaxX = math.max(r.left, r.right);
-        final rMinY = math.min(r.top, r.bottom);
-        final rMaxY = math.max(r.top, r.bottom);
-
-        if (rMinX < minX) minX = rMinX;
-        if (rMaxX > maxX) maxX = rMaxX;
-        if (rMinY < minY) minY = rMinY;
-        if (rMaxY > maxY) maxY = rMaxY;
+        if (r.left < left) left = r.left;
+        if (r.right > right) right = r.right;
+        if (r.top > top) top = r.top;
+        if (r.bottom < bottom) bottom = r.bottom;
       }
-
-      // نحافظ على نفس اتجاه أول حرف في السطر عند إعادة بناء المستطيل النهائي
-      final first = line.first;
-      final isYUp = first.top > first.bottom;
-      final isXRight = first.right > first.left;
-
-      return PdfRect(
-        isXRight ? minX : maxX,
-        isYUp ? maxY : minY,
-        isXRight ? maxX : minX,
-        isYUp ? minY : maxY,
-      );
+      return PdfRect(left, top, right, bottom);
     }).toList();
   }
 
