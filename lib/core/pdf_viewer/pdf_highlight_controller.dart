@@ -59,21 +59,12 @@ class PdfHighlightController {
   /// نحفظ كائن التحديد الحالي فقط دون تطبيق التمييز/التسطير فوراً،
   /// حتى يتمكن المستخدم من ضبط نقطتَي البداية والنهاية بحرية.
   /// يُطبَّق التمييز/التسطير فقط عند استدعاء [applyPendingSelection].
-  ///
-  /// Fix: we only UPDATE the pending selection when it actually has selected
-  /// text. We never clear it here, because on some PDF pages the selection
-  /// object fires a transient "no selection" event mid-gesture (while the user
-  /// is still adjusting handles), which was silently nulling out a valid
-  /// selection and making Highlight/Underline appear to do nothing.
-  /// The selection is cleared explicitly in [applyPendingSelection] after it
-  /// has been committed.
   PdfTextSelection? _pendingSelection;
 
   void updatePendingSelection(PdfTextSelection selection) {
     if (selection.hasSelectedText) {
       _pendingSelection = selection;
     }
-    // ── intentionally NOT clearing _pendingSelection when empty ──
   }
 
   /// Clears any pending selection (call after committing or cancelling).
@@ -84,9 +75,10 @@ class PdfHighlightController {
   /// يُستدعى من زر قائمة السياق بعد أن يُثبّت المستخدم تحديده.
   Future<void> applyPendingSelection(PdfViewerController controller) async {
     final selection = _pendingSelection;
-    // Clear first so a re-tap doesn't apply the same selection twice.
-    clearPendingSelection();
     if (selection == null) return;
+    
+    // تم التعديل: لا نقوم بمسح pendingSelection فوراً. ننتظر حتى تنجح 
+    // عملية الحفظ في handleTextSelectionChange ثم نمسحه هناك.
     await handleTextSelectionChange(selection, controller);
   }
 
@@ -98,12 +90,8 @@ class PdfHighlightController {
     if (!selection.hasSelectedText) return;
 
     // ── Fix: robust retry for getSelectedTextRanges on decrypted pages ──
-    // On certain pages (especially pages 2 & 3 of encrypted PDFs), the text
-    // layer may not yet be parsed by PDFium even though the page is visually
-    // rendered. The first call to getSelectedTextRanges() returns [] in that
-    // case. We retry up to 5 times with increasing delays (50 → 100 → 200 →
-    // 300 → 500 ms) to cover both fast and slow decryption pipelines.
-    // تم استخدام var للسماح لـ Dart باستنتاج النوع الصحيح تلقائياً
+    // بدلاً من محاولة واحدة، نجرب عدة مرات بفواصل زمنية متزايدة للسماح للصفحات 
+    // الثقيلة/المشفرة بإتمام استخراج النص.
     var ranges = await selection.getSelectedTextRanges();
 
     if (ranges.isEmpty) {
@@ -121,12 +109,9 @@ class PdfHighlightController {
       if (range.start >= range.end) continue;
 
       // ── Fix: ensure page text is fully loaded before persisting ──
-      // On some pages the text layer may not yet be cached even though
-      // the page is visible; waiting for it prevents silent save failures.
       await ensurePageLoaded(range.pageNumber);
 
       // ── Extra fix: pre-warm the text cache for this page ──
-      // Verifies character data will be available for rendering/hit-testing.
       await textCache.ensureLoadedByPageNumber(range.pageNumber, controller);
 
       final id = '${DateTime.now().microsecondsSinceEpoch}_${range.pageNumber}_${range.start}';
@@ -159,13 +144,13 @@ class PdfHighlightController {
 
     if (!anyApplied) return;
 
-    // إلغاء التحديد فوراً بعد تحويله إلى تمييز/تسطير دائم، بدلاً من تركه قابلاً للنسخ.
+    // نجحت العملية: الآن يمكننا مسح التحديد بأمان
+    clearPendingSelection();
     await controller.textSelectionDelegate.clearTextSelection();
     onChanged();
   }
 
   /// اكتشاف اللمس على تمييز/تسطير موجود عند نقطة بالـ PDF (نظام إحداثيات الصفحة).
-  /// يُستخدم عندما لا تكون أدوات التحديد نشطة (أي وضع تصفح عادي) للنقر على عنصر لتعديله.
   ({HighlightModel? highlight, UnderlineModel? underline}) hitTest({
     required int pageNumber,
     required double pdfX,
@@ -226,9 +211,11 @@ class PdfHighlightController {
   void paint(ui.Canvas canvas, Rect pageRect, PdfPage page) {
     final pageText = textCache.peek(page.pageNumber);
     if (pageText == null) {
-      // النص لم يُحمَّل بعد لهذه الصفحة؛ نطلب تحميله الآن (سيُستخدم في الإطار التالي)
+      // ── Fix: إخبار الشاشة بضرورة التحديث فوراً بعد تحميل النص ──
       // ignore: discarded_futures
-      textCache.ensureLoaded(page);
+      textCache.ensureLoaded(page).then((_) {
+        onChanged();
+      });
       return;
     }
 
