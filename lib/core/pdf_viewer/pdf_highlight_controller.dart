@@ -89,13 +89,30 @@ class PdfHighlightController {
     if (activeTool == TextMarkupTool.none) return;
     if (!selection.hasSelectedText) return;
 
-    // ── Fix: robust retry for getSelectedTextRanges on decrypted pages ──
-    // بدلاً من محاولة واحدة، نجرب عدة مرات بفواصل زمنية متزايدة للسماح للصفحات 
-    // الثقيلة/المشفرة بإتمام استخراج النص.
+    // ── Fix: robust retry for getSelectedTextRanges on decrypted/heavy pages ──
+    // الإصلاح الجذري: نقوم بتسخين ذاكرة التخزين المؤقت للنص أولاً لجميع الصفحات
+    // المرئية قبل استدعاء getSelectedTextRanges لتجنب حالة السباق التي تسبب
+    // فشل التمييز/التسطير على بعض الصفحات دون غيرها.
+    //
+    // الخطوة 1: محاولة أولى للحصول على النطاقات
     var ranges = await selection.getSelectedTextRanges();
 
+    // الخطوة 2: إذا كانت فارغة، نقوم بتسخين الصفحات المجاورة ثم نعيد المحاولة
     if (ranges.isEmpty) {
-      const retryDelays = [50, 100, 200, 300, 500];
+      // تسخين الصفحات المجاورة للصفحة النشطة
+      try {
+        final doc = controller.document;
+        if (doc != null) {
+          final activePage = controller.visiblePageNumbers.firstOrNull ?? 1;
+          for (int p = (activePage - 1).clamp(1, doc.pages.length);
+              p <= (activePage + 1).clamp(1, doc.pages.length);
+              p++) {
+            await textCache.ensureLoadedByPageNumber(p, controller);
+          }
+        }
+      } catch (_) {}
+
+      const retryDelays = [50, 100, 200, 400, 600, 1000];
       for (final delayMs in retryDelays) {
         await Future<void>.delayed(Duration(milliseconds: delayMs));
         ranges = await selection.getSelectedTextRanges();
@@ -174,6 +191,55 @@ class PdfHighlightController {
       pdfY: pdfY,
     );
     return (highlight: null, underline: u);
+  }
+
+  /// يبحث عن أي تمييز/تسطير يتقاطع مع نطاق نص محدد (selection range).
+  /// يكفي أن يتداخل التحديد مع جزء صغير من التمييز/التسطير لإرجاع الكامل.
+  /// يُستخدم من زر "تعديل" في قائمة السياق بدلاً من النقر على العنصر مباشرة.
+  ({HighlightModel? highlight, UnderlineModel? underline}) findOverlappingMarkup({
+    required int pageNumber,
+    required int selectionStart,
+    required int selectionEnd,
+  }) {
+    if (selectionEnd <= selectionStart) return (highlight: null, underline: null);
+
+    // البحث عن تمييز يتداخل مع نطاق التحديد
+    for (final h in highlightsForPage(pageNumber).reversed) {
+      final overlaps = h.start < selectionEnd && h.end > selectionStart;
+      if (overlaps) return (highlight: h, underline: null);
+    }
+
+    // البحث عن تسطير يتداخل مع نطاق التحديد
+    for (final u in underlinesForPage(pageNumber).reversed) {
+      final overlaps = u.start < selectionEnd && u.end > selectionStart;
+      if (overlaps) return (highlight: null, underline: u);
+    }
+
+    return (highlight: null, underline: null);
+  }
+
+  /// يجلب نطاقات النص للتحديد الحالي (المعلّق).
+  /// مفيد لزر "تعديل" لاكتشاف التمييز/التسطير المتداخل دون تطبيق جديد.
+  Future<List<({int pageNumber, int start, int end})>> getPendingSelectionRanges(
+    PdfViewerController controller,
+  ) async {
+    final selection = _pendingSelection;
+    if (selection == null || !selection.hasSelectedText) return [];
+
+    var ranges = await selection.getSelectedTextRanges();
+    if (ranges.isEmpty) {
+      const retryDelays = [50, 100, 200];
+      for (final delayMs in retryDelays) {
+        await Future<void>.delayed(Duration(milliseconds: delayMs));
+        ranges = await selection.getSelectedTextRanges();
+        if (ranges.isNotEmpty) break;
+      }
+    }
+
+    return ranges
+        .where((r) => r.start < r.end)
+        .map((r) => (pageNumber: r.pageNumber, start: r.start, end: r.end))
+        .toList();
   }
 
   Future<void> updateHighlightColor(HighlightModel h, int color) async {
