@@ -312,9 +312,9 @@ class PdfHighlightController {
         ..style = PaintingStyle.fill
         ..color = Color(h.color).withOpacity(h.opacity);
       for (final r in lineRects) {
-        // تكبير طفيف رأسياً ليغطي التمييز كامل ارتفاع السطر بشكل طبيعي
+        // تم التعديل هنا بإضافة .abs() لمنع القيم السالبة في الارتفاع
         final flutterRect =
-            r.inflate(0, r.height * 0.12).toRectInDocument(page: page, pageRect: localPageRect);
+            r.inflate(0, r.height.abs() * 0.12).toRectInDocument(page: page, pageRect: localPageRect);
         canvas.drawRect(flutterRect, paint);
       }
     }
