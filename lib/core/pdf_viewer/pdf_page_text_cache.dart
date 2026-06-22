@@ -24,6 +24,14 @@ class PdfPageTextCache {
       _cache[page.pageNumber] = text;
       _loading.remove(page.pageNumber);
       return text;
+    }).catchError((Object e, StackTrace st) {
+      // ── Fix: بدون هذا، فشل تحميل نص صفحة معينة مرة واحدة (مثلاً بسبب خطأ
+      // مؤقت من PDFium) يُبقي الـ Future المرفوض مخزّناً في _loading للأبد،
+      // فتفشل كل محاولة لاحقة لتحديد/تمييز النص في تلك الصفحة بصمت، حتى لو
+      // كانت الصفحة سليمة تماماً عند إعادة المحاولة. الآن نُزيله من _loading
+      // حتى تُسمح إعادة المحاولة، ونُعيد رمي الخطأ للمستدعي.
+      _loading.remove(page.pageNumber);
+      throw e;
     });
     _loading[page.pageNumber] = future;
     return future;
