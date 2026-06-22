@@ -81,6 +81,8 @@ class _MovableTextNoteState extends State<MovableTextNote> {
                 color: Color(widget.note.color),
                 fontSize: fontSize,
                 fontWeight: widget.note.bold ? FontWeight.bold : FontWeight.normal,
+                decoration: widget.note.underline ? TextDecoration.underline : TextDecoration.none,
+                decorationColor: Color(widget.note.color),
               ),
               textDirection: _detectDirection(widget.note.text),
             ),

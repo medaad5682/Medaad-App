@@ -59,14 +59,14 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
 
   // ── مساعد: إرسال resize + حفظ الحجم النهائي عند رفع الإصبع ──
   void _commitResize() {
+    // احسب الحجم النهائي الفعلي (بالنسب) من بُعد البكسل الحالي
+    final finalW = _widthPx / widget.pageWidth;
+    final finalH = _heightPx / widget.pageHeight;
     setState(() {
       _localDw = 0;
       _localDh = 0;
     });
-    widget.onResizeEnd(
-      widget.image.width,
-      widget.image.height,
-    );
+    widget.onResizeEnd(finalW, finalH);
   }
 
   @override
@@ -149,7 +149,6 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
                   final newW = (w + d.dx).clamp(40.0, double.infinity);
                   final dw   = newW - w;
                   setState(() => _localDw += dw);
-                  widget.onResizeDelta(Offset(dw / widget.pageWidth, 0));
                 },
                 onEnd: _commitResize,
               ),
@@ -167,13 +166,13 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
                   final newW = (w - d.dx).clamp(40.0, double.infinity);
                   final dw   = newW - w;
                   setState(() => _localDw += dw);
-                  widget.onResizeDelta(Offset(dw / widget.pageWidth, 0));
-                  // تحريك الصورة يساراً لتثبيت الحافة اليمنى
+                  // تحريك الصورة يساراً لتثبيت الحافة اليمنى (معاينة محلية فقط)
                   widget.onMoveDelta(Offset(-dw / widget.pageWidth, 0));
                 },
                 onEnd: () {
+                  final finalW = _widthPx / widget.pageWidth;
                   setState(() { _localDw = 0; });
-                  widget.onResizeEnd(widget.image.width, widget.image.height);
+                  widget.onResizeEnd(finalW, widget.image.height);
                   widget.onMoveEnd?.call(widget.image.dx, widget.image.dy);
                 },
               ),
@@ -190,12 +189,12 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
                   final newH = (h - d.dy).clamp(40.0, double.infinity);
                   final dh   = newH - h;
                   setState(() => _localDh += dh);
-                  widget.onResizeDelta(Offset(0, dh / widget.pageHeight));
                   widget.onMoveDelta(Offset(0, -dh / widget.pageHeight));
                 },
                 onEnd: () {
+                  final finalH = _heightPx / widget.pageHeight;
                   setState(() { _localDh = 0; });
-                  widget.onResizeEnd(widget.image.width, widget.image.height);
+                  widget.onResizeEnd(widget.image.width, finalH);
                   widget.onMoveEnd?.call(widget.image.dx, widget.image.dy);
                 },
               ),
@@ -212,7 +211,6 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
                   final newH = (h + d.dy).clamp(40.0, double.infinity);
                   final dh   = newH - h;
                   setState(() => _localDh += dh);
-                  widget.onResizeDelta(Offset(0, dh / widget.pageHeight));
                 },
                 onEnd: _commitResize,
               ),
@@ -230,10 +228,6 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
                     _localDw += d.dx;
                     _localDh += d.dy;
                   });
-                  widget.onResizeDelta(Offset(
-                    d.dx / widget.pageWidth,
-                    d.dy / widget.pageHeight,
-                  ));
                 },
                 onEnd: _commitResize,
               ),

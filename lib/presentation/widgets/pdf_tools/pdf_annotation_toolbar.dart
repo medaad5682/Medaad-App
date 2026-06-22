@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/pdf_viewer/pdf_tool.dart';
@@ -47,6 +48,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
   final ValueChanged<double> onTextFontSizeChanged;
   final bool textBold;
   final ValueChanged<bool> onTextBoldChanged;
+  final bool textUnderline;
+  final ValueChanged<bool> onTextUnderlineChanged;
 
   // الأشكال
   final ShapeType shapeType;
@@ -90,6 +93,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
     required this.onTextFontSizeChanged,
     required this.textBold,
     required this.onTextBoldChanged,
+    required this.textUnderline,
+    required this.onTextUnderlineChanged,
     required this.shapeType,
     required this.onShapeTypeChanged,
     required this.shapeBorderColor,
@@ -151,7 +156,7 @@ class PdfAnnotationToolbar extends StatelessWidget {
           _toolIcon(Icons.image_outlined, PdfTool.image, onTapOverride: onPickImage),
           const SizedBox(width: 6),
           // أيقونة الممحاة الحقيقية
-          _toolIcon(Icons.cleaning_services_rounded, PdfTool.eraser),
+          _toolIcon(LucideIcons.eraser, PdfTool.eraser),
           const SizedBox(width: 6),
           _toolIcon(Icons.comment_outlined, PdfTool.comment),
           const SizedBox(width: 10),
@@ -349,6 +354,18 @@ class PdfAnnotationToolbar extends StatelessWidget {
               value: textBold,
               activeColor: AppColors.accentYellow,
               onChanged: onTextBoldChanged,
+            ),
+          ],
+        ),
+        // تسطير
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text("تسطير", style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+            Switch(
+              value: textUnderline,
+              activeColor: AppColors.accentYellow,
+              onChanged: onTextUnderlineChanged,
             ),
           ],
         ),
