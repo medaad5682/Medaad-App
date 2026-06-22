@@ -128,8 +128,35 @@ class PdfHighlightController {
       // ── Fix: ensure page text is fully loaded before persisting ──
       await ensurePageLoaded(range.pageNumber);
 
-      // ── Extra fix: pre-warm the text cache for this page ──
-      await textCache.ensureLoadedByPageNumber(range.pageNumber, controller);
+      // ── Fix (charRects validation): pre-warm the text cache AND verify that
+      // the loaded PdfPageText has non-empty charRects before saving the
+      // annotation. On pages 2-4 of encrypted/compressed PDFs, the first
+      // loadStructuredText() call can return an empty charRects because
+      // PDFium hasn't finished decoding the page yet. Saving indices into an
+      // empty charRects would produce an annotation that is stored correctly
+      // but can never be rendered (lineRectsForRange always returns []).
+      // We retry loading until charRects is populated (or we time out).
+      PdfPageText? pageText = await textCache.ensureLoadedByPageNumber(range.pageNumber, controller);
+      if (pageText == null || pageText.charRects.isEmpty) {
+        // Invalidate stale entry and retry with increasing delays
+        textCache.invalidate(range.pageNumber);
+        const charRetryDelays = [100, 200, 400, 800, 1500];
+        for (final delayMs in charRetryDelays) {
+          await Future<void>.delayed(Duration(milliseconds: delayMs));
+          pageText = await textCache.ensureLoadedByPageNumber(range.pageNumber, controller);
+          if (pageText != null && pageText.charRects.isNotEmpty) break;
+          // Invalidate again so ensureLoadedByPageNumber actually retries
+          textCache.invalidate(range.pageNumber);
+        }
+      }
+      // If charRects is still empty after all retries, skip this range to
+      // avoid saving annotation indices that will never render.
+      if (pageText == null || pageText.charRects.isEmpty) continue;
+
+      // Clamp indices to the valid charRects range to guard against edge cases.
+      final validStart = range.start.clamp(0, pageText.charRects.length);
+      final validEnd = range.end.clamp(0, pageText.charRects.length);
+      if (validEnd <= validStart) continue;
 
       final id = '${DateTime.now().microsecondsSinceEpoch}_${range.pageNumber}_${range.start}';
 
@@ -138,8 +165,8 @@ class PdfHighlightController {
         list.add(HighlightModel(
           id: id,
           pageNumber: range.pageNumber,
-          start: range.start,
-          end: range.end,
+          start: validStart,
+          end: validEnd,
           color: highlightColor,
           opacity: highlightOpacity,
         ));
@@ -150,8 +177,8 @@ class PdfHighlightController {
         list.add(UnderlineModel(
           id: id,
           pageNumber: range.pageNumber,
-          start: range.start,
-          end: range.end,
+          start: validStart,
+          end: validEnd,
           color: underlineColor,
         ));
         await _persistUnderlines(range.pageNumber);
@@ -301,6 +328,22 @@ class PdfHighlightController {
     // spurious offset is added.
     final localPageRect = Rect.fromLTWH(0, 0, pageRect.width, pageRect.height);
 
+    // ── Fix (stale empty-charRects): if we have annotations on this page but
+    // the cached PdfPageText has no charRects, the text was loaded before
+    // PDFium finished decoding the page (happens on pages 2-4 of encrypted /
+    // compressed PDFs). Invalidate the stale entry and request a fresh load
+    // so the next frame can draw the annotations.
+    final hasAnnotations = highlightsForPage(page.pageNumber).isNotEmpty ||
+        underlinesForPage(page.pageNumber).isNotEmpty;
+    if (hasAnnotations && pageText.charRects.isEmpty) {
+      textCache.invalidate(page.pageNumber);
+      // ignore: discarded_futures
+      textCache.ensureLoaded(page).then((_) {
+        onChanged();
+      });
+      return;
+    }
+
     // رسم التمييز (طبقة تحت النص، شبه شفافة)
     for (final h in highlightsForPage(page.pageNumber)) {
       final lineRects = PdfHighlightEngine.lineRectsForRange(
@@ -308,6 +351,19 @@ class PdfHighlightController {
         start: h.start,
         end: h.end,
       );
+      // ── Fix (stale charRects race): lineRectsForRange returns [] when
+      // charRects is populated but the saved start/end indices fall outside
+      // the current charRects range. This shouldn't happen in normal usage,
+      // but as a safety net: if we got a non-empty pageText yet still got no
+      // rects for an annotation, invalidate and retry on the next frame.
+      if (lineRects.isEmpty) {
+        textCache.invalidate(page.pageNumber);
+        // ignore: discarded_futures
+        textCache.ensureLoaded(page).then((_) {
+          onChanged();
+        });
+        return;
+      }
       final paint = Paint()
         ..style = PaintingStyle.fill
         ..color = Color(h.color).withOpacity(h.opacity);
@@ -326,6 +382,14 @@ class PdfHighlightController {
         start: u.start,
         end: u.end,
       );
+      if (lineRects.isEmpty) {
+        textCache.invalidate(page.pageNumber);
+        // ignore: discarded_futures
+        textCache.ensureLoaded(page).then((_) {
+          onChanged();
+        });
+        return;
+      }
       final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = u.thickness
