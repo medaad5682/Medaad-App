@@ -8,6 +8,7 @@ class TextNoteModel {
   int color;
   double fontSize; // بالنقاط النسبية لعرض الصفحة (يُحسب كـ fontSize * pageWidth)
   bool bold;
+  bool underline;
 
   TextNoteModel({
     required this.id,
@@ -17,6 +18,7 @@ class TextNoteModel {
     required this.color,
     this.fontSize = 0.022,
     this.bold = false,
+    this.underline = false,
   });
 
   Map<String, dynamic> toJson() {
@@ -28,6 +30,7 @@ class TextNoteModel {
       'c': color,
       'fs': fontSize,
       'b': bold,
+      'u': underline,
     };
   }
 
@@ -40,6 +43,7 @@ class TextNoteModel {
       color: json['c'] as int,
       fontSize: (json['fs'] as num?)?.toDouble() ?? 0.022,
       bold: json['b'] as bool? ?? false,
+      underline: json['u'] as bool? ?? false,
     );
   }
 }
