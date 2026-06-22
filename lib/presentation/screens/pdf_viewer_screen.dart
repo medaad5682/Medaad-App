@@ -9,7 +9,6 @@ import 'package:flutter/gestures.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
@@ -257,25 +256,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       final String? token = box.get('jwt_token');
       final String? deviceId = box.get('device_id');
 
-      // ✅ 1. محاولة جلب توكن Firebase App Check
-      String? appCheckToken;
-      try {
-        appCheckToken = await FirebaseAppCheck.instance.getToken(false);
-      } catch (e) {
-        debugPrint("App Check Error in PDF: $e");
-      }
-
-      // ✅ 2. بناء الترويسات الأساسية
       _onlineHeaders = {
         'Authorization': 'Bearer $token',
         'x-device-id': deviceId ?? '',
         'x-app-secret': const String.fromEnvironment('APP_SECRET'),
       };
-
-      // ✅ 3. إضافة توكن الحماية في حال نجاح جلبه
-      if (appCheckToken != null) {
-        _onlineHeaders!['X-Firebase-AppCheck'] = appCheckToken;
-      }
 
       _onlineUrl = '${ApiConstants.apiUrl}/secure/get-pdf?pdfId=${widget.pdfId}';
 
@@ -591,9 +576,43 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
                 return Stack(
                   children: [
+                    // طبقة الصور المُدرجة (أسفل طبقة الأشكال حتى تُرسم الأشكال فوقها)
+                    ...images.map((img) => Positioned(
+                          left: img.dx * pageRect.width,
+                          top: img.dy * pageRect.height,
+                          child: GestureDetector(
+                            onTap: () {
+                              // كشف ذكي: النقر على صورة يُفعّل أداة الصورة تلقائياً
+                              if (_isDrawingMode && _activeTool != PdfTool.image) {
+                                setState(() {
+                                  _activeTool = PdfTool.image;
+                                  _highlightController.activeTool = TextMarkupTool.none;
+                                });
+                              }
+                            },
+                            child: MovableResizableImage(
+                              image: img,
+                              pageWidth: pageRect.width,
+                              pageHeight: pageRect.height,
+                              editable: _isDrawingMode &&
+                                  (_activeTool == PdfTool.image ||
+                                      _activeTool == PdfTool.none),
+                              onMoveDelta: (delta) =>
+                                  _imageController.moveImage(page.pageNumber, img, delta),
+                              onResizeDelta: (delta) =>
+                                  _imageController.resizeImage(page.pageNumber, img, delta),
+                              onResizeEnd: (fw, fh) =>
+                                  _imageController.setFinalSize(page.pageNumber, img, fw, fh),
+                              onMoveEnd: (fdx, fdy) =>
+                                  _imageController.setFinalPosition(page.pageNumber, img, fdx, fdy),
+                              onDelete: () =>
+                                  _imageController.deleteImage(page.pageNumber, img),
+                            ),
+                          ),
+                        )),
+
                     // طبقة الرسم الحر (القلم/الممحاة/هايلايتر حر) + الأشكال (رسم جديد)
-                    // تُمرَّر الإيماءات للـ PDF عندما لا توجد أداة نشطة أو عند استخدام
-                    // أدوات التمييز/التسطير (التي تعتمد على تحديد نص الـ PDF مباشرة).
+                    // هذه الطبقة فوق الصور حتى تُرسم الأشكال والتعليقات فوق الصور.
                     // ملاحظة: نستخدم HitTestBehavior.translucent بدلاً من opaque حتى
                     // لا تمتص هذه الطبقة اللمسات الموجهة للملاحظات والصور فوقها.
                     IgnorePointer(
@@ -691,41 +710,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           ),
                         )),
 
-                    // طبقة الصور المُدرجة
-                    ...images.map((img) => Positioned(
-                          left: img.dx * pageRect.width,
-                          top: img.dy * pageRect.height,
-                          child: GestureDetector(
-                            onTap: () {
-                              // كشف ذكي: النقر على صورة يُفعّل أداة الصورة تلقائياً
-                              if (_isDrawingMode && _activeTool != PdfTool.image) {
-                                setState(() {
-                                  _activeTool = PdfTool.image;
-                                  _highlightController.activeTool = TextMarkupTool.none;
-                                });
-                              }
-                            },
-                            child: MovableResizableImage(
-                              image: img,
-                              pageWidth: pageRect.width,
-                              pageHeight: pageRect.height,
-                              editable: _isDrawingMode &&
-                                  (_activeTool == PdfTool.image ||
-                                      _activeTool == PdfTool.none),
-                              onMoveDelta: (delta) =>
-                                  _imageController.moveImage(page.pageNumber, img, delta),
-                              onResizeDelta: (delta) =>
-                                  _imageController.resizeImage(page.pageNumber, img, delta),
-                              onResizeEnd: (fw, fh) =>
-                                  _imageController.setFinalSize(page.pageNumber, img, fw, fh),
-                              onMoveEnd: (fdx, fdy) =>
-                                  _imageController.setFinalPosition(page.pageNumber, img, fdx, fdy),
-                              onDelete: () =>
-                                  _imageController.deleteImage(page.pageNumber, img),
-                            ),
-                          ),
-                        )),
-
                     // طبقة أيقونات الملاحظات (Comments) - نفس المنطق الأصلي
                     ...comments.map((comment) {
                       Color solidColor = Color(comment.color).withOpacity(1.0);
@@ -736,11 +720,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                         top: (comment.dy * pageRect.height) - (20 * comment.scale),
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
-                          onScaleStart:
-                              (_isDrawingMode && _activeTool == PdfTool.comment) ? (_) {} : null,
-                          onScaleEnd:
-                              (_isDrawingMode && _activeTool == PdfTool.comment) ? (_) {} : null,
-                          onScaleUpdate: (_isDrawingMode && _activeTool == PdfTool.comment)
+                          // السحب يعمل في وضع التعديل بغض النظر عن الأداة النشطة
+                          onScaleStart: _isDrawingMode ? (_) {} : null,
+                          onScaleEnd: _isDrawingMode ? (_) {} : null,
+                          onScaleUpdate: _isDrawingMode
                               ? (details) {
                                   setState(() {
                                     if (details.pointerCount == 1) {
@@ -1274,6 +1257,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     int previewColor = note.color as int;
     double previewFontSize = note.fontSize as double;
     bool previewBold = note.bold as bool;
+    bool previewUnderline = note.underline as bool;
 
     showModalBottomSheet(
       context: context,
@@ -1306,6 +1290,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                       color: Color(previewColor),
                       fontSize: previewFontSize * 400, // عرض نسبي للمعاينة
                       fontWeight: previewBold ? FontWeight.bold : FontWeight.normal,
+                      decoration: previewUnderline ? TextDecoration.underline : TextDecoration.none,
+                      decorationColor: Color(previewColor),
                     ),
                     textDirection: _autoDirection(controller.text),
                     maxLines: 2,
@@ -1380,6 +1366,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                       onChanged: (v) {
                         setSheetState(() => previewBold = v);
                         _textNoteController.updateBold(pageNumber, note, v);
+                      },
+                    ),
+                  ],
+                ),
+                // تسطير
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text("تسطير", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    Switch(
+                      value: previewUnderline,
+                      activeColor: AppColors.accentYellow,
+                      onChanged: (v) {
+                        setSheetState(() => previewUnderline = v);
+                        _textNoteController.updateUnderline(pageNumber, note, v);
                       },
                     ),
                   ],
@@ -1502,6 +1503,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       textBold: _textNoteController.defaultBold,
       onTextBoldChanged: (v) {
         setState(() => _textNoteController.defaultBold = v);
+      },
+      textUnderline: _textNoteController.defaultUnderline,
+      onTextUnderlineChanged: (v) {
+        setState(() => _textNoteController.defaultUnderline = v);
       },
       shapeType: _shapeController.activeType,
       onShapeTypeChanged: (t) => setState(() => _shapeController.activeType = t),
