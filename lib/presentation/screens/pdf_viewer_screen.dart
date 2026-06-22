@@ -361,7 +361,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             if (context.mounted) Navigator.pop(context);
           }),
       actions: [
-        _buildReadingModeButton(),
         IconButton(
           icon: Icon(LucideIcons.list, color: AppColors.accentYellow),
           onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
@@ -370,49 +369,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  /// زر اختيار وضع القراءة (عمودي / أفقي).
-  Widget _buildReadingModeButton() {
-    return PopupMenuButton<PdfReadingMode>(
-      icon: Icon(_readingModeIcon(_settings.readingMode), color: AppColors.accentYellow),
-      tooltip: 'وضع القراءة',
-      color: AppColors.backgroundSecondary,
-      onSelected: (mode) {
-        setState(() => _settings.readingMode = mode);
-        _persistToolSettings();
-      },
-      itemBuilder: (context) => [
-        _readingModeMenuItem(PdfReadingMode.vertical, 'عمودي', Icons.swap_vert),
-        _readingModeMenuItem(PdfReadingMode.horizontal, 'أفقي', Icons.swap_horiz),
-      ],
-    );
-  }
-
-  IconData _readingModeIcon(PdfReadingMode mode) {
-    switch (mode) {
-      case PdfReadingMode.vertical:
-        return Icons.swap_vert;
-      case PdfReadingMode.horizontal:
-        return Icons.swap_horiz;
-    }
-  }
-
-  PopupMenuItem<PdfReadingMode> _readingModeMenuItem(
-      PdfReadingMode mode, String label, IconData icon) {
-    final bool selected = _settings.readingMode == mode;
-    return PopupMenuItem(
-      value: mode,
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: selected ? AppColors.accentYellow : AppColors.textSecondary),
-          const SizedBox(width: 10),
-          Text(label,
-              style: TextStyle(
-                  color: selected ? AppColors.accentYellow : AppColors.textPrimary,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
-        ],
-      ),
-    );
-  }
 
   Widget _buildBadge() {
     return Container(
@@ -529,26 +485,25 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   // --- إعداد عارض PDF ---
 
   PdfViewerParams _buildPdfParams() {
-    final layout = PdfLayoutEngine.layoutFor(_settings.readingMode);
     return PdfViewerParams(
       backgroundColor: AppColors.backgroundPrimary,
-      layoutPages: layout,
-      pageAnchor: PdfLayoutEngine.anchorStartFor(_settings.readingMode),
-      pageAnchorEnd: PdfLayoutEngine.anchorEndFor(_settings.readingMode),
-      scrollHorizontallyByMouseWheel:
-          PdfLayoutEngine.scrollHorizontallyByMouseWheelFor(_settings.readingMode),
-      scrollPhysics: PdfLayoutEngine.scrollPhysicsFor(_settings.readingMode),
-      // ✅ تحديد النص الطبيعي: يُفعَّل دائماً في وضع الهايلايتر/التسطير
-      // مع قائمة سياق مخصصة تحتوي على "تمييز" فقط (دون نسخ)
+      layoutPages: PdfLayoutEngine.layout,
+      pageAnchor: PdfLayoutEngine.anchorStart,
+      pageAnchorEnd: PdfLayoutEngine.anchorEnd,
+      scrollHorizontallyByMouseWheel: PdfLayoutEngine.scrollHorizontallyByMouseWheel,
+      scrollPhysics: PdfLayoutEngine.scrollPhysics,
+      // ✅ تحديد النص: يُفعَّل دائماً في وضع الهايلايتر/التسطير مع إتاحة الوقت
+      // للمستخدم لضبط نقطتَي البداية والنهاية قبل تطبيق التمييز.
       textSelectionParams: PdfTextSelectionParams(
         enabled: _isDrawingMode &&
             (_activeTool == PdfTool.highlighter || _activeTool == PdfTool.underline),
-        onTextSelectionChange: (selection) =>
-            _highlightController.handleTextSelectionChange(selection, _pdfController),
+        onTextSelectionChange: (selection) {
+          // نحفظ التحديد فقط دون تطبيق — يُطبَّق عبر زر القائمة
+          _highlightController.updatePendingSelection(selection);
+        },
       ),
-      // قائمة سياق مخصصة: تعرض "تمييز" أو "تسطير" فقط وتمنع النسخ.
-      // ملاحظة: onTextSelectionChange أعلاه يُطبّق التمييز تلقائياً عند انتهاء التحديد،
-      // لذا تكفي القائمة كمؤشر بصري فقط دون الحاجة لاستدعاء إضافي.
+      // قائمة السياق: تعرض "تمييز" أو "تسطير" فقط وتمنع النسخ.
+      // التطبيق يحدث هنا — بعد أن يضبط المستخدم نقطتَي التحديد.
       buildContextMenu: (context, params) {
         if (!_isDrawingMode) return null;
         if (_activeTool != PdfTool.highlighter && _activeTool != PdfTool.underline) return null;
@@ -562,9 +517,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
             ),
             child: TextButton.icon(
-              // التمييز يتم تلقائياً عبر onTextSelectionChange عند انتهاء التحديد؛
-              // زر القائمة يُغلق القائمة فقط (لمنع ظهور خيار النسخ الافتراضي).
-              onPressed: () {},
+              onPressed: () async {
+                // نطبّق التمييز/التسطير الآن بعد أن انتهى المستخدم من ضبط التحديد
+                await _highlightController.applyPendingSelection(_pdfController);
+              },
               icon: Icon(
                 _activeTool == PdfTool.highlighter
                     ? Icons.format_color_fill
@@ -622,14 +578,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   children: [
                     // طبقة الرسم الحر (القلم/الممحاة/هايلايتر حر) + الأشكال (رسم جديد)
                     // تُمرَّر الإيماءات للـ PDF عندما لا توجد أداة نشطة أو عند استخدام
-                    // أدوات التمييز/التسطير (التي تعتمد على تحديد نص الـ PDF مباشرة)
+                    // أدوات التمييز/التسطير (التي تعتمد على تحديد نص الـ PDF مباشرة).
+                    // ملاحظة: نستخدم HitTestBehavior.translucent بدلاً من opaque حتى
+                    // لا تمتص هذه الطبقة اللمسات الموجهة للملاحظات والصور فوقها.
                     IgnorePointer(
                       ignoring: !_isDrawingMode ||
                           _activeTool == PdfTool.none ||
                           _activeTool == PdfTool.highlighter ||
                           _activeTool == PdfTool.underline,
                       child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
+                        behavior: HitTestBehavior.translucent,
                         onTapUp: (details) => _handleTapUp(details, context, pageRect, page),
                         onPanStart: (details) =>
                             _handlePanStart(details, context, pageRect, page),
@@ -743,6 +701,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                                   _imageController.moveImage(page.pageNumber, img, delta),
                               onResizeDelta: (delta) =>
                                   _imageController.resizeImage(page.pageNumber, img, delta),
+                              onResizeEnd: (fw, fh) =>
+                                  _imageController.setFinalSize(page.pageNumber, img, fw, fh),
+                              onMoveEnd: (fdx, fdy) =>
+                                  _imageController.setFinalPosition(page.pageNumber, img, fdx, fdy),
                               onDelete: () =>
                                   _imageController.deleteImage(page.pageNumber, img),
                             ),
