@@ -97,17 +97,22 @@ class PdfHighlightController {
     if (activeTool == TextMarkupTool.none) return;
     if (!selection.hasSelectedText) return;
 
-    // ── Fix: retry once if getSelectedTextRanges returns empty ──
-    // On some decrypted PDF pages, the first call returns [] due to
-    // a race between the decryption pipeline and the text layer. A brief
-    // wait + one retry reliably resolves it.
-    
+    // ── Fix: robust retry for getSelectedTextRanges on decrypted pages ──
+    // On certain pages (especially pages 2 & 3 of encrypted PDFs), the text
+    // layer may not yet be parsed by PDFium even though the page is visually
+    // rendered. The first call to getSelectedTextRanges() returns [] in that
+    // case. We retry up to 5 times with increasing delays (50 → 100 → 200 →
+    // 300 → 500 ms) to cover both fast and slow decryption pipelines.
     // تم استخدام var للسماح لـ Dart باستنتاج النوع الصحيح تلقائياً
     var ranges = await selection.getSelectedTextRanges();
-    
+
     if (ranges.isEmpty) {
-      await Future<void>.delayed(const Duration(milliseconds: 120));
-      ranges = await selection.getSelectedTextRanges();
+      const retryDelays = [50, 100, 200, 300, 500];
+      for (final delayMs in retryDelays) {
+        await Future<void>.delayed(Duration(milliseconds: delayMs));
+        ranges = await selection.getSelectedTextRanges();
+        if (ranges.isNotEmpty) break;
+      }
     }
     if (ranges.isEmpty) return;
 
