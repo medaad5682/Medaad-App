@@ -545,9 +545,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         onTextSelectionChange: (selection) {
           // نحفظ التحديد فقط دون تطبيق — يُطبَّق عبر زر القائمة
           _highlightController.updatePendingSelection(selection);
+          // ── Fix: pre-warm text cache eagerly as soon as the user starts selecting ──
+          // هذا يحل مشكلة الصفحات التي لا تستجيب للتمييز/التسطير:
+          // عند بدء التحديد نبدأ تحميل نص الصفحة النشطة فوراً بشكل غير متزامن
+          // حتى يكون الكاش جاهزاً عند الضغط على زر التمييز/التسطير.
+          if (selection.hasSelectedText && _pdfController != null) {
+            final pageNum = _activePage > 0 ? _activePage : 1;
+            _textCache.ensureLoadedByPageNumber(pageNum, _pdfController!);
+          }
         },
       ),
-      // قائمة السياق: تعرض "تمييز" أو "تسطير" فقط وتمنع النسخ.
+      // قائمة السياق: تعرض أزرار "تمييز"/"تسطير" و"تعديل" (للعناصر الموجودة).
       // التطبيق يحدث هنا — بعد أن يضبط المستخدم نقطتَي التحديد.
       buildContextMenu: (context, params) {
         if (!_isDrawingMode) return null;
@@ -561,20 +569,72 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               borderRadius: BorderRadius.circular(8),
               boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
             ),
-            child: TextButton.icon(
-              onPressed: () async {
-                // نطبّق التمييز/التسطير الآن بعد أن انتهى المستخدم من ضبط التحديد
-                await _highlightController.applyPendingSelection(_pdfController!);
-              },
-              icon: Icon(
-                _activeTool == PdfTool.highlighter
-                    ? Icons.format_color_fill
-                    : Icons.format_underline,
-                color: AppColors.accentYellow,
-                size: 18,
-              ),
-              label: Text(label,
-                  style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // زر التمييز / التسطير
+                TextButton.icon(
+                  onPressed: () async {
+                    await _highlightController.applyPendingSelection(_pdfController!);
+                  },
+                  icon: Icon(
+                    _activeTool == PdfTool.highlighter
+                        ? Icons.format_color_fill
+                        : Icons.format_underline,
+                    color: AppColors.accentYellow,
+                    size: 18,
+                  ),
+                  label: Text(label,
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
+                ),
+                // فاصل
+                Container(
+                  width: 1,
+                  height: 24,
+                  color: AppColors.textSecondary.withOpacity(0.3),
+                ),
+                // زر تعديل: يكتشف أي تمييز/تسطير يتداخل مع التحديد الحالي ويفتح نافذة التعديل
+                TextButton.icon(
+                  onPressed: () async {
+                    final ranges = await _highlightController
+                        .getPendingSelectionRanges(_pdfController!);
+                    if (ranges.isEmpty) return;
+                    for (final r in ranges) {
+                      final result = _highlightController.findOverlappingMarkup(
+                        pageNumber: r.pageNumber,
+                        selectionStart: r.start,
+                        selectionEnd: r.end,
+                      );
+                      if (result.highlight != null || result.underline != null) {
+                        if (mounted) {
+                          _showMarkupEditSheet(
+                            highlight: result.highlight,
+                            underline: result.underline,
+                            pageNumber: r.pageNumber,
+                          );
+                        }
+                        return;
+                      }
+                    }
+                    // لم يُعثر على عنصر متداخل
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'لا يوجد تمييز أو تسطير في هذا التحديد',
+                            style: TextStyle(color: AppColors.textPrimary),
+                          ),
+                          backgroundColor: AppColors.backgroundSecondary,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                  icon: Icon(Icons.edit_outlined, color: AppColors.accentYellow, size: 18),
+                  label: Text('تعديل',
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
+                ),
+              ],
             ),
           ),
         );
