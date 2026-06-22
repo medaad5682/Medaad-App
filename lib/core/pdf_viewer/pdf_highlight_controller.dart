@@ -285,6 +285,22 @@ class PdfHighlightController {
       return;
     }
 
+    // ── Fix (rendering): pdfrx pre-translates the canvas to the page's
+    // top-left corner before calling pagePaintCallbacks, so all drawing
+    // coordinates must be relative to (0, 0) — not to the absolute scroll
+    // position of the page inside the document.
+    //
+    // toRectInDocument(page, pageRect) adds pageRect.left/top to every rect
+    // it produces. If we pass the real (absolute) pageRect, that offset is
+    // added on top of the canvas translation → double-offset → rects land far
+    // below / to the right of the actual page, and are completely invisible.
+    //
+    // The correct fix: pass a page-local reference rect anchored at (0, 0)
+    // with the same pixel dimensions as the real pageRect.  The scaling and
+    // PDF-Y-axis flip inside toRectInDocument then work correctly, and no
+    // spurious offset is added.
+    final localPageRect = Rect.fromLTWH(0, 0, pageRect.width, pageRect.height);
+
     // رسم التمييز (طبقة تحت النص، شبه شفافة)
     for (final h in highlightsForPage(page.pageNumber)) {
       final lineRects = PdfHighlightEngine.lineRectsForRange(
@@ -298,7 +314,7 @@ class PdfHighlightController {
       for (final r in lineRects) {
         // تكبير طفيف رأسياً ليغطي التمييز كامل ارتفاع السطر بشكل طبيعي
         final flutterRect =
-            r.inflate(0, r.height * 0.12).toRectInDocument(page: page, pageRect: pageRect);
+            r.inflate(0, r.height * 0.12).toRectInDocument(page: page, pageRect: localPageRect);
         canvas.drawRect(flutterRect, paint);
       }
     }
@@ -316,7 +332,7 @@ class PdfHighlightController {
         ..strokeCap = StrokeCap.round
         ..color = Color(u.color);
       for (final r in lineRects) {
-        final flutterRect = r.toRectInDocument(page: page, pageRect: pageRect);
+        final flutterRect = r.toRectInDocument(page: page, pageRect: localPageRect);
         canvas.drawLine(
           Offset(flutterRect.left, flutterRect.bottom),
           Offset(flutterRect.right, flutterRect.bottom),
