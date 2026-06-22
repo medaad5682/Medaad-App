@@ -112,6 +112,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       store: _store,
       textCache: _textCache,
       onChanged: () => setState(() {}),
+      onApplyError: _handleHighlightApplyError,
     );
     _shapeController = PdfShapeController(store: _store, onChanged: () => setState(() {}));
     _textNoteController = PdfTextNoteController(store: _store, onChanged: () => setState(() {}));
@@ -660,19 +661,29 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     // هذه الطبقة فوق الصور حتى تُرسم الأشكال والتعليقات فوق الصور.
                     // ملاحظة: نستخدم HitTestBehavior.translucent بدلاً من opaque حتى
                     // لا تمتص هذه الطبقة اللمسات الموجهة للملاحظات والصور فوقها.
+                    // ── Fix: لم نعد نُسقط (Ignore) هذه الطبقة بالكامل عندما تكون أداة
+                    // التمييز/التسطير نشطة أو عندما لا توجد أداة نشطة. فالنقر للتعديل
+                    // على تمييز/تسطير موجود يجب أن يعمل في هذه الحالات أيضاً (انظر
+                    // _handleTapUp). نُسقط معالِجات السحب (Pan) فقط في حالة أداتَي
+                    // التمييز/التسطير حتى لا تتعارض هذه الطبقة مع تحديد النص الحقيقي
+                    // لـ pdfrx الذي يعمل أسفلها أثناء سحب تحديد النص.
                     IgnorePointer(
-                      ignoring: !_isDrawingMode ||
-                          _activeTool == PdfTool.none ||
-                          _activeTool == PdfTool.highlighter ||
-                          _activeTool == PdfTool.underline,
+                      ignoring: !_isDrawingMode,
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
                         onTapUp: (details) => _handleTapUp(details, context, pageRect, page),
-                        onPanStart: (details) =>
-                            _handlePanStart(details, context, pageRect, page),
-                        onPanUpdate: (details) =>
-                            _handlePanUpdate(details, context, pageRect, page),
-                        onPanEnd: (details) => _handlePanEnd(page, pageRect),
+                        onPanStart: (_activeTool == PdfTool.highlighter ||
+                                _activeTool == PdfTool.underline)
+                            ? null
+                            : (details) => _handlePanStart(details, context, pageRect, page),
+                        onPanUpdate: (_activeTool == PdfTool.highlighter ||
+                                _activeTool == PdfTool.underline)
+                            ? null
+                            : (details) => _handlePanUpdate(details, context, pageRect, page),
+                        onPanEnd: (_activeTool == PdfTool.highlighter ||
+                                _activeTool == PdfTool.underline)
+                            ? null
+                            : (details) => _handlePanEnd(page, pageRect),
                         child: CustomPaint(
                           painter: _CombinedOverlayPainter(
                             lines: allLines,
@@ -814,6 +825,33 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   // --- معالجة الإيماءات الموحّدة (تحترم رفض راحة اليد) ---
 
+  /// يُستدعى من [PdfHighlightController.onApplyError] عندما يفشل تطبيق
+  /// التمييز/التسطير (مثلاً بسبب بيانات نص غير متّسقة في صفحة معينة). بدون
+  /// هذا، كانت العملية تفشل بصمت تام دون أي ملاحظة للمستخدم.
+  void _handleHighlightApplyError(Object error) {
+    if (!mounted) return;
+
+    final isNoText = error is StateError && error.message == 'no_selectable_text_on_page';
+    final message = isNoText
+        ? "تعذّر تطبيق التمييز/التسطير: لا يحتوي هذا الجزء من الصفحة على نص قابل للتحديد"
+        : "تعذّر تطبيق التمييز/التسطير على هذه الصفحة. حاول تحديد نص أقصر أو إعادة فتح الملف";
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+    );
+
+    // نُسجّل الخطأ الفعلي (غير حالة "لا يوجد نص") في Crashlytics للمساعدة
+    // في تشخيص الصفحات التي تفشل بشكل متكرر.
+    if (!isNoText) {
+      FirebaseCrashlytics.instance.recordError(
+        error,
+        StackTrace.current,
+        reason: 'highlight_underline_apply_failed',
+        fatal: false,
+      );
+    }
+  }
+
   bool _palmAllows(PointerDeviceKind? kind) => _palmFilter.isAllowed(kind);
 
   void _handleTapUp(TapUpDetails details, BuildContext context, Rect pageRect, PdfPage page) {
@@ -842,8 +880,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         _tryEditExistingShape(relativePoint, page.pageNumber);
         break;
       case PdfTool.none:
-        // كشف ذكي: النقر على شكل موجود يفتح نافذة التعديل حتى بدون تفعيل أداة الأشكال
-        _tryEditExistingShape(relativePoint, page.pageNumber);
+        // كشف ذكي: النقر على تمييز/تسطير أو شكل موجود يفتح نافذة التعديل المناسبة
+        // حتى بدون تفعيل أي أداة. نجرّب التمييز/التسطير أولاً ثم الأشكال.
+        if (!_tryEditExistingMarkup(localPos, pageRect, page)) {
+          _tryEditExistingShape(relativePoint, page.pageNumber);
+        }
         break;
       case PdfTool.image:
         // الصور تُضاف من شريط الأدوات مباشرة (زر اختيار صورة)، لا من النقر على الصفحة.
@@ -853,7 +894,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     }
   }
 
-  void _tryEditExistingMarkup(Offset localPos, Rect pageRect, PdfPage page) {
+  bool _tryEditExistingMarkup(Offset localPos, Rect pageRect, PdfPage page) {
     final pdfPoint = localPos.toPdfPoint(page: page, scaledPageSize: pageRect.size);
     final result = _highlightController.hitTest(
       pageNumber: page.pageNumber,
@@ -862,9 +903,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
     if (result.highlight != null) {
       _showMarkupEditSheet(highlight: result.highlight, pageNumber: page.pageNumber);
+      return true;
     } else if (result.underline != null) {
       _showMarkupEditSheet(underline: result.underline, pageNumber: page.pageNumber);
+      return true;
     }
+    return false;
   }
 
   void _showMarkupEditSheet({HighlightModel? highlight, UnderlineModel? underline, required int pageNumber}) {
