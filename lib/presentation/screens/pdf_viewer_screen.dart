@@ -414,7 +414,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-
   Widget _buildBadge() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -657,32 +656,28 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                         )),
 
                     // طبقة الرسم الحر (القلم/الممحاة/هايلايتر حر) + الأشكال (رسم جديد)
-                    // هذه الطبقة فوق الصور حتى تُرسم الأشكال والتعليقات فوق الصور.
-                    // ملاحظة: نستخدم HitTestBehavior.translucent بدلاً من opaque حتى
-                    // لا تمتص هذه الطبقة اللمسات الموجهة للملاحظات والصور فوقها.
-                    IgnorePointer(
-                      ignoring: !_isDrawingMode ||
-                          _activeTool == PdfTool.none ||
-                          _activeTool == PdfTool.highlighter ||
-                          _activeTool == PdfTool.underline,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTapUp: (details) => _handleTapUp(details, context, pageRect, page),
-                        onPanStart: (details) =>
-                            _handlePanStart(details, context, pageRect, page),
-                        onPanUpdate: (details) =>
-                            _handlePanUpdate(details, context, pageRect, page),
-                        onPanEnd: (details) => _handlePanEnd(page, pageRect),
-                        child: CustomPaint(
-                          painter: _CombinedOverlayPainter(
-                            lines: allLines,
-                            shapes: shapes,
-                            shapePreview: shapePreview,
-                            pageSize: pageRect.size,
-                            shapeController: _shapeController,
-                          ),
-                          size: Size.infinite,
+                    // تم إزالة IgnorePointer للسماح باكتشاف اللمس على الهايلايت
+                    GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTapUp: (details) => _handleTapUp(details, context, pageRect, page),
+                      onPanStart: (_isDrawingMode && (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter || _activeTool == PdfTool.shape))
+                          ? (details) => _handlePanStart(details, context, pageRect, page)
+                          : null,
+                      onPanUpdate: (_isDrawingMode && (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter || _activeTool == PdfTool.shape))
+                          ? (details) => _handlePanUpdate(details, context, pageRect, page)
+                          : null,
+                      onPanEnd: (_isDrawingMode && (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter || _activeTool == PdfTool.shape))
+                          ? (details) => _handlePanEnd(page, pageRect)
+                          : null,
+                      child: CustomPaint(
+                        painter: _CombinedOverlayPainter(
+                          lines: allLines,
+                          shapes: shapes,
+                          shapePreview: shapePreview,
+                          pageSize: pageRect.size,
+                          shapeController: _shapeController,
                         ),
+                        size: Size.infinite,
                       ),
                     ),
 
@@ -835,7 +830,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       case PdfTool.highlighter:
       case PdfTool.underline:
         // النقر على تمييز/تسطير موجود مسبقاً (دون سحب) يفتح قائمة تعديل اللون أو الحذف،
-        // بدلاً من بدء تحديد نص جديد.
+        // بدلاً من بدء تحديد نص جديد. وهذا يعمل هنا فقط أثناء تفعيل الأداة.
         _tryEditExistingMarkup(localPos, pageRect, page);
         break;
       case PdfTool.shape:
