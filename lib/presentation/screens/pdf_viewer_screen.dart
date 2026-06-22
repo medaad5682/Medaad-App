@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
@@ -256,11 +257,25 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       final String? token = box.get('jwt_token');
       final String? deviceId = box.get('device_id');
 
+      // ✅ 1. محاولة جلب توكن Firebase App Check
+      String? appCheckToken;
+      try {
+        appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+      } catch (e) {
+        debugPrint("App Check Error in PDF: $e");
+      }
+
+      // ✅ 2. بناء الترويسات الأساسية
       _onlineHeaders = {
         'Authorization': 'Bearer $token',
         'x-device-id': deviceId ?? '',
         'x-app-secret': const String.fromEnvironment('APP_SECRET'),
       };
+
+      // ✅ 3. إضافة توكن الحماية في حال نجاح جلبه
+      if (appCheckToken != null) {
+        _onlineHeaders!['X-Firebase-AppCheck'] = appCheckToken;
+      }
 
       _onlineUrl = '${ApiConstants.apiUrl}/secure/get-pdf?pdfId=${widget.pdfId}';
 
