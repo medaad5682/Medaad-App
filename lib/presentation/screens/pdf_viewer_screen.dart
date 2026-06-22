@@ -662,7 +662,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                             _handlePanStart(details, context, pageRect, page),
                         onPanUpdate: (details) =>
                             _handlePanUpdate(details, context, pageRect, page),
-                        onPanEnd: (details) => _handlePanEnd(page),
+                        onPanEnd: (details) => _handlePanEnd(page, pageRect),
                         child: CustomPaint(
                           painter: _CombinedOverlayPainter(
                             lines: allLines,
@@ -1090,7 +1090,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     }
   }
 
-  void _handlePanEnd(PdfPage page) {
+  void _handlePanEnd(PdfPage page, Rect pageRect) {
     if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter) {
       if (_currentLine != null) {
         setState(() {
@@ -1100,7 +1100,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         });
       }
     } else if (_activeTool == PdfTool.shape) {
-      _shapeController.endDrawing();
+      _shapeController.endDrawing(pageSize: pageRect.size);
     }
   }
 
