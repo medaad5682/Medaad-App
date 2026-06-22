@@ -18,6 +18,7 @@ class PdfTextNoteController {
   int defaultColor = 0xFFFFFFFF;
   double defaultFontSize = 0.022;
   bool defaultBold = false;
+  bool defaultUnderline = false;
 
   final Map<int, List<TextNoteModel>> _notes = {};
 
@@ -40,6 +41,7 @@ class PdfTextNoteController {
       color: defaultColor,
       fontSize: defaultFontSize,
       bold: defaultBold,
+      underline: defaultUnderline,
     );
     _notes.putIfAbsent(pageNumber, () => []).add(note);
     onChanged();
@@ -76,6 +78,12 @@ class PdfTextNoteController {
 
   Future<void> updateBold(int pageNumber, TextNoteModel note, bool bold) async {
     note.bold = bold;
+    await _persist(pageNumber);
+    onChanged();
+  }
+
+  Future<void> updateUnderline(int pageNumber, TextNoteModel note, bool underline) async {
+    note.underline = underline;
     await _persist(pageNumber);
     onChanged();
   }

@@ -66,6 +66,14 @@ class PdfShapeController {
     final dx = (_drawingShape!.endDx - _drawingShape!.startDx).abs();
     final dy = (_drawingShape!.endDy - _drawingShape!.startDy).abs();
     if (dx > 0.01 || dy > 0.01) {
+      // ── تثبيت المربع: حفظ الأبعاد المتساوية في النموذج نفسه ──
+      if (_drawingShape!.type == ShapeType.square) {
+        final sdx = _drawingShape!.endDx - _drawingShape!.startDx;
+        final sdy = _drawingShape!.endDy - _drawingShape!.startDy;
+        final side = math.min(sdx.abs(), sdy.abs());
+        _drawingShape!.endDx = _drawingShape!.startDx + (sdx < 0 ? -side : side);
+        _drawingShape!.endDy = _drawingShape!.startDy + (sdy < 0 ? -side : side);
+      }
       _shapes.putIfAbsent(_drawingPage!, () => []).add(_drawingShape!);
       await _persist(_drawingPage!);
     }
