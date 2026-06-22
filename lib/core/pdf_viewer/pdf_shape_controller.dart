@@ -60,17 +60,45 @@ class PdfShapeController {
     onChanged();
   }
 
-  Future<void> endDrawing() async {
+  /// [pageSize] is required when [activeType] == [ShapeType.square] so that the
+  /// equal-side constraint is resolved in **pixel space** rather than normalised
+  /// coordinate space (where width ≠ height in pixels), preventing the saved
+  /// shape from being smaller than what the user actually drew.
+  Future<void> endDrawing({Size? pageSize}) async {
     if (_drawingShape == null || _drawingPage == null) return;
     // تجاهل الأشكال الصغيرة جداً (ضغطة بالخطأ بدون سحب فعلي)
     final dx = (_drawingShape!.endDx - _drawingShape!.startDx).abs();
     final dy = (_drawingShape!.endDy - _drawingShape!.startDy).abs();
     if (dx > 0.01 || dy > 0.01) {
-      // ── تثبيت المربع: حفظ الأبعاد المتساوية في النموذج نفسه ──
-      if (_drawingShape!.type == ShapeType.square) {
+      // ── تثبيت المربع: حفظ الأبعاد المتساوية في فضاء البكسل ──
+      // السبب: الإحداثيات النسبية (0–1) تمثّل نسباً مختلفة من البكسلات
+      // على المحورين (عرض الصفحة ≠ ارتفاعها)، لذا يجب حساب ضلع المربع
+      // في فضاء البكسل ثم تحويله للإحداثيات النسبية للتخزين.
+      if (_drawingShape!.type == ShapeType.square && pageSize != null && pageSize.width > 0 && pageSize.height > 0) {
+        // تحويل إلى بكسل
+        final pxStartX = _drawingShape!.startDx * pageSize.width;
+        final pxStartY = _drawingShape!.startDy * pageSize.height;
+        final pxEndX   = _drawingShape!.endDx   * pageSize.width;
+        final pxEndY   = _drawingShape!.endDy   * pageSize.height;
+
+        final pdx = pxEndX - pxStartX;
+        final pdy = pxEndY - pxStartY;
+
+        // اختيار أكبر امتداد (وليس أصغره) حفاظاً على الحجم الذي رسمه المستخدم
+        final side = math.max(pdx.abs(), pdy.abs());
+
+        // حفظ اتجاه السحب على كل محور
+        final pxNewEndX = pxStartX + (pdx < 0 ? -side : side);
+        final pxNewEndY = pxStartY + (pdy < 0 ? -side : side);
+
+        // تحويل مرة أخرى للإحداثيات النسبية
+        _drawingShape!.endDx = pxNewEndX / pageSize.width;
+        _drawingShape!.endDy = pxNewEndY / pageSize.height;
+      } else if (_drawingShape!.type == ShapeType.square) {
+        // احتياطي: إذا لم تتوفر pageSize، استخدم أكبر امتداد نسبي
         final sdx = _drawingShape!.endDx - _drawingShape!.startDx;
         final sdy = _drawingShape!.endDy - _drawingShape!.startDy;
-        final side = math.min(sdx.abs(), sdy.abs());
+        final side = math.max(sdx.abs(), sdy.abs());
         _drawingShape!.endDx = _drawingShape!.startDx + (sdx < 0 ? -side : side);
         _drawingShape!.endDy = _drawingShape!.startDy + (sdy < 0 ? -side : side);
       }
@@ -179,8 +207,8 @@ class PdfShapeController {
       final pdx = pxEndX - pxStartX;
       final pdy = pxEndY - pxStartY;
 
-      // Pick the smaller pixel extent as the side length
-      final side = math.min(pdx.abs(), pdy.abs());
+      // Pick the larger pixel extent as the side length (matches endDrawing)
+      final side = math.max(pdx.abs(), pdy.abs());
 
       // Preserve the drag direction on each axis
       final pxNewEndX = pxStartX + (pdx < 0 ? -side : side);
