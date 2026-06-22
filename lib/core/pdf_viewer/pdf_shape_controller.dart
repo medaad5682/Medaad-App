@@ -164,14 +164,31 @@ class PdfShapeController {
     double endX = s.endDx;
     double endY = s.endDy;
 
-    // ── المربع: نضمن أبعاداً متساوية تماماً (مربع حقيقي) ──
+    // ── Square Fix ──
+    // The shape is stored in normalised coords (0–1 relative to page size).
+    // Because page width ≠ page height, normalising dx and dy independently
+    // means the same numeric delta represents a different number of pixels on
+    // each axis.  We must work in pixel space to get visually equal sides.
     if (s.type == ShapeType.square) {
-      final dx = endX - startX;
-      final dy = endY - startY;
-      // نأخذ أصغر البُعدين كطول الضلع لضمان التساوي المطلق
-      final side = math.min(dx.abs(), dy.abs());
-      endX = startX + (dx < 0 ? -side : side);
-      endY = startY + (dy < 0 ? -side : side);
+      // Convert to pixels
+      final pxStartX = startX * pageSize.width;
+      final pxStartY = startY * pageSize.height;
+      final pxEndX   = endX   * pageSize.width;
+      final pxEndY   = endY   * pageSize.height;
+
+      final pdx = pxEndX - pxStartX;
+      final pdy = pxEndY - pxStartY;
+
+      // Pick the smaller pixel extent as the side length
+      final side = math.min(pdx.abs(), pdy.abs());
+
+      // Preserve the drag direction on each axis
+      final pxNewEndX = pxStartX + (pdx < 0 ? -side : side);
+      final pxNewEndY = pxStartY + (pdy < 0 ? -side : side);
+
+      // Convert back to normalised coords for the rect calculation
+      endX = pxNewEndX / pageSize.width;
+      endY = pxNewEndY / pageSize.height;
     }
 
     final rect = Rect.fromLTRB(
