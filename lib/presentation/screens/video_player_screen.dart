@@ -402,7 +402,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         if (_isOfflineMode) {
           try {
             await _player.stream.videoParams
-                .firstWhere((p) => p.codec != null && p.codec!.isNotEmpty)
+                .firstWhere((p) => p.w != null && p.w! > 0)
                 .timeout(const Duration(seconds: 8));
           } catch (_) {
             // إذا انقضى الوقت، نكمل على أي حال لتجنب التجمد
