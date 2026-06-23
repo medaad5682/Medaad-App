@@ -1284,7 +1284,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
             if (!_isDisposing && !_isError && _isInitialized)
               AnimatedAlign(
-                alignment: _watermarkAlignment,
+                alignment: _watermarkAlignment, // 👈 تم إضافة هذا السطر
+                duration: const Duration(seconds: 2), // 👈 وتم إضافة هذا السطر
                 child: IgnorePointer(
                   child: Container(
                     padding:
@@ -1301,7 +1302,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   ),
                 ),
               ),
-
+            
             // ✅ 7. شاشة التحذير الحمراء مع التهديد
             if (_isRecordingDetected)
               Container(
