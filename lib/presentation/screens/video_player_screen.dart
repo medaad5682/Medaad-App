@@ -65,14 +65,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   int _stabilizingCountdown = 0;
   Timer? _countdownTimer;
 
-  // ✅ [NETWORK-FIX] Poor-network resilience: track consecutive errors so we
-  // can auto-downgrade quality and use exponential backoff on retry.
-  int _networkErrorCount = 0;
-  static const int _maxAutoRetries = 2; // silent retries before showing error UI
-  Timer? _autoRetryTimer;
-
   bool _isDisposing = false;
-  bool _isRecovering = false; // ✅ [RECOVERY-FIX] منع ظهور العد التنازلي أثناء الاسترداد الصامت
 
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
@@ -80,35 +73,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Timer? _seekDebounceTimer;
   Duration _accumulatedSeekAmount = Duration.zero;
-
-  // ✅ [SYNC-FIX] متغيرات مراقبة ومزامنة الصوت والصورة
-  Timer? _syncWatchdogTimer;
-  StreamSubscription? _positionSubscription;
-  StreamSubscription? _videoParamsSubscription;
-  Duration _lastKnownPosition = Duration.zero;
-  int _frozenFrameCount = 0;
-  static const int _frozenFrameThreshold = 8;
-
-  // Two separate seek flags — each with a different Watchdog contract:
-  //
-  // _isUserSeeking  — raised by _seekRelative() the instant the user taps a
-  //   seek button; cleared only after the position stream has settled (900 ms
-  //   total: 600 ms debounce + seek + 300 ms settle).
-  //   While true the Watchdog skips ALL detection AND does NOT update
-  //   _lastKnownPosition, so a user-initiated jump to 00:00 or any early
-  //   position is never misread as a demuxer reset.
-  //
-  // _isInternalSeeking — raised by _playVideo() only for the internal
-  //   seek(startAt) call (used by recovery & quality-change).
-  //   While true the Watchdog skips detection, but _lastKnownPosition is
-  //   kept frozen at whatever it was BEFORE the recovery started, so if a
-  //   real demuxer-reset happens again right after recovery the Watchdog can
-  //   still detect it the moment _isInternalSeeking clears.
-  bool _isUserSeeking = false;
-  bool _isInternalSeeking = false;
-
-  // Convenience getter used throughout: either flag pauses the Watchdog.
-  bool get _isSeeking => _isUserSeeking || _isInternalSeeking;
 
   final Map<String, String> _serverHeaders = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
@@ -210,12 +174,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       }
 
-      // ✅ [NETWORK-FIX] Buffer sizes tuned for poor-network devices:
-      //   Weak devices  : 8 MB  (was 3 MB — too small, caused constant stalls)
-      //   Normal devices: 64 MB (was 32 MB — gives ~30 s of HD buffer at 17 Mbps)
       _player = Player(
         configuration: PlayerConfiguration(
-          bufferSize: _isWeakDevice ? 8 * 1024 * 1024 : 64 * 1024 * 1024,
+          bufferSize: _isWeakDevice ? 3 * 1024 * 1024 : 32 * 1024 * 1024,
           vo: 'gpu',
         ),
       );
@@ -229,30 +190,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         await (_player.platform as dynamic).setProperty('hwdec', 'auto');
       }
 
-      // ✅ [NETWORK-FIX] Tune mpv network stack for bad / intermittent
-      // connections. These settings are applied regardless of device tier:
-      //   • network-timeout    – seconds to wait for a TCP connection/read
-      //     before giving up (default is 0 = unlimited, which can stall
-      //     indefinitely on packet loss).
-      //   • stream-buffer-size – rolling read-ahead buffer inside mpv's
-      //     demuxer; larger = smoother playback on a bursty connection.
-      //   • cache-pause-wait   – resume playing only once this many seconds
-      //     of data are buffered ahead. Higher = fewer re-stalls after a
-      //     resume, at the cost of a slightly longer pause each time.
-      //     Sweet spot for bad networks: 8 s normal / 10 s weak.
-      //     Going above ~15 s feels like the app is broken to the user.
-      //   • cache-pause-initial – apply cache-pause-wait before the very
-      //     first play so cold-start doesn't immediately stutter.
-      try {
-        final platform = _player.platform as dynamic;
-        await platform.setProperty('network-timeout', '10');
-        await platform.setProperty('stream-buffer-size', _isWeakDevice ? '4m' : '16m');
-        await platform.setProperty('cache-pause-wait', _isWeakDevice ? '10' : '8');
-        await platform.setProperty('cache-pause-initial', 'yes');
-        // Allow mpv to re-open the stream up to 3 times on transient errors
-        await platform.setProperty('stream-open-max', '3');
-      } catch (_) {}
-
       _controller = VideoController(
         _player,
         configuration: VideoControllerConfiguration(
@@ -265,88 +202,22 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _player.stream.error.listen((error) {
         final errorString = error.toString().toLowerCase();
 
-        // ✅ [OFFLINE-FIX] البروكسي المحلي يعمل على 127.0.0.1 — أي خطأ شبكي منه
-        // هو بالضرورة ناتج عن مشكلة داخلية (انتهاء صلاحية HMAC أو طلب Range خاطئ)
-        // وليس انقطاعاً في الإنترنت. نتجاهله هنا تماماً لأن Watchdog سيتولى الاسترداد.
-        if (_isOfflineMode) {
-          // سجّل في Crashlytics للتشخيص دون إظهار شاشة الخطأ للمستخدم
-          if (!errorString.contains("failed to open")) {
-            FirebaseCrashlytics.instance
-                .recordError(error, null, reason: '[Offline] Proxy Stream Error');
-          }
-
-          // ✅ حالة خاصة: إذا انتهت صلاحية رابط HMAC (مرّت أكثر من ساعتين)
-          // أعد توليد الروابط الموقّعة وأعد التشغيل من نفس الموضع بهدوء
-          if (errorString.contains('403') ||
-              errorString.contains('forbidden') ||
-              errorString.contains('access denied') ||
-              errorString.contains('link expired')) {
-            if (mounted && !_isDisposing && !_isSeeking) {
-              final currentPos = _player.state.position;
-              FirebaseCrashlytics.instance
-                  .log("🔑 [OFFLINE-FIX] HMAC link expired at $currentPos — refreshing silently.");
-              _recoverVideoSync(currentPos);
-            }
-          }
-          return; // توقف هنا ولا تُظهر شاشة خطأ الشبكة أبداً في وضع أوف لاين
-        }
-
-        // ✅ [NETWORK-FIX] Online mode: smart retry before showing error UI.
-        // On intermittent / slow connections a single TCP hiccup used to
-        // immediately surface an error screen. Now we:
-        //   1. Silently retry up to _maxAutoRetries times with backoff.
-        //   2. On the second retry, auto-downgrade to a lower quality so the
-        //      stream is more likely to survive a weak connection.
-        //   3. Only show the error screen after all retries are exhausted.
         if (errorString.contains('tcp') ||
             errorString.contains('timeout') ||
             errorString.contains('ffurl_read') ||
             errorString.contains('resolve hostname') ||
             errorString.contains('route to host') ||
-            errorString.contains('decoding audio') ||
-            errorString.contains('connection refused') ||
-            errorString.contains('eof')) {
-
+            errorString.contains('decoding audio')) {
+          
           if (mounted && !_isDisposing) {
-            final currentPos = _player.state.position;
-            _errorPosition = currentPos;
-            _networkErrorCount++;
-
-            if (_networkErrorCount <= _maxAutoRetries) {
-              // Silent retry with exponential backoff (2 s, 4 s …)
-              final backoffSeconds = _networkErrorCount * 2;
-              FirebaseCrashlytics.instance.log(
-                "🔄 [NETWORK-FIX] Network error #$_networkErrorCount at $currentPos — "
-                "retrying in ${backoffSeconds}s (quality: $_currentQuality)");
-
-              // On second retry, try a lower quality if available
-              if (_networkErrorCount == 2) {
-                final lowerQuality = _getLowerQuality();
-                if (lowerQuality != null && lowerQuality != _currentQuality) {
-                  FirebaseCrashlytics.instance.log(
-                    "📉 [NETWORK-FIX] Auto-downgrading quality: $_currentQuality → $lowerQuality");
-                  setState(() => _currentQuality = lowerQuality);
-                }
-              }
-
-              _autoRetryTimer?.cancel();
-              _autoRetryTimer = Timer(Duration(seconds: backoffSeconds), () {
-                if (mounted && !_isDisposing) {
-                  final urlToPlay = widget.streams[_currentQuality]!;
-                  _playVideo(urlToPlay, startAt: currentPos);
-                }
-              });
-            } else {
-              // All retries exhausted — show the error screen
-              _networkErrorCount = 0;
-              _player.pause();
-              setState(() {
-                _isError = true;
-                _errorMessage =
-                    "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
-                _isVideoLoading = false;
-              });
-            }
+            final currentPos = _player.state.position; // حفظ مكان التوقف بدقة
+            setState(() {
+              _isError = true;
+              _errorPosition = currentPos;
+              _errorMessage = "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
+              _isVideoLoading = false;
+            });
+            _player.pause(); // إيقاف المشغل لمنع التخبط
           }
         }
 
@@ -360,9 +231,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _player.stream.buffering.listen((buffering) {
         if (!buffering && _isVideoLoading) {
           if (mounted) {
-            // ✅ [NETWORK-FIX] Healthy playback resumed — reset the error counter
-            // so the next transient error gets the full retry budget again.
-            _networkErrorCount = 0;
             setState(() => _isVideoLoading = false);
 
             // 🛑 حارس الأمان: لا تشغل إذا تم اكتشاف تسجيل
@@ -373,18 +241,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             }
 
             if (_isOfflineMode) {
-              // ✅ [RECOVERY-FIX] أثناء الاسترداد الصامت (Watchdog)، لا تُشغّل العد التنازلي
-              // ابدأ التشغيل مباشرة وأعد تشغيل Watchdog دون أن يلاحظ المستخدم شيئاً
-              if (_isRecovering) {
-                _player.play();
-                _startSyncWatchdog();
-              } else {
-                _startCountdown();
-              }
+              _startCountdown();
             } else {
               _player.play();
-              // ✅ [SYNC-FIX] ابدأ مراقبة المزامنة للمحتوى الأونلاين بعد التشغيل
-              _startSyncWatchdog();
             }
           }
         }
@@ -421,16 +280,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Future<void> _playVideo(String url, {Duration? startAt}) async {
     if (_isDisposing) return;
-
-    // Stop the Watchdog before touching the player, and clear all seek flags.
-    // _lastKnownPosition is intentionally NOT reset to zero here: if _playVideo
-    // was called by _recoverVideoSync, we want to keep the pre-recovery position
-    // so that if recovery itself triggers a demuxer reset the Watchdog can still
-    // detect it the moment it restarts.
-    _stopSyncWatchdog();
-    _frozenFrameCount = 0;
-    _isUserSeeking = false;
-    _isInternalSeeking = false;
 
     setState(() {
       _isVideoLoading = true;
@@ -496,20 +345,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       }
 
       if (audioUrl != null) {
-        // ✅ [SYNC-FIX] في وضع أوف لاين، انتظر حتى يصبح الفيديو جاهزاً فعلاً (video-params)
-        // قبل إرفاق المسار الصوتي، لضمان أن كلا المسارين يبدآن من نفس اللحظة.
-        if (_isOfflineMode) {
-          try {
-            await _player.stream.videoParams
-                .firstWhere((p) => p.w != null && p.w! > 0)
-                .timeout(const Duration(seconds: 8));
-          } catch (_) {
-            // إذا انقضى الوقت، نكمل على أي حال لتجنب التجمد
-          }
-        } else {
-          int delayMs = _isWeakDevice ? 2500 : 500;
-          await Future.delayed(Duration(milliseconds: delayMs));
-        }
+        int delayMs = _isWeakDevice ? 2500 : 500;
+        await Future.delayed(Duration(milliseconds: delayMs));
 
         try {
           await _player.setAudioTrack(
@@ -523,15 +360,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       }
 
-      // Seek to startAt if provided (includes Duration.zero — seeking to the
-      // very beginning is a valid and intentional operation).
-      // Uses _isInternalSeeking so the Watchdog is paused during the seek but
-      // _lastKnownPosition is NOT updated (see flag contract above).
-      if (startAt != null) {
-        _isInternalSeeking = true;
+      if (startAt != null && startAt != Duration.zero) {
         await _player.seek(startAt);
-        await Future.delayed(const Duration(milliseconds: 300));
-        _isInternalSeeking = false;
       }
 
       if (_currentSpeed != 1.0) {
@@ -551,227 +381,38 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   Future<void> _seekRelative(Duration amount) async {
+    // منع التنقل إذا كان هناك تسجيل
     if (_isRecordingDetected) return;
 
     _accumulatedSeekAmount += amount;
-
-    // Raise _isUserSeeking immediately — before the debounce fires — so the
-    // Watchdog is frozen for the full duration of the user gesture.
-    // This flag is ONLY cleared after the position stream has settled (300 ms
-    // after the actual seek), so there is zero window for a false recovery.
-    _isUserSeeking = true;
-    _frozenFrameCount = 0;
-
     if (_seekDebounceTimer?.isActive ?? false) _seekDebounceTimer!.cancel();
 
     _seekDebounceTimer = Timer(const Duration(milliseconds: 600), () async {
       try {
         final duration = _player.state.duration;
-        if (duration == Duration.zero) {
-          _accumulatedSeekAmount = Duration.zero;
-          _isUserSeeking = false;
-          return;
-        }
+        // تأكد من أن مدة الفيديو صالحة
+        if (duration == Duration.zero) return;
 
         final currentPos = _player.state.position;
         var targetPos = currentPos + _accumulatedSeekAmount;
 
-        if (targetPos < Duration.zero) targetPos = Duration.zero;
-        if (targetPos > duration) targetPos = duration;
+        // ✅ إصلاح مشكلة الرجوع: إذا كان الناتج أقل من صفر، اجعله صفر (بداية الفيديو)
+        if (targetPos < Duration.zero) {
+          targetPos = Duration.zero;
+        }
+
+        // ✅ إصلاح مشكلة التقديم: إذا كان الناتج أكبر من مدة الفيديو، اجعله في النهاية
+        if (targetPos > duration) {
+          targetPos = duration;
+        }
 
         await _player.seek(targetPos);
-
-        // After seek the Watchdog will restart from the new position.
-        // Update _lastKnownPosition NOW (while still under _isUserSeeking)
-        // so the Watchdog baseline is correct when the flag clears.
-        _lastKnownPosition = targetPos;
-
-        // Offline: force buffer refresh to prevent image freeze after seek.
-        if (_isOfflineMode) {
-          await Future.delayed(const Duration(milliseconds: 150));
-          if (_player.state.playing) {
-            await _player.pause();
-            await Future.delayed(const Duration(milliseconds: 80));
-            await _player.play();
-          }
-        }
       } catch (e) {
         FirebaseCrashlytics.instance.recordError(e, null, reason: 'Seek Error');
       } finally {
         _accumulatedSeekAmount = Duration.zero;
-        // Wait for the position stream to reflect the new position before
-        // the Watchdog re-evaluates. Without this delay, the Watchdog could
-        // read stale position data on its very next tick and trigger a false
-        // recovery immediately after the user's seek completes.
-        await Future.delayed(const Duration(milliseconds: 300));
-        _isUserSeeking = false;
       }
     });
-  }
-
-  // =========================================================================
-  // ✅ [SYNC-FIX] Watchdog: مراقبة مستمرة للمزامنة بين الصوت والصورة
-  // يعالج: (1) تجمد الصورة، (2) إعادة الفيديو لـ 0:00، (3) تجمد بعد Seek
-  // =========================================================================
-
-  void _startSyncWatchdog() {
-    _syncWatchdogTimer?.cancel();
-    _frozenFrameCount = 0;
-    // Baseline starts at wherever the player actually is right now.
-    // If called from _recoverVideoSync, _lastKnownPosition already holds the
-    // pre-recovery real position — we deliberately do NOT overwrite it here
-    // so Case 1 can still fire if recovery itself causes a demuxer reset.
-    if (!_isRecovering) {
-      _lastKnownPosition = _player.state.position;
-    }
-
-    _syncWatchdogTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-      if (_isDisposing || !mounted) {
-        timer.cancel();
-        return;
-      }
-
-      // ── Guard: skip detection while not actively playing ──────────────────
-      // We reset _frozenFrameCount so a pause + resume doesn't accumulate
-      // false frozen-frame ticks from the paused period.
-      if (_isVideoLoading || !_player.state.playing || _isRecordingDetected) {
-        _frozenFrameCount = 0;
-        return;
-      }
-
-      // ── Guard: user is deliberately seeking ───────────────────────────────
-      // _isUserSeeking is raised the instant the user taps ±10 s and stays
-      // true until 300 ms after the position stream has settled. During this
-      // window we must not touch _lastKnownPosition and must not trigger any
-      // recovery, because a jump to 00:00 or to any position is intentional.
-      if (_isUserSeeking) {
-        _frozenFrameCount = 0;
-        return; // _lastKnownPosition deliberately NOT updated here
-      }
-
-      // ── Guard: internal seek in progress (recovery / quality-change) ──────
-      // _isInternalSeeking is raised only inside _playVideo's seek(startAt)
-      // call. We skip detection but also skip updating _lastKnownPosition so
-      // the pre-recovery baseline is preserved for Case 1 detection.
-      if (_isInternalSeeking) {
-        _frozenFrameCount = 0;
-        return; // _lastKnownPosition deliberately NOT updated here
-      }
-
-      final currentPos = _player.state.position;
-
-      // ─── Case 1: Image suddenly jumped back to 00:00 ─────────────────────
-      //
-      // Root cause: the mpv/ExoPlayer demuxer occasionally resets its video
-      // buffer pointer to the start of the file while the separate audio
-      // track (which runs as an independent stream) keeps advancing normally.
-      // Result: user sees the first frame of the video while hearing audio
-      // from e.g. 1:36.
-      //
-      // Detection rule:
-      //   • currentPos < 2 s   — video position is at/near the very start
-      //   • _lastKnownPosition > 10 s — we were genuinely mid-video
-      //
-      // The 10 s threshold is generous on purpose: during the first 10 s of
-      // playback both values will be small, so the condition cannot fire as a
-      // false positive during legitimate early-video watching.
-      //
-      // Recovery: re-open the stream from _lastKnownPosition so both the
-      // video and audio tracks restart from the same real timestamp.
-      if (currentPos < const Duration(seconds: 2) &&
-          _lastKnownPosition > const Duration(seconds: 10)) {
-        FirebaseCrashlytics.instance.log(
-            "🔄 [WATCHDOG] Demuxer reset detected: video @ $currentPos, "
-            "restoring to $_lastKnownPosition");
-        timer.cancel();
-        _frozenFrameCount = 0;
-        await _recoverVideoSync(_lastKnownPosition);
-        return;
-      }
-
-      // ─── Case 2: Image frozen (position stream not advancing) ────────────
-      //
-      // Root cause: after a seek or a network hiccup the video decoder can
-      // stall — the player reports playing=true but the position timestamp
-      // stops incrementing. The audio often continues because it is buffered
-      // separately.
-      //
-      // Detection: position delta < 200 ms for _frozenFrameThreshold (8)
-      // consecutive seconds. The multi-second threshold prevents a single
-      // slow timer tick from triggering a false recovery.
-      //
-      // Recovery target:
-      //   • If frozen AT or near 0:00 but _lastKnownPosition is further ahead
-      //     → recover to _lastKnownPosition (handles the demuxer-reset-then-
-      //     freeze double-fault scenario).
-      //   • Otherwise → recover from currentPos (genuine mid-video freeze).
-      final diff = (currentPos - _lastKnownPosition).abs();
-      if (diff < const Duration(milliseconds: 200)) {
-        _frozenFrameCount++;
-        if (_frozenFrameCount >= _frozenFrameThreshold) {
-          final recoverTo = (currentPos < const Duration(seconds: 5) &&
-                  _lastKnownPosition > const Duration(seconds: 5))
-              ? _lastKnownPosition
-              : currentPos;
-
-          FirebaseCrashlytics.instance.log(
-              "🔄 [WATCHDOG] Frozen frame after $_frozenFrameCount s "
-              "at $currentPos → recovering to $recoverTo");
-          timer.cancel();
-          _frozenFrameCount = 0;
-          await _recoverVideoSync(recoverTo);
-          return;
-        }
-      } else {
-        // Normal progress: reset frozen counter and advance the baseline.
-        _frozenFrameCount = 0;
-        _lastKnownPosition = currentPos;
-      }
-    });
-  }
-
-  void _stopSyncWatchdog() {
-    _syncWatchdogTimer?.cancel();
-    _syncWatchdogTimer = null;
-    _frozenFrameCount = 0;
-    // Do NOT touch _isUserSeeking or _isInternalSeeking here — the Watchdog
-    // stopping does not mean a seek has finished. Those flags are cleared by
-    // their respective owners (_seekRelative / _playVideo).
-  }
-
-  /// ✅ [SYNC-FIX] دالة الاسترداد: تعيد بناء الجسر بين مسار الصوت والصورة
-  /// عن طريق إعادة فتح نفس الملف من الموضع الحالي بدون مقاطعة المستخدم
-  Future<void> _recoverVideoSync(Duration position) async {
-    if (_isDisposing || !mounted) return;
-
-    FirebaseCrashlytics.instance.log("🛠️ [SYNC-FIX] Starting recovery at position: $position");
-
-    try {
-      final currentQualityUrl = widget.streams[_currentQuality];
-      if (currentQualityUrl == null) return;
-
-      // احفظ حالة التشغيل الحالية
-      final wasPlaying = _player.state.playing;
-
-      // ✅ [RECOVERY-FIX] علّم حالة الاسترداد لمنع العد التنازلي في buffering listener
-      _isRecovering = true;
-
-      // أعد تشغيل الفيديو من الموضع المحفوظ (سيعيد ربط مسار الصوت أيضاً)
-      await _playVideo(currentQualityUrl, startAt: position);
-
-      // إذا لم يكن التشغيل جارياً، لا تبدأه تلقائياً
-      if (!wasPlaying && mounted) {
-        await _player.pause();
-      }
-
-      FirebaseCrashlytics.instance.log("✅ [SYNC-FIX] Recovery successful at: $position");
-    } catch (e) {
-      FirebaseCrashlytics.instance
-          .recordError(e, null, reason: 'SyncWatchdog Recovery Failed');
-    } finally {
-      // ✅ [RECOVERY-FIX] أعد تعيين العلامة دائماً حتى في حالة الخطأ
-      _isRecovering = false;
-    }
   }
 
   void _showSettingsSheet() {
@@ -902,8 +543,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           // ✅ 6. حارس الأمان للعد التنازلي
           if (!_isRecordingDetected) {
             _player.play();
-            // ✅ [SYNC-FIX] ابدأ مراقبة المزامنة بعد انتهاء العد التنازلي (وضع أوف لاين)
-            _startSyncWatchdog();
           } else {
             _player.setVolume(0.0);
             _player.pause();
@@ -949,14 +588,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     if (_currentQuality.isNotEmpty) {
       _playVideo(widget.streams[_currentQuality]!);
     }
-  }
-
-  // ✅ [NETWORK-FIX] Returns the next lower quality key, or null if already
-  // at the lowest available quality. Used for auto-downgrade on retry.
-  String? _getLowerQuality() {
-    final idx = _sortedQualities.indexOf(_currentQuality);
-    if (idx > 0) return _sortedQualities[idx - 1];
-    return null;
   }
 
   void _loadUserData() {
@@ -1020,10 +651,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _seekDebounceTimer?.cancel();
       _watermarkTimer?.cancel();
       _countdownTimer?.cancel();
-      _autoRetryTimer?.cancel(); // ✅ [NETWORK-FIX]
-      _stopSyncWatchdog(); // ✅ [SYNC-FIX] إيقاف Watchdog قبل إيقاف المشغل
-      _positionSubscription?.cancel();
-      _videoParamsSubscription?.cancel();
       await _player.stop();
       await _player.dispose();
       await WakelockPlus.disable();
@@ -1041,10 +668,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _recordingSubscription?.cancel();
-    _positionSubscription?.cancel();
-    _videoParamsSubscription?.cancel();
-    _autoRetryTimer?.cancel(); // ✅ [NETWORK-FIX]
-    _stopSyncWatchdog(); // ✅ [SYNC-FIX]
     _protectionService.stopMonitoring();
 
     if (!_isDisposing) _safeExit();
@@ -1144,10 +767,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         onPressed: () {
                           FirebaseCrashlytics.instance
                               .log("🔄 User clicked Retry on network error");
-                          // ✅ [NETWORK-FIX] Reset error counter so retries get a fresh budget
-                          _networkErrorCount = 0;
                           setState(() => _isError = false);
-                          // تمرير وقت التوقف (errorPosition) ليعود لنفس الدقيقة
+                          // ✅ تمرير وقت التوقف (errorPosition) ليعود لنفس الدقيقة
                           _playVideo(widget.streams[_currentQuality]!, startAt: _errorPosition);
                         },
                         style: ElevatedButton.styleFrom(
