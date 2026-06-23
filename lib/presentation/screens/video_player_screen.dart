@@ -1284,6 +1284,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
             if (!_isDisposing && !_isError && _isInitialized)
               AnimatedAlign(
+                alignment: _watermarkAlignment,
                 child: IgnorePointer(
                   child: Container(
                     padding:
