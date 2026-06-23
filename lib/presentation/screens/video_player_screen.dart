@@ -74,6 +74,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Timer? _seekDebounceTimer;
   Duration _accumulatedSeekAmount = Duration.zero;
 
+  // ✅ [AV-SYNC] متغيرات مزامنة الصوت والصورة
+  // آخر موضع تم تسجيله للفيديو (video position)
+  Duration _lastKnownPosition = Duration.zero;
+  // الوقت الحقيقي الذي سُجّل فيه هذا الموضع
+  DateTime _lastPositionTimestamp = DateTime.now();
+  // مؤقت دوري لرصد الإطارات المجمّدة أو التقدّم المفاجئ للخلف
+  Timer? _avSyncTimer;
+  // علامة: هل نحن في منتصف seek مقصود من المستخدم؟
+  bool _isUserSeeking = false;
+  // علامة: هل يجري الآن resync تلقائي (لمنع التكرار)؟
+  bool _isAutoResyncing = false;
+
   final Map<String, String> _serverHeaders = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
@@ -190,6 +202,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         await (_player.platform as dynamic).setProperty('hwdec', 'auto');
       }
 
+      // ✅ [CACHE-PAUSE-WAIT] انتظر 3 ثوانٍ من البيانات قبل استئناف التشغيل
+      // بدلاً من الاستئناف فور وصول أي بيانات، يضمن هذا حصانة ضد الاهتزاز المتكرر
+      // على الشبكات البطيئة أو المتقطعة.
+      await (_player.platform as dynamic)
+          .setProperty('cache-pause-wait', '3');
+
+      // ✅ [AV-SYNC] إعدادات إضافية لتحسين مزامنة الصوت والصورة
+      // اجعل mpv يتسامح مع انجراف بسيط بين المسارين قبل أن يعيد المزامنة
+      await (_player.platform as dynamic)
+          .setProperty('audio-desync-correction', 'yes');
+
       _controller = VideoController(
         _player,
         configuration: VideoControllerConfiguration(
@@ -249,6 +272,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       });
 
+      // ✅ [AV-SYNC] تسجيل الموضع الحقيقي للفيديو باستمرار لرصد التقدّم الخاطئ للخلف
+      _player.stream.position.listen((pos) {
+        // فقط عندما يكون الفيديو قيد التشغيل الفعلي (غير متوقف وغير في حالة خطأ)
+        if (!_isDisposing && !_isError && !_isAutoResyncing) {
+          _lastKnownPosition = pos;
+          _lastPositionTimestamp = DateTime.now();
+        }
+      });
+
+      // ✅ [AV-SYNC] مراقب دوري: يكتشف تجمّد الإطارات والرجوع الخاطئ للخلف
+      _startAvSyncWatchdog();
+
       _loadUserData();
       _startWatermarkAnimation();
 
@@ -286,6 +321,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _stabilizingCountdown = 0;
     });
     _countdownTimer?.cancel();
+
+    // ✅ [AV-SYNC] إعادة تعيين حالة المراقب عند بدء تحميل فيديو جديد
+    // لمنع أي تدخّل خاطئ أثناء مرحلة التحميل
+    _isUserSeeking = true; // اعتبر مرحلة التحميل كـ seek مقصود
+    _isAutoResyncing = false;
+    _lastKnownPosition = startAt ?? Duration.zero;
+    _lastPositionTimestamp = DateTime.now();
+    // سيُزال _isUserSeeking بعد ثانيتين من بدء التشغيل الفعلي (في stream.position)
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!_isDisposing) _isUserSeeking = false;
+    });
 
     try {
       String playUrl = url;
@@ -387,32 +433,155 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _accumulatedSeekAmount += amount;
     if (_seekDebounceTimer?.isActive ?? false) _seekDebounceTimer!.cancel();
 
+    // ✅ [CASE-2] علّم الـ watchdog بأن ما سيأتي هو seek مقصود من المستخدم
+    _isUserSeeking = true;
+
     _seekDebounceTimer = Timer(const Duration(milliseconds: 600), () async {
       try {
         final duration = _player.state.duration;
-        // تأكد من أن مدة الفيديو صالحة
         if (duration == Duration.zero) return;
 
         final currentPos = _player.state.position;
         var targetPos = currentPos + _accumulatedSeekAmount;
 
-        // ✅ إصلاح مشكلة الرجوع: إذا كان الناتج أقل من صفر، اجعله صفر (بداية الفيديو)
-        if (targetPos < Duration.zero) {
-          targetPos = Duration.zero;
-        }
-
-        // ✅ إصلاح مشكلة التقديم: إذا كان الناتج أكبر من مدة الفيديو، اجعله في النهاية
-        if (targetPos > duration) {
-          targetPos = duration;
-        }
+        if (targetPos < Duration.zero) targetPos = Duration.zero;
+        if (targetPos > duration) targetPos = duration;
 
         await _player.seek(targetPos);
       } catch (e) {
         FirebaseCrashlytics.instance.recordError(e, null, reason: 'Seek Error');
       } finally {
         _accumulatedSeekAmount = Duration.zero;
+        // أعطِ mpv ثانية لتستقر ثم أزل علامة الـ user-seek
+        // حتى يعود الـ watchdog للمراقبة الطبيعية
+        Future.delayed(const Duration(seconds: 1), () {
+          _isUserSeeking = false;
+        });
       }
     });
+  }
+
+  // ✅ [AV-SYNC] الدالة الرئيسية للمراقبة الدورية لمزامنة الصوت والصورة
+  void _startAvSyncWatchdog() {
+    _avSyncTimer?.cancel();
+
+    // فحص كل ثانية واحدة
+    _avSyncTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_isDisposing) {
+        timer.cancel();
+        return;
+      }
+      // لا تفحص في هذه الحالات:
+      // - يتم التهيئة أو الإغلاق
+      // - يوجد خطأ
+      // - الفيديو محمّل (loading)
+      // - الفيديو متوقف (paused) - لا يوجد تقدّم متوقع
+      // - المستخدم يقوم بـ seek
+      // - يجري resync الآن
+      if (!_isInitialized ||
+          _isError ||
+          _isVideoLoading ||
+          _isRecordingDetected ||
+          _isUserSeeking ||
+          _isAutoResyncing) return;
+
+      final isPlaying = _player.state.playing;
+      if (!isPlaying) return; // الفيديو متوقف بشكل مقصود
+
+      final currentPos = _player.state.position;
+      final duration = _player.state.duration;
+
+      // تجاهل إذا كانت المدة غير معروفة بعد
+      if (duration == Duration.zero) return;
+
+      // ──────────────────────────────────────────────────────────────
+      // [CASE-1A] رصد الرجوع المفاجئ للخلف أثناء التشغيل
+      //
+      // السيناريو: المستخدم كان عند 1:36 ↔ موضع الصورة رجع فجأة إلى ~00:00
+      // بينما الصوت يستمر بشكل طبيعي.
+      //
+      // المنطق: إذا انخفض الموضع الحالي بأكثر من 5 ثوانٍ عن آخر موضع
+      // مسجَّل (وكان آخر موضع قد تم تسجيله منذ أقل من 3 ثوانٍ)،
+      // فهذا يعني أن الصورة قفزت للخلف بشكل غير مقصود.
+      // ──────────────────────────────────────────────────────────────
+      final timeSinceLastRecord =
+          DateTime.now().difference(_lastPositionTimestamp).inMilliseconds;
+
+      if (timeSinceLastRecord < 3000 && // الموضع الأخير حديث
+          _lastKnownPosition.inSeconds > 5 && // لم نكن في البداية
+          currentPos < _lastKnownPosition - const Duration(seconds: 5)) {
+        // الصورة رجعت للخلف بأكثر من 5 ثوانٍ دون طلب المستخدم
+        debugPrint(
+            "⚠️ [AV-SYNC] Video jumped back! was=${_lastKnownPosition.inSeconds}s now=${currentPos.inSeconds}s → resyncing silently");
+        FirebaseCrashlytics.instance.log(
+            "⚠️ AV-SYNC: Unexpected jump back from ${_lastKnownPosition.inSeconds}s to ${currentPos.inSeconds}s");
+        _silentResync(_lastKnownPosition);
+        return;
+      }
+
+      // ──────────────────────────────────────────────────────────────
+      // [CASE-1B] رصد تجمّد الإطارات (frozen video)
+      //
+      // السيناريو: الفيديو "يلعب" لكن الموضع لا يتقدم لأكثر من 4 ثوانٍ.
+      // الصوت يستمر لكن الصورة ثابتة.
+      //
+      // المنطق: إذا مرّت 4+ ثوانٍ وموضع الصورة لم يتغير بما يكفي،
+      // نعيد المزامنة للموضع الصحيح بصمت.
+      // ──────────────────────────────────────────────────────────────
+      if (timeSinceLastRecord > 4000) {
+        // مرّت أكثر من 4 ثوانٍ بدون تحديث للموضع رغم أن الفيديو "يشتغل"
+        // → الصورة مجمّدة
+        final expectedPos =
+            _lastKnownPosition + Duration(milliseconds: timeSinceLastRecord);
+
+        // إذا كان الموضع المتوقع أقل من نهاية الفيديو بثانيتين (أي لم ننتهِ)
+        if (expectedPos < duration - const Duration(seconds: 2) &&
+            currentPos < expectedPos - const Duration(seconds: 3)) {
+          debugPrint(
+              "⚠️ [AV-SYNC] Video frozen at ${currentPos.inSeconds}s, expected ~${expectedPos.inSeconds}s → resyncing silently");
+          FirebaseCrashlytics.instance.log(
+              "⚠️ AV-SYNC: Frozen frame at ${currentPos.inSeconds}s for ${timeSinceLastRecord}ms");
+          _silentResync(expectedPos);
+        }
+      }
+    });
+  }
+
+  // ✅ [AV-SYNC] إعادة المزامنة بصمت: نقل الصورة للموضع الصحيح دون مقاطعة الصوت
+  Future<void> _silentResync(Duration targetPosition) async {
+    if (_isAutoResyncing || _isDisposing || _isError) return;
+
+    _isAutoResyncing = true;
+    try {
+      final duration = _player.state.duration;
+      // تأكد أن الهدف منطقي
+      if (duration == Duration.zero || targetPosition > duration) {
+        _isAutoResyncing = false;
+        return;
+      }
+
+      // اجعل الهدف في حدود الفيديو مع هامش أمان 0.5 ثانية
+      final safeTarget = targetPosition < Duration.zero
+          ? Duration.zero
+          : (targetPosition > duration - const Duration(milliseconds: 500)
+              ? duration - const Duration(milliseconds: 500)
+              : targetPosition);
+
+      await _player.seek(safeTarget);
+
+      // انتظر ثانية لتستقر الصورة ثم أعد التسجيل
+      await Future.delayed(const Duration(seconds: 1));
+
+      if (!_isDisposing) {
+        _lastKnownPosition = _player.state.position;
+        _lastPositionTimestamp = DateTime.now();
+      }
+    } catch (e) {
+      FirebaseCrashlytics.instance
+          .recordError(e, null, reason: 'AV-Sync Silent Resync Error');
+    } finally {
+      _isAutoResyncing = false;
+    }
   }
 
   void _showSettingsSheet() {
@@ -651,6 +820,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _seekDebounceTimer?.cancel();
       _watermarkTimer?.cancel();
       _countdownTimer?.cancel();
+      _avSyncTimer?.cancel(); // ✅ [AV-SYNC] إيقاف مراقب المزامنة
       await _player.stop();
       await _player.dispose();
       await WakelockPlus.disable();
@@ -688,7 +858,32 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       bottomButtonBar: [
         const MaterialPositionIndicator(),
         const SizedBox(width: 10),
-        const Expanded(child: MaterialSeekBar()),
+        // ✅ [CASE-2] تمييز السحب على شريط التقدم كـ seek مقصود من المستخدم
+        // لمنع الـ AV-Sync watchdog من التدخل أثناء أو بعد السحب مباشرةً
+        Expanded(
+          child: GestureDetector(
+            onHorizontalDragStart: (_) {
+              _isUserSeeking = true;
+            },
+            onHorizontalDragEnd: (_) {
+              // أعطِ mpv ثانية ونصف لتستقر بعد الـ seek
+              Future.delayed(const Duration(milliseconds: 1500), () {
+                _isUserSeeking = false;
+              });
+            },
+            onTapDown: (_) {
+              // النقر المباشر على الشريط أيضاً يُعدّ seek مقصود
+              _isUserSeeking = true;
+            },
+            onTapUp: (_) {
+              Future.delayed(const Duration(milliseconds: 1500), () {
+                _isUserSeeking = false;
+              });
+            },
+            behavior: HitTestBehavior.translucent,
+            child: const MaterialSeekBar(),
+          ),
+        ),
         const SizedBox(width: 10),
         MaterialCustomButton(
           onPressed: _showSettingsSheet,
