@@ -74,6 +74,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Timer? _seekDebounceTimer;
   Duration _accumulatedSeekAmount = Duration.zero;
 
+  // ✅ [SYNC-FIX] متغيرات مراقبة ومزامنة الصوت والصورة في وضع أوف لاين
+  Timer? _syncWatchdogTimer;
+  StreamSubscription? _positionSubscription;
+  StreamSubscription? _videoParamsSubscription;
+  Duration _lastKnownPosition = Duration.zero;
+  int _frozenFrameCount = 0;
+  static const int _frozenFrameThreshold = 8; // عدد الثوانٍ قبل اعتبار الصورة متجمدة
+  bool _isSeeking = false; // حارس لمنع تشغيل Watchdog أثناء عمليات Seek
+
   final Map<String, String> _serverHeaders = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
@@ -202,6 +211,33 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _player.stream.error.listen((error) {
         final errorString = error.toString().toLowerCase();
 
+        // ✅ [OFFLINE-FIX] البروكسي المحلي يعمل على 127.0.0.1 — أي خطأ شبكي منه
+        // هو بالضرورة ناتج عن مشكلة داخلية (انتهاء صلاحية HMAC أو طلب Range خاطئ)
+        // وليس انقطاعاً في الإنترنت. نتجاهله هنا تماماً لأن Watchdog سيتولى الاسترداد.
+        if (_isOfflineMode) {
+          // سجّل في Crashlytics للتشخيص دون إظهار شاشة الخطأ للمستخدم
+          if (!errorString.contains("failed to open")) {
+            FirebaseCrashlytics.instance
+                .recordError(error, null, reason: '[Offline] Proxy Stream Error');
+          }
+
+          // ✅ حالة خاصة: إذا انتهت صلاحية رابط HMAC (مرّت أكثر من ساعتين)
+          // أعد توليد الروابط الموقّعة وأعد التشغيل من نفس الموضع بهدوء
+          if (errorString.contains('403') ||
+              errorString.contains('forbidden') ||
+              errorString.contains('access denied') ||
+              errorString.contains('link expired')) {
+            if (mounted && !_isDisposing && !_isSeeking) {
+              final currentPos = _player.state.position;
+              FirebaseCrashlytics.instance
+                  .log("🔑 [OFFLINE-FIX] HMAC link expired at $currentPos — refreshing silently.");
+              _recoverVideoSync(currentPos);
+            }
+          }
+          return; // توقف هنا ولا تُظهر شاشة خطأ الشبكة أبداً في وضع أوف لاين
+        }
+
+        // وضع أونلاين: نفس المنطق الأصلي لمشاكل الشبكة الحقيقية
         if (errorString.contains('tcp') ||
             errorString.contains('timeout') ||
             errorString.contains('ffurl_read') ||
@@ -244,6 +280,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               _startCountdown();
             } else {
               _player.play();
+              // ✅ [SYNC-FIX] ابدأ مراقبة المزامنة للمحتوى الأونلاين بعد التشغيل
+              _startSyncWatchdog();
             }
           }
         }
@@ -280,6 +318,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Future<void> _playVideo(String url, {Duration? startAt}) async {
     if (_isDisposing) return;
+
+    // ✅ [SYNC-FIX] إيقاف Watchdog وإعادة تعيين حالة المزامنة قبل أي تشغيل جديد
+    _stopSyncWatchdog();
+    _frozenFrameCount = 0;
+    _lastKnownPosition = Duration.zero;
+    _isSeeking = false;
 
     setState(() {
       _isVideoLoading = true;
@@ -345,8 +389,20 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       }
 
       if (audioUrl != null) {
-        int delayMs = _isWeakDevice ? 2500 : 500;
-        await Future.delayed(Duration(milliseconds: delayMs));
+        // ✅ [SYNC-FIX] في وضع أوف لاين، انتظر حتى يصبح الفيديو جاهزاً فعلاً (video-params)
+        // قبل إرفاق المسار الصوتي، لضمان أن كلا المسارين يبدآن من نفس اللحظة.
+        if (_isOfflineMode) {
+          try {
+            await _player.stream.videoParams
+                .firstWhere((p) => p.codec != null && p.codec!.isNotEmpty)
+                .timeout(const Duration(seconds: 8));
+          } catch (_) {
+            // إذا انقضى الوقت، نكمل على أي حال لتجنب التجمد
+          }
+        } else {
+          int delayMs = _isWeakDevice ? 2500 : 500;
+          await Future.delayed(Duration(milliseconds: delayMs));
+        }
 
         try {
           await _player.setAudioTrack(
@@ -361,7 +417,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       }
 
       if (startAt != null && startAt != Duration.zero) {
+        // ✅ [SYNC-FIX] بعد Seek يجب إعادة مزامنة الصورة مع الصوت
+        _isSeeking = true;
         await _player.seek(startAt);
+        // أعطِ المشغل لحظة لتحديث الإطار بعد الانتقال
+        await Future.delayed(const Duration(milliseconds: 200));
+        _isSeeking = false;
       }
 
       if (_currentSpeed != 1.0) {
@@ -406,13 +467,125 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           targetPos = duration;
         }
 
+        // ✅ [SYNC-FIX] تعليم حالة Seeking لإيقاف Watchdog مؤقتاً
+        _isSeeking = true;
+        _frozenFrameCount = 0; // إعادة تعيين عداد التجمد
+
         await _player.seek(targetPos);
+
+        // ✅ [SYNC-FIX] في وضع أوف لاين، أعطِ المشغل مهلة لتحديث إطار الفيديو
+        // ثم أعد التشغيل إذا كان متوقفاً بسبب الـ Seek (يحل مشكلة تجمد الصورة)
+        if (_isOfflineMode) {
+          await Future.delayed(const Duration(milliseconds: 150));
+          final wasPlaying = _player.state.playing;
+          if (wasPlaying) {
+            // إجبار المشغل على تحديث buffer بعد الانتقال
+            await _player.pause();
+            await Future.delayed(const Duration(milliseconds: 80));
+            await _player.play();
+          }
+        }
+
+        _isSeeking = false;
       } catch (e) {
+        _isSeeking = false;
         FirebaseCrashlytics.instance.recordError(e, null, reason: 'Seek Error');
       } finally {
         _accumulatedSeekAmount = Duration.zero;
       }
     });
+  }
+
+  // =========================================================================
+  // ✅ [SYNC-FIX] Watchdog: مراقبة مستمرة للمزامنة بين الصوت والصورة
+  // يعالج: (1) تجمد الصورة، (2) إعادة الفيديو لـ 0:00، (3) تجمد بعد Seek
+  // =========================================================================
+
+  void _startSyncWatchdog() {
+    _syncWatchdogTimer?.cancel();
+    _frozenFrameCount = 0;
+    _lastKnownPosition = _player.state.position;
+
+    _syncWatchdogTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (_isDisposing || !mounted) {
+        timer.cancel();
+        return;
+      }
+
+      // لا تعمل أثناء التحميل أو الإيقاف المؤقت أو عمليات Seek أو التسجيل
+      if (_isVideoLoading || !_player.state.playing || _isSeeking || _isRecordingDetected) {
+        _frozenFrameCount = 0;
+        _lastKnownPosition = _player.state.position;
+        return;
+      }
+
+      final currentPos = _player.state.position;
+
+      // ✅ حالة 1: الفيديو رجع إلى الصفر (0:00) بينما الصوت يكمل
+      // يحدث عندما يُعيد المشغل buffer الفيديو من البداية بسبب خلل في الـ Demuxer
+      if (currentPos < const Duration(seconds: 2) &&
+          _lastKnownPosition > const Duration(seconds: 10)) {
+        FirebaseCrashlytics.instance
+            .log("🔄 [SYNC-FIX] Video reset to 0 detected! Restoring to: $_lastKnownPosition");
+        timer.cancel();
+        _frozenFrameCount = 0;
+        await _recoverVideoSync(_lastKnownPosition);
+        return;
+      }
+
+      // ✅ حالة 2: الصورة متجمدة (Position لا تتقدم رغم التشغيل)
+      final diff = (currentPos - _lastKnownPosition).abs();
+      if (diff < const Duration(milliseconds: 200)) {
+        _frozenFrameCount++;
+        if (_frozenFrameCount >= _frozenFrameThreshold) {
+          FirebaseCrashlytics.instance
+              .log("🔄 [SYNC-FIX] Frozen frame detected after $_frozenFrameCount sec at $currentPos. Recovering...");
+          timer.cancel();
+          _frozenFrameCount = 0;
+          await _recoverVideoSync(currentPos);
+          return;
+        }
+      } else {
+        // التقدم طبيعي، أعد العداد
+        _frozenFrameCount = 0;
+        _lastKnownPosition = currentPos;
+      }
+    });
+  }
+
+  void _stopSyncWatchdog() {
+    _syncWatchdogTimer?.cancel();
+    _syncWatchdogTimer = null;
+    _frozenFrameCount = 0;
+  }
+
+  /// ✅ [SYNC-FIX] دالة الاسترداد: تعيد بناء الجسر بين مسار الصوت والصورة
+  /// عن طريق إعادة فتح نفس الملف من الموضع الحالي بدون مقاطعة المستخدم
+  Future<void> _recoverVideoSync(Duration position) async {
+    if (_isDisposing || !mounted) return;
+
+    FirebaseCrashlytics.instance.log("🛠️ [SYNC-FIX] Starting recovery at position: $position");
+
+    try {
+      final currentQualityUrl = widget.streams[_currentQuality];
+      if (currentQualityUrl == null) return;
+
+      // احفظ حالة التشغيل الحالية
+      final wasPlaying = _player.state.playing;
+
+      // أعد تشغيل الفيديو من الموضع المحفوظ (سيعيد ربط مسار الصوت أيضاً)
+      await _playVideo(currentQualityUrl, startAt: position);
+
+      // إذا لم يكن التشغيل جارياً، لا تبدأه تلقائياً
+      if (!wasPlaying && mounted) {
+        await _player.pause();
+      }
+
+      FirebaseCrashlytics.instance.log("✅ [SYNC-FIX] Recovery successful at: $position");
+    } catch (e) {
+      FirebaseCrashlytics.instance
+          .recordError(e, null, reason: 'SyncWatchdog Recovery Failed');
+    }
   }
 
   void _showSettingsSheet() {
@@ -543,6 +716,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           // ✅ 6. حارس الأمان للعد التنازلي
           if (!_isRecordingDetected) {
             _player.play();
+            // ✅ [SYNC-FIX] ابدأ مراقبة المزامنة بعد انتهاء العد التنازلي (وضع أوف لاين)
+            _startSyncWatchdog();
           } else {
             _player.setVolume(0.0);
             _player.pause();
@@ -651,6 +826,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _seekDebounceTimer?.cancel();
       _watermarkTimer?.cancel();
       _countdownTimer?.cancel();
+      _stopSyncWatchdog(); // ✅ [SYNC-FIX] إيقاف Watchdog قبل إيقاف المشغل
+      _positionSubscription?.cancel();
+      _videoParamsSubscription?.cancel();
       await _player.stop();
       await _player.dispose();
       await WakelockPlus.disable();
@@ -668,6 +846,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _recordingSubscription?.cancel();
+    _positionSubscription?.cancel();
+    _videoParamsSubscription?.cancel();
+    _stopSyncWatchdog(); // ✅ [SYNC-FIX]
     _protectionService.stopMonitoring();
 
     if (!_isDisposing) _safeExit();
