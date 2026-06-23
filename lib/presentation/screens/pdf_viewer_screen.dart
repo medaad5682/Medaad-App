@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -84,6 +85,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   bool _isDrawingMode = false;
   PdfTool _activeTool = PdfTool.none;
 
+  // ── أداة التشخيص: عند تفعيلها، يظهر حوار قابل للنسخ بعد كل عملية تمييز/تسطير
+  // يحتوي كل خطوات التنفيذ والإحداثيات وحالة الكاش والبيانات المخزّنة محلياً.
+  // يُفعَّل/يُعطَّل بضغطة طويلة على زر تمييز/تسطير في قائمة السياق.
+  bool _markupDebugDialogEnabled = false;
+
   // القلم/الممحاة (الرسم الحر) - يبقى كما كان
   Map<int, List<DrawingLine>> _pageDrawings = {};
   DrawingLine? _currentLine;
@@ -102,6 +108,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   int _activePage = 0;
   int _totalPages = 0;
+
+  // ── Fix: مشكلة عدم ظهور التمييز/التسطير على بعض الصفحات ──
+  // نستمع لتغييرات حالة صفحات الوثيقة (PdfDocumentPageStatusChangedEvent)
+  // التي يُصدرها pdfrx داخلياً كل مرة يستبدل فيها صفحة "placeholder" مؤقتة
+  // (كانت لا تزال قيد التحميل التدريجي) بالصفحة الحقيقية المحمّلة فعلياً من
+  // PDFium. عند حدوث ذلك، أي نص (PdfPageText) قمنا بتخزينه مسبقاً لتلك
+  // الصفحة قد يكون فارغاً/غير موثوق (راجع تعليق PdfPageTextCache.ensureLoaded)
+  // لذلك نُبطله هنا فوراً لإجبار إعادة حسابه من الصفحة الحقيقية، مما يجعل
+  // أي تمييز/تسطير مخزّن على تلك الصفحة يظهر بصرياً في أول إعادة رسم بعد ذلك.
+  StreamSubscription<PdfDocumentEvent>? _documentEventsSubscription;
 
   @override
   void initState() {
@@ -128,7 +144,28 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   void dispose() {
     if (_isOffline) _saveAnnotationsToHive();
+    _documentEventsSubscription?.cancel();
     super.dispose();
+  }
+
+  /// يربط الاستماع لأحداث الوثيقة (تغيّر حالة الصفحات) بمجرد توفر المستند،
+  /// لإبطال ذاكرة نص الصفحات المؤقتة عند اكتمال تحميل أي صفحة فعلياً.
+  void _attachDocumentEventsListener(PdfDocument? document) {
+    _documentEventsSubscription?.cancel();
+    _documentEventsSubscription = null;
+    if (document == null) return;
+
+    _documentEventsSubscription = document.events.listen((event) {
+      if (!mounted) return;
+      if (event is PdfDocumentPageStatusChangedEvent) {
+        for (final pageNumber in event.changes.keys) {
+          _textCache.invalidate(pageNumber);
+        }
+        // إعادة رسم فورية بدل انتظار إعادة الرسم الطبيعية القادمة، لأي صفحة
+        // قد تحتوي تمييزاً/تسطيراً محفوظاً مسبقاً ولم يكن قد ظهر بصرياً بعد.
+        setState(() {});
+      }
+    });
   }
 
   String _generateSecureToken() {
@@ -573,19 +610,61 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 // زر التمييز / التسطير
-                TextButton.icon(
-                  onPressed: () async {
-                    await _highlightController.applyPendingSelection(_pdfController!);
+                // ضغطة طويلة: تفعيل/تعطيل حوار التشخيص القابل للنسخ الذي يظهر
+                // بعد كل عملية (راجع _showMarkupDebugDialog).
+                GestureDetector(
+                  onLongPress: () {
+                    setState(() => _markupDebugDialogEnabled = !_markupDebugDialogEnabled);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            _markupDebugDialogEnabled
+                                ? 'تم تفعيل حوار تشخيص التمييز/التسطير'
+                                : 'تم تعطيل حوار تشخيص التمييز/التسطير',
+                            style: TextStyle(color: AppColors.textPrimary),
+                          ),
+                          backgroundColor: AppColors.backgroundSecondary,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
                   },
-                  icon: Icon(
-                    _activeTool == PdfTool.highlighter
-                        ? Icons.format_color_fill
-                        : Icons.format_underline,
-                    color: AppColors.accentYellow,
-                    size: 18,
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      await _highlightController.applyPendingSelection(_pdfController!);
+                      if (_markupDebugDialogEnabled && mounted) {
+                        _showMarkupDebugDialog();
+                      }
+                    },
+                    icon: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Icon(
+                          _activeTool == PdfTool.highlighter
+                              ? Icons.format_color_fill
+                              : Icons.format_underline,
+                          color: AppColors.accentYellow,
+                          size: 18,
+                        ),
+                        if (_markupDebugDialogEnabled)
+                          Positioned(
+                            right: -2,
+                            top: -2,
+                            child: Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: Colors.redAccent,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    label: Text(label,
+                        style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
                   ),
-                  label: Text(label,
-                      style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
                 ),
                 // فاصل
                 Container(
@@ -653,6 +732,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         );
       },
       onDocumentChanged: (document) {
+        _attachDocumentEventsListener(document);
         if (mounted) setState(() => _totalPages = document?.pages.length ?? 0);
       },
       onPageChanged: (pageNumber) {
@@ -951,6 +1031,69 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     } else if (result.underline != null) {
       _showMarkupEditSheet(underline: result.underline, pageNumber: page.pageNumber);
     }
+  }
+
+  /// يعرض حوار تشخيص قابل للنسخ بالكامل يحتوي كل خطوات تنفيذ آخر عملية
+  /// تمييز/تسطير: نطاقات النص، حالة تحميل الصفحة، أبعادها، حالة كاش النص،
+  /// المستطيلات المحسوبة لإحداثيات الرسم، والبيانات المخزّنة فعلياً على الجهاز.
+  /// يُفعَّل عبر ضغطة طويلة على زر تمييز/تسطير (راجع _markupDebugDialogEnabled).
+  void _showMarkupDebugDialog() {
+    final report = _highlightController.lastDebugReport;
+    final reportText = report?.build() ?? 'لا يوجد تقرير تشخيص متاح بعد.';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.backgroundSecondary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.bug_report_outlined, color: AppColors.accentYellow),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('تشخيص التمييز/التسطير',
+                  style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              reportText,
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontFamily: 'monospace',
+                fontSize: 11,
+                height: 1.4,
+              ),
+              textDirection: TextDirection.ltr,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: reportText));
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text('تم نسخ التقرير', style: TextStyle(color: AppColors.textPrimary)),
+                    backgroundColor: AppColors.backgroundSecondary,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: Text('نسخ الكل', style: TextStyle(color: AppColors.accentYellow)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('إغلاق', style: TextStyle(color: AppColors.textPrimary)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showMarkupEditSheet({HighlightModel? highlight, UnderlineModel? underline, required int pageNumber}) {
