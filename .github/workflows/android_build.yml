@@ -67,7 +67,9 @@ jobs:
           fi
           
           if [ -n "$KEYSTORE_DATA" ]; then
-            echo "$KEYSTORE_DATA" | tr -d '[:space:]' | base64 -d > android/app/upload-keystore.jks
+            # ✅ التعديل لحل المشكلة: إنشاء مجلد keystore أولاً ثم وضع المفتاح بداخله
+            mkdir -p android/app/keystore
+            echo "$KEYSTORE_DATA" | tr -d '[:space:]' | base64 -d > android/app/keystore/upload-keystore.jks
           fi
 
       # ✅ 3. البناء الموحد (ملف واحد شامل للمعالجين)
