@@ -66,6 +66,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Timer? _countdownTimer;
 
   bool _isDisposing = false;
+  bool _isRecovering = false; // ✅ [RECOVERY-FIX] منع ظهور العد التنازلي أثناء الاسترداد الصامت
 
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
@@ -277,7 +278,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             }
 
             if (_isOfflineMode) {
-              _startCountdown();
+              // ✅ [RECOVERY-FIX] أثناء الاسترداد الصامت (Watchdog)، لا تُشغّل العد التنازلي
+              // ابدأ التشغيل مباشرة وأعد تشغيل Watchdog دون أن يلاحظ المستخدم شيئاً
+              if (_isRecovering) {
+                _player.play();
+                _startSyncWatchdog();
+              } else {
+                _startCountdown();
+              }
             } else {
               _player.play();
               // ✅ [SYNC-FIX] ابدأ مراقبة المزامنة للمحتوى الأونلاين بعد التشغيل
@@ -573,6 +581,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       // احفظ حالة التشغيل الحالية
       final wasPlaying = _player.state.playing;
 
+      // ✅ [RECOVERY-FIX] علّم حالة الاسترداد لمنع العد التنازلي في buffering listener
+      _isRecovering = true;
+
       // أعد تشغيل الفيديو من الموضع المحفوظ (سيعيد ربط مسار الصوت أيضاً)
       await _playVideo(currentQualityUrl, startAt: position);
 
@@ -585,6 +596,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     } catch (e) {
       FirebaseCrashlytics.instance
           .recordError(e, null, reason: 'SyncWatchdog Recovery Failed');
+    } finally {
+      // ✅ [RECOVERY-FIX] أعد تعيين العلامة دائماً حتى في حالة الخطأ
+      _isRecovering = false;
     }
   }
 
