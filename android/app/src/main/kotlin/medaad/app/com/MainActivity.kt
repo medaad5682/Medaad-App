@@ -22,9 +22,6 @@ class MainActivity: FlutterActivity() {
     private var recordingCheckRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val prefs = getSharedPreferences("com.google.firebase.appcheck.debug.store.[DEFAULT]", Context.MODE_PRIVATE)
-        prefs.edit().putString("com.google.firebase.appcheck.debug.DEBUG_SECRET", "1feed6a9-b2c5-45e3-8655-b37658949360").apply()
-
         super.onCreate(savedInstanceState)
 
         // ✅ 1. منع تسجيل الفيديو وأخذ لقطات الشاشة (FLAG_SECURE)
