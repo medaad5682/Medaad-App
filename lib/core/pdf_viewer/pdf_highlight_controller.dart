@@ -5,7 +5,6 @@ import 'package:pdfrx/pdfrx.dart';
 import '../models/highlight_model.dart';
 import '../services/pdf_annotation_store.dart';
 import 'pdf_highlight_engine.dart';
-import 'pdf_highlight_debug_report.dart';
 import 'pdf_page_text_cache.dart';
 
 /// الأداة النشطة في وضع "التمييز/التسطير" بالتحديد الحقيقي للنص.
@@ -31,10 +30,6 @@ class PdfHighlightController {
   int highlightColor = 0xFFFFEB3B; // أصفر افتراضي للتمييز
   int underlineColor = 0xFFEF4444; // أحمر افتراضي للتسطير
   double highlightOpacity = 0.4;
-
-  /// آخر تقرير تشخيص تم إنتاجه من [handleTextSelectionChange]، لعرضه في حوار
-  /// قابل للنسخ بعد الضغط على زر تمييز/تسطير. يُستبدل في كل عملية جديدة.
-  PdfHighlightDebugReport? lastDebugReport;
 
   final Map<int, List<HighlightModel>> _highlights = {};
   final Map<int, List<UnderlineModel>> _underlines = {};
@@ -91,43 +86,19 @@ class PdfHighlightController {
     PdfTextSelection selection,
     PdfViewerController controller,
   ) async {
-    final report = PdfHighlightDebugReport(
-      toolName: activeTool == TextMarkupTool.highlight
-          ? 'تمييز (Highlight)'
-          : activeTool == TextMarkupTool.underline
-              ? 'تسطير (Underline)'
-              : 'بدون أداة نشطة',
-    );
-    lastDebugReport = report;
-
     if (activeTool == TextMarkupTool.none) {
-      report.log('تم الإلغاء: لا توجد أداة نشطة (activeTool == none).');
-      report.markFinished();
       return;
     }
     if (!selection.hasSelectedText) {
-      report.log('تم الإلغاء: التحديد (selection) لا يحتوي نصاً محدداً.');
-      report.markFinished();
       return;
     }
 
-    report.setSummary('activePageNumber (controller.pageNumber)', controller.pageNumber);
-    report.setSummary('totalPages (controller.document?.pages.length)',
-        controller.document?.pages.length);
-    report.log('بدء المعالجة. selection.hasSelectedText == true.');
-
     // ── Fix: robust retry for getSelectedTextRanges on decrypted/heavy pages ──
-    // الإصلاح الجذري: نقوم بتسخين ذاكرة التخزين المؤقت للنص أولاً لجميع الصفحات
-    // المرئية قبل استدعاء getSelectedTextRanges لتجنب حالة السباق التي تسبب
-    // فشل التمييز/التسطير على بعض الصفحات دون غيرها.
-    //
     // الخطوة 1: محاولة أولى للحصول على النطاقات
     var ranges = await selection.getSelectedTextRanges();
-    report.log('المحاولة الأولى لـ getSelectedTextRanges(): ${ranges.length} نطاق.');
 
     // الخطوة 2: إذا كانت فارغة، نقوم بتسخين الصفحات المجاورة ثم نعيد المحاولة
     if (ranges.isEmpty) {
-      report.log('النطاقات فارغة. سيتم تسخين كاش النص للصفحات المجاورة وإعادة المحاولة.');
       // تسخين الصفحات المجاورة للصفحة النشطة
       try {
         final doc = controller.document;
@@ -137,113 +108,34 @@ class PdfHighlightController {
               p <= (activePage + 1).clamp(1, doc.pages.length);
               p++) {
             await textCache.ensureLoadedByPageNumber(p, controller);
-            report.log('تم تسخين كاش النص للصفحة $p '
-                '(hasReliableText=${textCache.hasReliableText(p)}).');
           }
         }
       } catch (e) {
-        report.log('خطأ أثناء تسخين الصفحات المجاورة: $e');
+        // يتم التجاهل في حال الفشل
       }
 
       const retryDelays = [50, 100, 200, 400, 600, 1000];
       for (final delayMs in retryDelays) {
         await Future<void>.delayed(Duration(milliseconds: delayMs));
         ranges = await selection.getSelectedTextRanges();
-        report.log('إعادة محاولة بعد ${delayMs}ms: ${ranges.length} نطاق.');
         if (ranges.isNotEmpty) break;
       }
     }
+    
     if (ranges.isEmpty) {
-      report.log('فشل نهائي: لم يتم العثور على أي نطاق نص قابل للتمييز/التسطير.');
-      report.markFinished();
       return;
     }
 
-    report.setSummary('rangesFound', ranges.length);
-
     bool anyApplied = false;
     for (final range in ranges) {
-      final rangeLog = <String>[];
-      void rlog(String m) => rangeLog.add(m);
-
-      rlog('pageNumber=${range.pageNumber}, start=${range.start}, end=${range.end}');
-
       if (range.start >= range.end) {
-        rlog('تم تجاهل هذا النطاق: start >= end (نطاق فارغ أو غير صالح).');
-        report.addRangeDetail({
-          'pageNumber': range.pageNumber,
-          'start': range.start,
-          'end': range.end,
-          'skipped': true,
-          'log': rangeLog,
-        });
         continue;
       }
 
       await ensurePageLoaded(range.pageNumber);
       await textCache.ensureLoadedByPageNumber(range.pageNumber, controller);
 
-      // ── معلومات تشخيصية: حالة الصفحة في pdfrx وحالة كاش النص لدينا ──
-      bool? pageIsLoaded;
-      double? pageWidth;
-      double? pageHeight;
-      int? pageRotationIndex;
-      try {
-        final doc = controller.document;
-        if (doc != null && range.pageNumber >= 1 && range.pageNumber <= doc.pages.length) {
-          final page = doc.pages[range.pageNumber - 1];
-          pageIsLoaded = page.isLoaded;
-          pageWidth = page.width;
-          pageHeight = page.height;
-          pageRotationIndex = page.rotation.index;
-        }
-      } catch (e) {
-        rlog('خطأ أثناء قراءة معلومات الصفحة من controller.document: $e');
-      }
-      rlog('page.isLoaded=$pageIsLoaded, page.width=$pageWidth, page.height=$pageHeight, '
-          'page.rotation=$pageRotationIndex');
-
-      final cachedText = textCache.peek(range.pageNumber);
-      final hasReliableText = textCache.hasReliableText(range.pageNumber);
-      rlog('textCache.peek(${range.pageNumber}) == '
-          '${cachedText == null ? 'null' : 'PdfPageText(charRects: ${cachedText.charRects.length})'}'
-          ', hasReliableText=$hasReliableText');
-
-      // حساب مستطيلات السطور التي سيتم الرسم عليها (نفس المنطق المستخدم في paint())
-      List<Map<String, dynamic>> lineRectsLog = [];
-      if (cachedText != null) {
-        try {
-          final lineRects = PdfHighlightEngine.lineRectsForRange(
-            pageText: cachedText,
-            start: range.start,
-            end: range.end,
-          );
-          lineRectsLog = lineRects
-              .map((r) => {
-                    'left': r.left,
-                    'top': r.top,
-                    'right': r.right,
-                    'bottom': r.bottom,
-                  })
-              .toList();
-          rlog('lineRectsForRange() أنتج ${lineRects.length} مستطيل (سطر) بإحداثيات صفحة PDF.');
-          if (lineRects.isEmpty) {
-            rlog('⚠️ تحذير: lineRectsForRange() أرجع قائمة فارغة. '
-                'هذا يعني أن التمييز/التسطير سيُحفظ بنجاح لكنه لن يُرسم بصرياً '
-                'على الإطلاق حتى تتم إعادة حساب هذه المستطيلات لاحقاً '
-                '(غالباً بسبب نص صفحة فارغ/غير موثوق وقت الحفظ).');
-          }
-        } catch (e) {
-          rlog('خطأ أثناء حساب lineRectsForRange(): $e');
-        }
-      } else {
-        rlog('⚠️ تحذير: لا يوجد نص محفوظ موثوق لهذه الصفحة بعد. '
-            'سيتم حفظ التمييز/التسطير الآن، وسيُعاد حساب مستطيلات الرسم تلقائياً '
-            'في أول إعادة رسم بعد اكتمال تحميل نص الصفحة فعلياً.');
-      }
-
       final id = '${DateTime.now().microsecondsSinceEpoch}_${range.pageNumber}_${range.start}';
-      rlog('سيتم إنشاء عنصر جديد بمعرّف id=$id');
 
       if (activeTool == TextMarkupTool.highlight) {
         final list = _highlights.putIfAbsent(range.pageNumber, () => []);
@@ -258,21 +150,6 @@ class PdfHighlightController {
         list.add(model);
         await _persistHighlights(range.pageNumber);
         anyApplied = true;
-        rlog('تم إضافة HighlightModel وحفظه محلياً. '
-            'عدد عناصر التمييز المحفوظة لهذه الصفحة الآن: ${list.length}.');
-        report.addRangeDetail({
-          'pageNumber': range.pageNumber,
-          'start': range.start,
-          'end': range.end,
-          'pageIsLoaded': pageIsLoaded,
-          'pageWidth': pageWidth,
-          'pageHeight': pageHeight,
-          'textCacheHasReliableText': hasReliableText,
-          'textCacheCharRectsCount': cachedText?.charRects.length,
-          'computedLineRects (PDF page coords)': lineRectsLog,
-          'createdModel': model.toJson(),
-          'log': rangeLog,
-        });
       } else if (activeTool == TextMarkupTool.underline) {
         final list = _underlines.putIfAbsent(range.pageNumber, () => []);
         final model = UnderlineModel(
@@ -285,68 +162,17 @@ class PdfHighlightController {
         list.add(model);
         await _persistUnderlines(range.pageNumber);
         anyApplied = true;
-        rlog('تم إضافة UnderlineModel وحفظه محلياً. '
-            'عدد عناصر التسطير المحفوظة لهذه الصفحة الآن: ${list.length}.');
-        report.addRangeDetail({
-          'pageNumber': range.pageNumber,
-          'start': range.start,
-          'end': range.end,
-          'pageIsLoaded': pageIsLoaded,
-          'pageWidth': pageWidth,
-          'pageHeight': pageHeight,
-          'textCacheHasReliableText': hasReliableText,
-          'textCacheCharRectsCount': cachedText?.charRects.length,
-          'computedLineRects (PDF page coords)': lineRectsLog,
-          'createdModel': model.toJson(),
-          'log': rangeLog,
-        });
       }
     }
-
-    report.setSummary('anyApplied', anyApplied);
-
-    // إضافة لقطة من البيانات المخزّنة فعلياً على الجهاز لكل صفحة تمت معالجتها،
-    // لتأكيد أن العنصر تم حفظه بنجاح بغض النظر عن ظهوره بصرياً أم لا.
-    final affectedPages = ranges.map((r) => r.pageNumber).toSet();
-    final storedDataDump = <String, dynamic>{};
-    for (final p in affectedPages) {
-      try {
-        storedDataDump['page_$p'] = await dumpStoredDataForPage(p);
-      } catch (e) {
-        storedDataDump['page_$p'] = {'error': e.toString()};
-      }
-    }
-    report.setSummary('storedDataOnDevice', storedDataDump);
 
     if (!anyApplied) {
-      report.log('لم يتم تطبيق أي نطاق (جميعها كانت غير صالحة).');
-      report.markFinished();
       return;
     }
 
     // نجحت العملية: الآن يمكننا مسح التحديد بأمان
     clearPendingSelection();
     await controller.textSelectionDelegate.clearTextSelection();
-    report.log('تم مسح التحديد الحالي ومسح pendingSelection بنجاح.');
-    report.log('استدعاء onChanged() لإعادة بناء الواجهة وإعادة الرسم.');
-    report.markFinished();
     onChanged();
-  }
-
-  /// يجلب نسخة من البيانات المخزّنة محلياً (تمييز + تسطير) لصفحة معينة بصيغة
-  /// JSON قابلة للعرض، لاستخدامها في حوار التشخيص. يقرأ من المخزن مباشرة
-  /// (لا من القوائم المحمّلة في الذاكرة) لضمان أنه يعكس ما هو محفوظ فعلياً
-  /// على الجهاز في هذه اللحظة.
-  Future<Map<String, dynamic>> dumpStoredDataForPage(int pageNumber) async {
-    final storedHighlights = await store.loadHighlights(pageNumber);
-    final storedUnderlines = await store.loadUnderlines(pageNumber);
-    return {
-      'pageNumber': pageNumber,
-      'inMemoryHighlightsCount': _highlights[pageNumber]?.length,
-      'inMemoryUnderlinesCount': _underlines[pageNumber]?.length,
-      'storedHighlights': storedHighlights.map((h) => h.toJson()).toList(),
-      'storedUnderlines': storedUnderlines.map((u) => u.toJson()).toList(),
-    };
   }
 
   /// اكتشاف اللمس على تمييز/تسطير موجود عند نقطة بالـ PDF (نظام إحداثيات الصفحة).
