@@ -85,11 +85,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   bool _isDrawingMode = false;
   PdfTool _activeTool = PdfTool.none;
 
-  // ── أداة التشخيص: عند تفعيلها، يظهر حوار قابل للنسخ بعد كل عملية تمييز/تسطير
-  // يحتوي كل خطوات التنفيذ والإحداثيات وحالة الكاش والبيانات المخزّنة محلياً.
-  // يُفعَّل/يُعطَّل بضغطة طويلة على زر تمييز/تسطير في قائمة السياق.
-  bool _markupDebugDialogEnabled = false;
-
   // القلم/الممحاة (الرسم الحر) - يبقى كما كان
   Map<int, List<DrawingLine>> _pageDrawings = {};
   DrawingLine? _currentLine;
@@ -610,61 +605,19 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 // زر التمييز / التسطير
-                // ضغطة طويلة: تفعيل/تعطيل حوار التشخيص القابل للنسخ الذي يظهر
-                // بعد كل عملية (راجع _showMarkupDebugDialog).
-                GestureDetector(
-                  onLongPress: () {
-                    setState(() => _markupDebugDialogEnabled = !_markupDebugDialogEnabled);
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            _markupDebugDialogEnabled
-                                ? 'تم تفعيل حوار تشخيص التمييز/التسطير'
-                                : 'تم تعطيل حوار تشخيص التمييز/التسطير',
-                            style: TextStyle(color: AppColors.textPrimary),
-                          ),
-                          backgroundColor: AppColors.backgroundSecondary,
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    }
+                TextButton.icon(
+                  onPressed: () async {
+                    await _highlightController.applyPendingSelection(_pdfController!);
                   },
-                  child: TextButton.icon(
-                    onPressed: () async {
-                      await _highlightController.applyPendingSelection(_pdfController!);
-                      if (_markupDebugDialogEnabled && mounted) {
-                        _showMarkupDebugDialog();
-                      }
-                    },
-                    icon: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Icon(
-                          _activeTool == PdfTool.highlighter
-                              ? Icons.format_color_fill
-                              : Icons.format_underline,
-                          color: AppColors.accentYellow,
-                          size: 18,
-                        ),
-                        if (_markupDebugDialogEnabled)
-                          Positioned(
-                            right: -2,
-                            top: -2,
-                            child: Container(
-                              width: 6,
-                              height: 6,
-                              decoration: const BoxDecoration(
-                                color: Colors.redAccent,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    label: Text(label,
-                        style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
+                  icon: Icon(
+                    _activeTool == PdfTool.highlighter
+                        ? Icons.format_color_fill
+                        : Icons.format_underline,
+                    color: AppColors.accentYellow,
+                    size: 18,
                   ),
+                  label: Text(label,
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
                 ),
                 // فاصل
                 Container(
@@ -1033,69 +986,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     }
   }
 
-  /// يعرض حوار تشخيص قابل للنسخ بالكامل يحتوي كل خطوات تنفيذ آخر عملية
-  /// تمييز/تسطير: نطاقات النص، حالة تحميل الصفحة، أبعادها، حالة كاش النص،
-  /// المستطيلات المحسوبة لإحداثيات الرسم، والبيانات المخزّنة فعلياً على الجهاز.
-  /// يُفعَّل عبر ضغطة طويلة على زر تمييز/تسطير (راجع _markupDebugDialogEnabled).
-  void _showMarkupDebugDialog() {
-    final report = _highlightController.lastDebugReport;
-    final reportText = report?.build() ?? 'لا يوجد تقرير تشخيص متاح بعد.';
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.backgroundSecondary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(Icons.bug_report_outlined, color: AppColors.accentYellow),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text('تشخيص التمييز/التسطير',
-                  style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: SelectableText(
-              reportText,
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontFamily: 'monospace',
-                fontSize: 11,
-                height: 1.4,
-              ),
-              textDirection: TextDirection.ltr,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: reportText));
-              if (ctx.mounted) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(
-                    content: Text('تم نسخ التقرير', style: TextStyle(color: AppColors.textPrimary)),
-                    backgroundColor: AppColors.backgroundSecondary,
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              }
-            },
-            child: Text('نسخ الكل', style: TextStyle(color: AppColors.accentYellow)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('إغلاق', style: TextStyle(color: AppColors.textPrimary)),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showMarkupEditSheet({HighlightModel? highlight, UnderlineModel? underline, required int pageNumber}) {
     final isHighlight = highlight != null;
     final currentColor = Color(isHighlight ? highlight!.color : underline!.color);
@@ -1323,7 +1213,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final relativePoint = Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
 
     if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter) {
-      if (_currentLine != null) setState(() => _currentLine!.points.add(relativePoint));
+      if (_currentLine != null) {
+        // تصفية النقاط القريبة جداً لتحسين نعومة الرسم وتقليل الثقل
+        const double minDistSq = 0.00003; // حد أدنى للمسافة (نسبية) بين النقاط
+        final pts = _currentLine!.points;
+        if (pts.isNotEmpty) {
+          final last = pts.last;
+          final dx = relativePoint.dx - last.dx;
+          final dy = relativePoint.dy - last.dy;
+          if (dx * dx + dy * dy < minDistSq) return; // تجاهل النقطة إن كانت قريبة جداً
+        }
+        setState(() => _currentLine!.points.add(relativePoint));
+      }
     } else if (_activeTool == PdfTool.shape) {
       _shapeController.updateDrawing(relativePoint);
     }
@@ -1889,9 +1790,35 @@ class _CombinedOverlayPainter extends CustomPainter {
 
       if (line.points.length > 1) {
         final path = Path();
-        path.moveTo(line.points[0].dx * pageSize.width, line.points[0].dy * pageSize.height);
-        for (int i = 1; i < line.points.length; i++) {
-          path.lineTo(line.points[i].dx * pageSize.width, line.points[i].dy * pageSize.height);
+        final pts = line.points;
+        final w = pageSize.width;
+        final h = pageSize.height;
+
+        if (line.isHighlighter) {
+          // هايلايتر حر: خطوط مستقيمة للحفاظ على مظهر التظليل الدقيق
+          path.moveTo(pts[0].dx * w, pts[0].dy * h);
+          for (int i = 1; i < pts.length; i++) {
+            path.lineTo(pts[i].dx * w, pts[i].dy * h);
+          }
+        } else {
+          // قلم / ممحاة: منحنيات Bézier التربيعية لنعومة الرسم
+          path.moveTo(pts[0].dx * w, pts[0].dy * h);
+          if (pts.length == 2) {
+            path.lineTo(pts[1].dx * w, pts[1].dy * h);
+          } else {
+            for (int i = 0; i < pts.length - 1; i++) {
+              final x0 = pts[i].dx * w;
+              final y0 = pts[i].dy * h;
+              final x1 = pts[i + 1].dx * w;
+              final y1 = pts[i + 1].dy * h;
+              // نقطة المنتصف بين النقطتين المتتاليتين كنقطة رسم
+              final midX = (x0 + x1) / 2;
+              final midY = (y0 + y1) / 2;
+              path.quadraticBezierTo(x0, y0, midX, midY);
+            }
+            // أضف نقطة النهاية الأخيرة
+            path.lineTo(pts.last.dx * w, pts.last.dy * h);
+          }
         }
         canvas.drawPath(path, paint);
       } else if (line.points.isNotEmpty) {
