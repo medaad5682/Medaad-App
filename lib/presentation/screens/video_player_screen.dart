@@ -86,6 +86,20 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   // علامة: هل يجري الآن resync تلقائي (لمنع التكرار)؟
   bool _isAutoResyncing = false;
 
+  // ✅ [DOUBLE-TAP SEEK] متغيرات النقر المزدوج للتقديم/الرجوع
+  // عدد النقرات المتراكمة على اليسار (رجوع) وعلى اليمين (تقديم)
+  int _leftTapCount = 0;
+  int _rightTapCount = 0;
+  // مؤقت لإخفاء الـ overlay بعد توقف النقر
+  Timer? _leftTapTimer;
+  Timer? _rightTapTimer;
+  // هل يظهر الـ overlay الآن؟
+  bool _showLeftTapOverlay = false;
+  bool _showRightTapOverlay = false;
+
+  // ✅ [LONG-PRESS SPEED] متغيرات الضغط المطوّل لتسريع ×2
+  bool _isLongPressActive = false;
+
   final Map<String, String> _serverHeaders = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
@@ -584,6 +598,66 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
   }
 
+  // ✅ [DOUBLE-TAP SEEK] معالج النقر المزدوج على اليسار
+  // 1 نقرة = لا شيء | 2 نقرة = 10s | 3 نقرات = 20s | ...
+  void _onDoubleTapLeft() {
+    if (_isRecordingDetected || _isDisposing || _isError) return;
+
+    _leftTapCount++;
+    // الثانية الأولى = نقرة واحدة (لا seek) → نبدأ العدّ من النقرة الثانية
+    // 2 نقرات = (2-1)*10 = 10s | 3 نقرات = (3-1)*10 = 20s
+    final totalSeconds = (_leftTapCount - 1) * 10;
+
+    _leftTapTimer?.cancel();
+    _leftTapTimer = Timer(const Duration(milliseconds: 400), () {
+      // نقرة فردية فقط: تجاهل — يمرّر الحدث للمشغّل
+      if (_leftTapCount == 1) {
+        if (mounted) setState(() { _showLeftTapOverlay = false; _leftTapCount = 0; });
+        return;
+      }
+      _seekRelative(Duration(seconds: -totalSeconds));
+      if (mounted) setState(() { _showLeftTapOverlay = false; _leftTapCount = 0; });
+    });
+
+    // أظهر الـ overlay فقط من النقرة الثانية فصاعداً
+    if (_leftTapCount >= 2 && mounted) setState(() => _showLeftTapOverlay = true);
+  }
+
+  // ✅ [DOUBLE-TAP SEEK] معالج النقر المزدوج على اليمين
+  // 1 نقرة = لا شيء | 2 نقرة = 10s | 3 نقرات = 20s | ...
+  void _onDoubleTapRight() {
+    if (_isRecordingDetected || _isDisposing || _isError) return;
+
+    _rightTapCount++;
+    final totalSeconds = (_rightTapCount - 1) * 10;
+
+    _rightTapTimer?.cancel();
+    _rightTapTimer = Timer(const Duration(milliseconds: 400), () {
+      if (_rightTapCount == 1) {
+        if (mounted) setState(() { _showRightTapOverlay = false; _rightTapCount = 0; });
+        return;
+      }
+      _seekRelative(Duration(seconds: totalSeconds));
+      if (mounted) setState(() { _showRightTapOverlay = false; _rightTapCount = 0; });
+    });
+
+    if (_rightTapCount >= 2 && mounted) setState(() => _showRightTapOverlay = true);
+  }
+
+  // ✅ [LONG-PRESS SPEED] تفعيل سرعة ×2 عند الضغط المطوّل
+  void _onLongPressStart() {
+    if (_isRecordingDetected || _isDisposing || _isError) return;
+    if (mounted) setState(() => _isLongPressActive = true);
+    _player.setRate(2.0);
+  }
+
+  // ✅ [LONG-PRESS SPEED] العودة للسرعة الأصلية عند رفع الإصبع
+  void _onLongPressEnd() {
+    if (_isDisposing) return;
+    if (mounted) setState(() => _isLongPressActive = false);
+    _player.setRate(_currentSpeed); // العودة للسرعة التي اختارها المستخدم
+  }
+
   void _showSettingsSheet() {
     if (!mounted || _isRecordingDetected) return;
     showModalBottomSheet(
@@ -821,6 +895,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _watermarkTimer?.cancel();
       _countdownTimer?.cancel();
       _avSyncTimer?.cancel(); // ✅ [AV-SYNC] إيقاف مراقب المزامنة
+      _leftTapTimer?.cancel();  // ✅ [DOUBLE-TAP] إيقاف مؤقتات النقر
+      _rightTapTimer?.cancel();
       await _player.stop();
       await _player.dispose();
       await WakelockPlus.disable();
@@ -1035,11 +1111,179 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
+            // ✅ [DOUBLE-TAP + LONG-PRESS] طبقة الإيماءات فوق المشغّل مباشرةً
+            // مقسّمة إلى نصفين: يسار (رجوع) ويمين (تقديم)
+            // يجب أن تكون فوق الفيديو وتحت الـ overlay المرئي ليظهر عليها
+            if (!_isDisposing && !_isError && _isInitialized && !_isRecordingDetected)
+              Positioned.fill(
+                child: Row(
+                  children: [
+                    // ─── النصف الأيسر: رجوع ─10s بالنقر المزدوج + ×2 بالضغط المطوّل ───
+                    Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: _onDoubleTapLeft,
+                        onLongPressStart: (_) => _onLongPressStart(),
+                        onLongPressEnd: (_) => _onLongPressEnd(),
+                        onLongPressCancel: _onLongPressEnd,
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                    // ─── النصف الأيمن: تقديم +10s بالنقر المزدوج + ×2 بالضغط المطوّل ───
+                    Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: _onDoubleTapRight,
+                        onLongPressStart: (_) => _onLongPressStart(),
+                        onLongPressEnd: (_) => _onLongPressEnd(),
+                        onLongPressCancel: _onLongPressEnd,
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // ✅ [DOUBLE-TAP OVERLAY] مؤشر مرئي للنقر المزدوج على اليسار
+            if (_showLeftTapOverlay && !_isDisposing && !_isRecordingDetected)
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: MediaQuery.of(context).size.width * 0.35,
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: _showLeftTapOverlay ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            Colors.white.withOpacity(0.15),
+                            Colors.transparent,
+                          ],
+                        ),
+                        borderRadius: const BorderRadius.only(
+                          topRight: Radius.circular(80),
+                          bottomRight: Radius.circular(80),
+                        ),
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.replay, color: Colors.white, size: 32),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${(_leftTapCount - 1) * 10}s',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // ✅ [DOUBLE-TAP OVERLAY] مؤشر مرئي للنقر المزدوج على اليمين
+            if (_showRightTapOverlay && !_isDisposing && !_isRecordingDetected)
+              Positioned(
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: MediaQuery.of(context).size.width * 0.35,
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: _showRightTapOverlay ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerRight,
+                          end: Alignment.centerLeft,
+                          colors: [
+                            Colors.white.withOpacity(0.15),
+                            Colors.transparent,
+                          ],
+                        ),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(80),
+                          bottomLeft: Radius.circular(80),
+                        ),
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.forward, color: Colors.white, size: 32),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${(_rightTapCount - 1) * 10}s',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // ✅ [LONG-PRESS SPEED] مؤشر مرئي للتسريع ×2 عند الضغط المطوّل
+            if (_isLongPressActive && !_isDisposing && !_isRecordingDetected)
+              Positioned(
+                top: 20,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.65),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: AppColors.accentYellow.withOpacity(0.8),
+                            width: 1.5),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.fast_forward,
+                              color: AppColors.accentYellow, size: 18),
+                          const SizedBox(width: 6),
+                          Text(
+                            'speed×2',
+                            style: TextStyle(
+                              color: AppColors.accentYellow,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
             if (!_isDisposing && !_isError && _isInitialized)
               AnimatedAlign(
-                duration: const Duration(seconds: 2),
-                curve: Curves.easeInOut,
-                alignment: _watermarkAlignment,
                 child: IgnorePointer(
                   child: Container(
                     padding:
