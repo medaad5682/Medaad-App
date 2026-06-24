@@ -35,7 +35,7 @@ class VideoPlayerScreen extends StatefulWidget {
 }
 
 class _VideoPlayerScreenState extends State<VideoPlayerScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   late final Player _player;
   late final VideoController _controller;
 
@@ -101,12 +101,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool _isLongPressActive = false;
 
   // ✅ [TAP-INTERCEPT] مؤقت لاكتشاف ما إذا كانت النقرة جزءاً من نقر مزدوج
-  // يُستخدم لمنع ظهور شريط التحكم عند النقر الأول من تسلسل نقر مزدوج
   Timer? _leftTapInhibitTimer;
   Timer? _rightTapInhibitTimer;
-  // عدد النقرات الخام لكل جانب (قبل انتهاء مهلة التحديد)
   int _leftRawTapCount = 0;
   int _rightRawTapCount = 0;
+
+  // ✅ [RIPPLE ANIMATION] متحكمات الأنيميشن للدوائر المتموجة
+  late AnimationController _leftRippleController;
+  late AnimationController _rightRippleController;
+  late Animation<double> _leftRippleAnim;
+  late Animation<double> _rightRippleAnim;
 
   final Map<String, String> _serverHeaders = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
@@ -117,6 +121,25 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // ✅ [RIPPLE] تهيئة متحكمات أنيميشن الدوائر المتموجة
+    _leftRippleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _rightRippleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _leftRippleAnim = CurvedAnimation(
+      parent: _leftRippleController,
+      curve: Curves.easeOut,
+    );
+    _rightRippleAnim = CurvedAnimation(
+      parent: _rightRippleController,
+      curve: Curves.easeOut,
+    );
+
     _initializeProtection(); // ✅ تفعيل الحماية أولاً
     _initializePlayerScreen();
   }
@@ -607,24 +630,26 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   // ✅ [DOUBLE-TAP SEEK] معالج النقر المزدوج على اليسار
-  // يُستدعى فقط عند تأكيد النقر المزدوج (من onDoubleTap)
-  // لا يظهر شريط التحكم لأن onDoubleTap لا يُطلق onTap قبله
-  // النقر المزدوج = ─10s | ثلاثة نقرات متتالية = ─20s | إلخ...
+  // المنطق الصحيح للعدّ:
+  //   onDoubleTap الأول  (2 نقرات) = _leftTapCount يصبح 1 → 10s
+  //   نقرة ثالثة         (3 نقرات) = _leftTapCount يصبح 2 → 20s
+  //   نقرة رابعة         (4 نقرات) = _leftTapCount يصبح 3 → 30s
   void _onDoubleTapLeft() {
     if (_isRecordingDetected || _isDisposing || _isError) return;
 
-    // نزيد العداد (يُعيَّن صفرًا بعد 500ms من آخر نقرة)
     _leftTapCount++;
-    final capturedCount = _leftTapCount;
 
-    // أظهر الـ overlay فورًا
+    // شغّل أنيميشن الدائرة المتموجة من الصفر عند كل نقرة
+    _leftRippleController.forward(from: 0.0);
+
     if (mounted) setState(() => _showLeftTapOverlay = true);
 
+    // نُعيد ضبط المؤقت في كل نقرة جديدة
+    // عند انتهاء المهلة نستخدم _leftTapCount الحالي (وليس snapshot قديم)
     _leftTapTimer?.cancel();
-    _leftTapTimer = Timer(const Duration(milliseconds: 500), () {
+    _leftTapTimer = Timer(const Duration(milliseconds: 600), () {
       if (!mounted) return;
-      // نُنفّذ الـ seek بعدد النقرات المتراكمة: كل نقرة مزدوجة إضافية = 10s
-      final totalSeconds = capturedCount * 10;
+      final totalSeconds = _leftTapCount * 10;
       _seekRelative(Duration(seconds: -totalSeconds));
       setState(() {
         _showLeftTapOverlay = false;
@@ -639,14 +664,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     if (_isRecordingDetected || _isDisposing || _isError) return;
 
     _rightTapCount++;
-    final capturedCount = _rightTapCount;
+
+    _rightRippleController.forward(from: 0.0);
 
     if (mounted) setState(() => _showRightTapOverlay = true);
 
     _rightTapTimer?.cancel();
-    _rightTapTimer = Timer(const Duration(milliseconds: 500), () {
+    _rightTapTimer = Timer(const Duration(milliseconds: 600), () {
       if (!mounted) return;
-      final totalSeconds = capturedCount * 10;
+      final totalSeconds = _rightTapCount * 10;
       _seekRelative(Duration(seconds: totalSeconds));
       setState(() {
         _showRightTapOverlay = false;
@@ -912,6 +938,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _rightTapTimer?.cancel();
       _leftTapInhibitTimer?.cancel(); // ✅ [TAP-INTERCEPT] إيقاف مؤقتات منع التحكم
       _rightTapInhibitTimer?.cancel();
+      _leftRippleController.dispose();  // ✅ [RIPPLE] تحرير متحكمات الأنيميشن
+      _rightRippleController.dispose();
       await _player.stop();
       await _player.dispose();
       await WakelockPlus.disable();
@@ -1130,20 +1158,32 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             // مقسّمة إلى نصفين: يسار (رجوع) ويمين (تقديم)
             // ⚠️ مستثنىٌ منها الشريط العلوي (70px) والشريط السفلي (70px)
             //    حتى تعمل أزرار الرجوع والتصغير بشكل طبيعي
+            //
+            // منطق النقرات (HitTestBehavior.translucent):
+            //   - النقرة الفردية: تمر عبر الطبقة إلى مشغّل الفيديو (media_kit يُبدّل التحكم)
+            //     ولا تُطلق onTap عند وجود onDoubleTap إلا بعد انتهاء مهلة 300ms
+            //   - النقرة المزدوجة: يفوز onDoubleTap في arena الإيماءات → seek
+            //     والـ onTap الأول يُلغى تلقائياً → لا flash للتحكم
+            //   - ضغط مطوّل: تُنفّذ السرعة ×2 مباشرةً
+            //
+            // translucent بدلاً من opaque يسمح للنقرة الفردية بالوصول لـ media_kit
             if (!_isDisposing && !_isError && _isInitialized && !_isRecordingDetected)
               Positioned(
-                top: 70,    // تجاوز شريط التحكم العلوي (زر الرجوع والعنوان)
-                bottom: 70, // تجاوز شريط التحكم السفلي (شريط التقدم والأزرار)
+                top: 70,
+                bottom: 70,
                 left: 0,
                 right: 0,
                 child: Row(
                   children: [
-                    // ─── النصف الأيسر: رجوع ─10s بالنقر المزدوج + ×2 بالضغط المطوّل ───
-                    // يمتد من الحافة اليسرى حتى منتصف الشاشة
+                    // ─── النصف الأيسر: رجوع ─10s بالنقر المزدوج ───
                     Expanded(
                       child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        // onDoubleTap يتعرف مباشرةً على النقر المزدوج دون تمرير للمشغل
+                        // translucent: النقرة الفردية تصل لـ media_kit من تحتنا
+                        // onDoubleTap يُلغي onTap تلقائياً في Flutter gesture arena
+                        behavior: HitTestBehavior.translucent,
+                        // onTap مؤجّل 300ms بسبب وجود onDoubleTap → لا flash عند النقر المزدوج
+                        // يُستخدم فقط عندما يكون overlay نشطاً لإضافة 10s إضافية (نقرة ثالثة/رابعة)
+                        onTap: _showLeftTapOverlay ? _onDoubleTapLeft : null,
                         onDoubleTap: _onDoubleTapLeft,
                         onLongPressStart: (_) => _onLongPressStart(),
                         onLongPressEnd: (_) => _onLongPressEnd(),
@@ -1151,11 +1191,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         child: const SizedBox.expand(),
                       ),
                     ),
-                    // ─── النصف الأيمن: تقديم +10s بالنقر المزدوج + ×2 بالضغط المطوّل ───
-                    // يمتد من منتصف الشاشة حتى الحافة اليمنى
+                    // ─── النصف الأيمن: تقديم +10s بالنقر المزدوج ───
                     Expanded(
                       child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
+                        behavior: HitTestBehavior.translucent,
+                        onTap: _showRightTapOverlay ? _onDoubleTapRight : null,
                         onDoubleTap: _onDoubleTapRight,
                         onLongPressStart: (_) => _onLongPressStart(),
                         onLongPressEnd: (_) => _onLongPressEnd(),
@@ -1167,99 +1207,215 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
-            // ✅ [DOUBLE-TAP OVERLAY] مؤشر مرئي للنقر المزدوج على اليسار
+            // ✅ [DOUBLE-TAP OVERLAY] مؤشر دائري للنقر المزدوج على اليسار
             if (_showLeftTapOverlay && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: MediaQuery.of(context).size.width * 0.35,
+                width: MediaQuery.of(context).size.width * 0.45,
                 child: IgnorePointer(
                   child: AnimatedOpacity(
                     opacity: _showLeftTapOverlay ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 150),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            Colors.white.withOpacity(0.15),
-                            Colors.transparent,
-                          ],
+                    duration: const Duration(milliseconds: 120),
+                    child: Stack(
+                      children: [
+                        // خلفية متدرجة
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                              colors: [
+                                Colors.black.withOpacity(0.25),
+                                Colors.transparent,
+                              ],
+                            ),
+                            borderRadius: const BorderRadius.only(
+                              topRight: Radius.circular(999),
+                              bottomRight: Radius.circular(999),
+                            ),
+                          ),
                         ),
-                        borderRadius: const BorderRadius.only(
-                          topRight: Radius.circular(80),
-                          bottomRight: Radius.circular(80),
+                        // دائرة متموجة (ripple)
+                        Center(
+                          child: AnimatedBuilder(
+                            animation: _leftRippleAnim,
+                            builder: (_, __) {
+                              final rippleSize = 72.0 + (_leftRippleAnim.value * 36.0);
+                              return Opacity(
+                                opacity: (1.0 - _leftRippleAnim.value) * 0.35,
+                                child: Container(
+                                  width: rippleSize,
+                                  height: rippleSize,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 2.5,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         ),
-                      ),
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.replay, color: Colors.white, size: 32),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${_leftTapCount * 10}s',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                                decoration: TextDecoration.none,
+                        // الدائرة الرئيسية + المحتوى
+                        Center(
+                          child: Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.18),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.45),
+                                width: 1.5,
                               ),
                             ),
-                          ],
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.replay_rounded,
+                                  color: Colors.white,
+                                  size: 26,
+                                ),
+                                const SizedBox(height: 2),
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  transitionBuilder: (child, anim) =>
+                                      ScaleTransition(
+                                    scale: Tween<double>(begin: 0.6, end: 1.0)
+                                        .animate(CurvedAnimation(
+                                            parent: anim,
+                                            curve: Curves.easeOutBack)),
+                                    child: FadeTransition(
+                                        opacity: anim, child: child),
+                                  ),
+                                  child: Text(
+                                    '${_leftTapCount * 10}s',
+                                    key: ValueKey(_leftTapCount),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      decoration: TextDecoration.none,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
               ),
 
-            // ✅ [DOUBLE-TAP OVERLAY] مؤشر مرئي للنقر المزدوج على اليمين
+            // ✅ [DOUBLE-TAP OVERLAY] مؤشر دائري للنقر المزدوج على اليمين
             if (_showRightTapOverlay && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 right: 0,
                 top: 0,
                 bottom: 0,
-                width: MediaQuery.of(context).size.width * 0.35,
+                width: MediaQuery.of(context).size.width * 0.45,
                 child: IgnorePointer(
                   child: AnimatedOpacity(
                     opacity: _showRightTapOverlay ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 150),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerRight,
-                          end: Alignment.centerLeft,
-                          colors: [
-                            Colors.white.withOpacity(0.15),
-                            Colors.transparent,
-                          ],
+                    duration: const Duration(milliseconds: 120),
+                    child: Stack(
+                      children: [
+                        // خلفية متدرجة
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.centerRight,
+                              end: Alignment.centerLeft,
+                              colors: [
+                                Colors.black.withOpacity(0.25),
+                                Colors.transparent,
+                              ],
+                            ),
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(999),
+                              bottomLeft: Radius.circular(999),
+                            ),
+                          ),
                         ),
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(80),
-                          bottomLeft: Radius.circular(80),
+                        // دائرة متموجة (ripple)
+                        Center(
+                          child: AnimatedBuilder(
+                            animation: _rightRippleAnim,
+                            builder: (_, __) {
+                              final rippleSize = 72.0 + (_rightRippleAnim.value * 36.0);
+                              return Opacity(
+                                opacity: (1.0 - _rightRippleAnim.value) * 0.35,
+                                child: Container(
+                                  width: rippleSize,
+                                  height: rippleSize,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 2.5,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         ),
-                      ),
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.forward, color: Colors.white, size: 32),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${_rightTapCount * 10}s',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                                decoration: TextDecoration.none,
+                        // الدائرة الرئيسية + المحتوى
+                        Center(
+                          child: Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.18),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.45),
+                                width: 1.5,
                               ),
                             ),
-                          ],
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.forward_rounded,
+                                  color: Colors.white,
+                                  size: 26,
+                                ),
+                                const SizedBox(height: 2),
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  transitionBuilder: (child, anim) =>
+                                      ScaleTransition(
+                                    scale: Tween<double>(begin: 0.6, end: 1.0)
+                                        .animate(CurvedAnimation(
+                                            parent: anim,
+                                            curve: Curves.easeOutBack)),
+                                    child: FadeTransition(
+                                        opacity: anim, child: child),
+                                  ),
+                                  child: Text(
+                                    '${_rightTapCount * 10}s',
+                                    key: ValueKey(_rightTapCount),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      decoration: TextDecoration.none,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
