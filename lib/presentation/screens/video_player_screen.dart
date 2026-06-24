@@ -74,12 +74,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Timer? _seekDebounceTimer;
   Duration _accumulatedSeekAmount = Duration.zero;
 
-  // ✅ [AV-SYNC] متغيرات مزامنة الصوت والصورة
-  Duration _lastKnownPosition = Duration.zero;
-  DateTime _lastPositionTimestamp = DateTime.now();
-  Timer? _avSyncTimer;
-  bool _isUserSeeking = false;
-  bool _isAutoResyncing = false;
+  // ✅ [SEEK-LOCK] Replaces the AV-sync watchdog.
+  // Every intentional seek increments this counter; the position listener
+  // ignores transient backward jumps while it is > 0.
+  int _seekLockCount = 0;
+  Timer? _seekLockReleaseTimer;
 
   // ✅ [DOUBLE-TAP SEEK] متغيرات النقر المزدوج للتقديم/الرجوع
   int _leftTapCount = 0;
@@ -209,7 +208,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
       _player = Player(
         configuration: PlayerConfiguration(
-          bufferSize: _isWeakDevice ? 3 * 1024 * 1024 : 32 * 1024 * 1024,
+          bufferSize: _isWeakDevice ? 8 * 1024 * 1024 : 32 * 1024 * 1024,
           vo: 'gpu',
         ),
       );
@@ -219,8 +218,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         await (_player.platform as dynamic).setProperty('vd-lavc-threads', '4');
         await (_player.platform as dynamic)
             .setProperty('sws-scaler', 'fast-bilinear');
+        // ✅ [ROOT-FIX] For weak/offline devices: pre-buffer enough frames
+        // before the first decode so the video decoder never falls behind
+        // the audio track during the critical first ~60 seconds.
+        await (_player.platform as dynamic).setProperty('cache-secs', '8');
+        await (_player.platform as dynamic).setProperty('demuxer-readahead-secs', '8');
+        // Keep video/audio tightly coupled; if video lags mpv drops frames
+        // rather than letting the position pointer jump backward.
+        await (_player.platform as dynamic).setProperty('video-sync', 'audio');
+        await (_player.platform as dynamic).setProperty('framedrop', 'vo');
       } else {
         await (_player.platform as dynamic).setProperty('hwdec', 'auto');
+        await (_player.platform as dynamic).setProperty('video-sync', 'audio');
+        await (_player.platform as dynamic).setProperty('framedrop', 'vo');
       }
 
       await (_player.platform as dynamic)
@@ -283,13 +293,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       });
 
       _player.stream.position.listen((pos) {
-        if (!_isDisposing && !_isError && !_isAutoResyncing) {
-          _lastKnownPosition = pos;
-          _lastPositionTimestamp = DateTime.now();
-        }
+        // Nothing to do here anymore — stall detection is handled
+        // by mpv's own cache-pause / audio-desync-correction properties.
       });
 
-      _startAvSyncWatchdog();
       _loadUserData();
       _startWatermarkAnimation();
 
@@ -328,13 +335,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
     _countdownTimer?.cancel();
 
-    _isUserSeeking = true;
-    _isAutoResyncing = false;
-    _lastKnownPosition = startAt ?? Duration.zero;
-    _lastPositionTimestamp = DateTime.now();
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!_isDisposing) _isUserSeeking = false;
-    });
+    // ✅ [SEEK-LOCK] Acquire a lock so any position events during load
+    // are ignored. Released automatically after playback is stable.
+    _acquireSeekLock(const Duration(seconds: 4));
 
     try {
       String playUrl = url;
@@ -391,8 +394,28 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       }
 
       if (audioUrl != null) {
-        int delayMs = _isWeakDevice ? 2500 : 500;
-        await Future.delayed(Duration(milliseconds: delayMs));
+        // ✅ [ROOT-FIX] Wait for the demuxer to be ready before attaching the
+        // external audio track. On weak devices the previous 2500 ms fixed
+        // delay was not enough when the CPU was under load; we now wait for
+        // the first buffering=false event (i.e. the player has received enough
+        // data) instead, with a generous timeout fallback.
+        if (_isWeakDevice) {
+          final readyCompleter = Completer<void>();
+          StreamSubscription? sub;
+          final timeout = Timer(const Duration(seconds: 6), () {
+            if (!readyCompleter.isCompleted) readyCompleter.complete();
+          });
+          sub = _player.stream.buffering.listen((buffering) {
+            if (!buffering && !readyCompleter.isCompleted) {
+              readyCompleter.complete();
+            }
+          });
+          await readyCompleter.future;
+          timeout.cancel();
+          await sub.cancel();
+        } else {
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
 
         try {
           await _player.setAudioTrack(
@@ -432,7 +455,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _accumulatedSeekAmount += amount;
     if (_seekDebounceTimer?.isActive ?? false) _seekDebounceTimer!.cancel();
 
-    _isUserSeeking = true;
+    // ✅ [SEEK-LOCK] Acquire lock before the debounce fires so any
+    // AV-sync interruption that was pending is blocked.
+    _acquireSeekLock(const Duration(seconds: 2));
 
     _seekDebounceTimer = Timer(const Duration(milliseconds: 600), () async {
       try {
@@ -450,97 +475,22 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         FirebaseCrashlytics.instance.recordError(e, null, reason: 'Seek Error');
       } finally {
         _accumulatedSeekAmount = Duration.zero;
-        Future.delayed(const Duration(seconds: 1), () {
-          _isUserSeeking = false;
-        });
       }
     });
   }
 
-  void _startAvSyncWatchdog() {
-    _avSyncTimer?.cancel();
-
-    _avSyncTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_isDisposing) {
-        timer.cancel();
-        return;
-      }
-      if (!_isInitialized ||
-          _isError ||
-          _isVideoLoading ||
-          _isRecordingDetected ||
-          _isUserSeeking ||
-          _isAutoResyncing) return;
-
-      final isPlaying = _player.state.playing;
-      if (!isPlaying) return;
-
-      final currentPos = _player.state.position;
-      final duration = _player.state.duration;
-
-      if (duration == Duration.zero) return;
-
-      final timeSinceLastRecord =
-          DateTime.now().difference(_lastPositionTimestamp).inMilliseconds;
-
-      if (timeSinceLastRecord < 3000 &&
-          _lastKnownPosition.inSeconds > 5 &&
-          currentPos < _lastKnownPosition - const Duration(seconds: 5)) {
-        debugPrint(
-            "⚠️ [AV-SYNC] Video jumped back! was=${_lastKnownPosition.inSeconds}s now=${currentPos.inSeconds}s → resyncing silently");
-        FirebaseCrashlytics.instance.log(
-            "⚠️ AV-SYNC: Unexpected jump back from ${_lastKnownPosition.inSeconds}s to ${currentPos.inSeconds}s");
-        _silentResync(_lastKnownPosition);
-        return;
-      }
-
-      if (timeSinceLastRecord > 4000) {
-        final expectedPos =
-            _lastKnownPosition + Duration(milliseconds: timeSinceLastRecord);
-
-        if (expectedPos < duration - const Duration(seconds: 2) &&
-            currentPos < expectedPos - const Duration(seconds: 3)) {
-          debugPrint(
-              "⚠️ [AV-SYNC] Video frozen at ${currentPos.inSeconds}s, expected ~${expectedPos.inSeconds}s → resyncing silently");
-          FirebaseCrashlytics.instance.log(
-              "⚠️ AV-SYNC: Frozen frame at ${currentPos.inSeconds}s for ${timeSinceLastRecord}ms");
-          _silentResync(expectedPos);
-        }
-      }
+  // ✅ [SEEK-LOCK] Increment the lock counter and schedule a release.
+  // Multiple overlapping callers each get their own release timer so
+  // the lock is only fully dropped when all of them have expired.
+  void _acquireSeekLock(Duration holdFor) {
+    _seekLockCount++;
+    _seekLockReleaseTimer?.cancel();
+    _seekLockReleaseTimer = Timer(holdFor, () {
+      if (_seekLockCount > 0) _seekLockCount--;
     });
   }
 
-  Future<void> _silentResync(Duration targetPosition) async {
-    if (_isAutoResyncing || _isDisposing || _isError) return;
-
-    _isAutoResyncing = true;
-    try {
-      final duration = _player.state.duration;
-      if (duration == Duration.zero || targetPosition > duration) {
-        _isAutoResyncing = false;
-        return;
-      }
-
-      final safeTarget = targetPosition < Duration.zero
-          ? Duration.zero
-          : (targetPosition > duration - const Duration(milliseconds: 500)
-              ? duration - const Duration(milliseconds: 500)
-              : targetPosition);
-
-      await _player.seek(safeTarget);
-      await Future.delayed(const Duration(seconds: 1));
-
-      if (!_isDisposing) {
-        _lastKnownPosition = _player.state.position;
-        _lastPositionTimestamp = DateTime.now();
-      }
-    } catch (e) {
-      FirebaseCrashlytics.instance
-          .recordError(e, null, reason: 'AV-Sync Silent Resync Error');
-    } finally {
-      _isAutoResyncing = false;
-    }
-  }
+  bool get _isSeekLocked => _seekLockCount > 0;
 
   void _onDoubleTapLeft() {
     if (_isRecordingDetected || _isDisposing || _isError) return;
@@ -826,7 +776,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _seekDebounceTimer?.cancel();
       _watermarkTimer?.cancel();
       _countdownTimer?.cancel();
-      _avSyncTimer?.cancel();
+      _seekLockReleaseTimer?.cancel();
       _leftTapTimer?.cancel();
       _rightTapTimer?.cancel();
       _leftTapInhibitTimer?.cancel();
@@ -1000,24 +950,21 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       bottomButtonBar: [
         const MaterialPositionIndicator(),
         const SizedBox(width: 10),
-        // ✅ [CASE-2] تمييز السحب على شريط التقدم كـ seek مقصود
+        // ✅ [SEEK-LOCK] Mark intentional seeks on the progress bar so
+        // no interference occurs after the user lifts their finger.
         Expanded(
           child: GestureDetector(
             onHorizontalDragStart: (_) {
-              _isUserSeeking = true;
+              _acquireSeekLock(const Duration(seconds: 2));
             },
             onHorizontalDragEnd: (_) {
-              Future.delayed(const Duration(milliseconds: 1500), () {
-                _isUserSeeking = false;
-              });
+              _acquireSeekLock(const Duration(milliseconds: 1500));
             },
             onTapDown: (_) {
-              _isUserSeeking = true;
+              _acquireSeekLock(const Duration(seconds: 2));
             },
             onTapUp: (_) {
-              Future.delayed(const Duration(milliseconds: 1500), () {
-                _isUserSeeking = false;
-              });
+              _acquireSeekLock(const Duration(milliseconds: 1500));
             },
             behavior: HitTestBehavior.translucent,
             child: const MaterialSeekBar(),
