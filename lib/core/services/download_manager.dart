@@ -517,7 +517,10 @@ class DownloadManager with WidgetsBindingObserver {
           title: videoTitle,
           isSuccess: false,
         );
-        onError("Download failed. Please check internet.");
+        // 🔍 TEMP DEBUG: عرض رسالة الخطأ الفعلية مؤقتاً لتشخيص سبب الفشل
+        // الحقيقي بدل الرسالة العامة. أعد هذا إلى "Download failed. Please
+        // check internet." بعد الانتهاء من التشخيص.
+        onError("Download failed: ${e.toString()}");
       }
 
       // Cleanup partial files
