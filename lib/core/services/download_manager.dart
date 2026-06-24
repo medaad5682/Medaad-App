@@ -21,6 +21,9 @@ import 'notification_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../constants/api_constants.dart';
+import 'file_crypto_service.dart';
+import 'video_mux_service.dart';
+import 'secure_temp_service.dart';
 
 class DownloadManager with WidgetsBindingObserver {
   static final DownloadManager _instance = DownloadManager._internal();
@@ -277,10 +280,14 @@ class DownloadManager with WidgetsBindingObserver {
           isPdf ? "$lessonId.pdf.enc" : "vid_${lessonId}_${quality}_v2.enc";
       final String videoSavePath = '${dir.path}/$videoFileName';
 
-      String? audioSavePath;
-      if (finalAudioUrl != null) {
-        audioSavePath = '${dir.path}/aud_${lessonId}_hq_v2.enc';
-      }
+      String? audioSavePath; // يبقى null دائماً للفيديوهات الجديدة بعد الدمج
+      // مسار صوت مؤقت/قديم فقط لتوافق الإصدارات السابقة عند القراءة لاحقاً
+
+      // مسارات مؤقتة (نص صريح غير مشفر) تُستخدم فقط أثناء التحميل+الدمج
+      // ثم تُحذف بأمان فوراً بعد تشفير الناتج النهائي - لا تُحفظ أبداً بشكل دائم
+      String? tempVideoPath;
+      String? tempAudioPath;
+      String? tempMuxedPath;
 
       if (isPdf) {
         // 📄 تحميل وتشفير الـ PDF عبر Isolate للحفاظ على استجابة الواجهة
@@ -306,22 +313,28 @@ class DownloadManager with WidgetsBindingObserver {
                     maxProgress: 100);
               }
             });
-      } else {
-        // 🎥 تحميل وتشفير الفيديو
+      } else if (finalAudioUrl != null) {
+        // 🎥🎵 حالة وجود مسارين منفصلين (فيديو بدون صوت + صوت منفصل):
+        // 1) تحميل الاثنين كملفات مؤقتة بنص صريح (غير مشفرة، عابرة فقط)
+        // 2) دمجهما (Mux) في ملف واحد بدون إعادة ترميز (FFmpeg stream-copy)
+        // 3) تشفير الملف المدموج فقط كنسخة نهائية واحدة
+        // 4) حذف آمن فوري للملفات المؤقتة الثلاثة (فيديو/صوت الخام + المدموج)
         double vidProg = 0.0;
         double audProg = 0.0;
+        const double muxWeight = 0.08; // وزن بسيط لمرحلة الدمج في التقدّم المعروض
+        const double encWeight = 0.07; // وزن مرحلة التشفير النهائي
 
-        void updateAggregatedProgress() {
+        void updateAggregatedProgress({double extra = 0.0}) {
           if (cancelToken.isCancelled) return;
-          double total = (finalAudioUrl != null)
-              ? (vidProg * 0.80) + (audProg * 0.20)
-              : vidProg;
+          double dlPortion = (1 - muxWeight - encWeight);
+          double total =
+              ((vidProg * 0.80) + (audProg * 0.20)) * dlPortion + extra;
           var prog = Map<String, double>.from(downloadingProgress.value);
-          prog[lessonId] = total;
+          prog[lessonId] = total.clamp(0.0, 1.0);
           downloadingProgress.value = prog;
-          onProgress(total);
+          onProgress(total.clamp(0.0, 1.0));
 
-          int percent = (total * 100).toInt();
+          int percent = (total.clamp(0.0, 1.0) * 100).toInt();
           if (percent % 2 == 0) {
             notifService.showProgressNotification(
               id: notificationId,
@@ -333,33 +346,123 @@ class DownloadManager with WidgetsBindingObserver {
           }
         }
 
-        final List<Future> tasks = [];
+        tempVideoPath =
+            await SecureTempService.newTempPath(lessonId, 'video_raw');
+        tempAudioPath =
+            await SecureTempService.newTempPath(lessonId, 'audio_raw');
+        tempMuxedPath =
+            await SecureTempService.newTempPath(lessonId, 'muxed');
 
-        tasks.add(_runVideoDownloadIsolate(
+        // نسخ غير قابلة للـ null لتمريرها بأمان للدوال التي تتطلب String غير nullable
+        final String videoRawPath = tempVideoPath;
+        final String audioRawPath = tempAudioPath;
+        final String muxedPath = tempMuxedPath;
+
+        try {
+          await Future.wait([
+            _runVideoDownloadIsolate(
+                url: finalVideoUrl,
+                savePath: videoRawPath,
+                headers: requestHeaders,
+                keyBytes: chachaKeyBytes,
+                cancelToken: cancelToken,
+                plaintext: true, // ✅ لا تشفير هنا - ملف عابر سيُدمج ثم يُشفّر لاحقاً
+                onProgress: (p) {
+                  vidProg = p;
+                  updateAggregatedProgress();
+                }),
+            _runVideoDownloadIsolate(
+                url: finalAudioUrl,
+                savePath: audioRawPath,
+                headers: requestHeaders,
+                keyBytes: chachaKeyBytes,
+                cancelToken: cancelToken,
+                plaintext: true, // ✅ لا تشفير هنا - ملف عابر سيُدمج ثم يُشفّر لاحقاً
+                onProgress: (p) {
+                  audProg = p;
+                  updateAggregatedProgress();
+                }),
+          ]);
+
+          if (cancelToken.isCancelled) {
+            throw DioException(
+                requestOptions: RequestOptions(path: finalVideoUrl),
+                type: DioExceptionType.cancel);
+          }
+
+          notifService.showProgressNotification(
+            id: notificationId,
+            title: "Merging: $videoTitle",
+            body: "Combining audio & video...",
+            progress: ((1 - encWeight) * 100).toInt(),
+            maxProgress: 100,
+          );
+
+          final bool muxOk = await VideoMuxService.muxVideoAudio(
+            videoPath: videoRawPath,
+            audioPath: audioRawPath,
+            outputPath: muxedPath,
+          );
+
+          if (!muxOk) {
+            throw Exception("Failed to merge audio and video streams");
+          }
+
+          // الفيديو الخام والصوت الخام لم يعودا مطلوبين بعد نجاح الدمج - حذف آمن فوري
+          await SecureTempService.secureDeleteAll(
+              [videoRawPath, audioRawPath]);
+          tempVideoPath = null;
+          tempAudioPath = null;
+
+          updateAggregatedProgress(extra: 1 - encWeight);
+
+          notifService.showProgressNotification(
+            id: notificationId,
+            title: "Encrypting: $videoTitle",
+            body: "Finalizing...",
+            progress: 95,
+            maxProgress: 100,
+          );
+
+          // ✅ تشفير الملف المدموج فقط (نسخة واحدة نهائية) إلى المسار الدائم
+          await FileCryptoService.encryptFileChunked(muxedPath, videoSavePath);
+
+          // الملف المدموج غير المشفر لم يعد مطلوباً بعد تشفيره - حذف آمن فوري
+          await SecureTempService.secureDelete(muxedPath);
+          tempMuxedPath = null;
+
+          updateAggregatedProgress(extra: 1.0);
+        } catch (e) {
+          // تنظيف أي ملفات مؤقتة متبقية عند فشل أي مرحلة من المراحل أعلاه
+          await SecureTempService.secureDeleteAll(
+              [tempVideoPath, tempAudioPath, tempMuxedPath]);
+          rethrow;
+        }
+      } else {
+        // 🎥 فيديو بمصدر واحد فقط (بدون صوت منفصل) - يبقى المسار القديم كما هو
+        await _runVideoDownloadIsolate(
             url: finalVideoUrl,
             savePath: videoSavePath,
             headers: requestHeaders, // التوكن مدمج هنا
             keyBytes: chachaKeyBytes,
             cancelToken: cancelToken,
             onProgress: (p) {
-              vidProg = p;
-              updateAggregatedProgress();
-            }));
-
-        if (finalAudioUrl != null && audioSavePath != null) {
-          tasks.add(_runVideoDownloadIsolate(
-              url: finalAudioUrl,
-              savePath: audioSavePath,
-              headers: requestHeaders, // التوكن مدمج هنا
-              keyBytes: chachaKeyBytes,
-              cancelToken: cancelToken,
-              onProgress: (p) {
-                audProg = p;
-                updateAggregatedProgress();
-              }));
-        }
-
-        await Future.wait(tasks);
+              if (cancelToken.isCancelled) return;
+              var prog = Map<String, double>.from(downloadingProgress.value);
+              prog[lessonId] = p;
+              downloadingProgress.value = prog;
+              onProgress(p);
+              int percent = (p * 100).toInt();
+              if (percent % 2 == 0) {
+                notifService.showProgressNotification(
+                  id: notificationId,
+                  title: "Downloading: $videoTitle",
+                  body: "$percent%",
+                  progress: percent,
+                  maxProgress: 100,
+                );
+              }
+            });
       }
 
       if (cancelToken.isCancelled)
@@ -397,6 +500,7 @@ class DownloadManager with WidgetsBindingObserver {
         title: videoTitle,
         isSuccess: true,
       );
+
 
       FirebaseCrashlytics.instance.log("✅ Download Success: $videoTitle");
       onComplete();
@@ -598,6 +702,7 @@ class DownloadManager with WidgetsBindingObserver {
     required List<int> keyBytes,
     required CancelToken cancelToken,
     required Function(double) onProgress,
+    bool plaintext = false,
   }) async {
     final ReceivePort port = ReceivePort();
 
@@ -607,6 +712,7 @@ class DownloadManager with WidgetsBindingObserver {
       'savePath': savePath,
       'headers': headers,
       'keyBytes': keyBytes,
+      'plaintext': plaintext,
     });
 
     final completer = Completer<void>();
@@ -687,6 +793,10 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     final String savePath = args['savePath'];
     final Map<String, dynamic> rawHeaders = args['headers'];
     final List<int> keyBytes = args['keyBytes'];
+    // ✅ وضع النص الصريح (بدون تشفير): يُستخدم فقط للملفات المؤقتة العابرة
+    // (فيديو/صوت خام قبل الدمج Mux) التي ستُحذف بأمان بعد تشفير الملف
+    // المدموج النهائي مباشرة - وليست تخزيناً دائماً غير مشفر.
+    final bool plaintext = args['plaintext'] == true;
 
     final Map<String, String> headers =
         rawHeaders.map((key, value) => MapEntry(key, value.toString()));
@@ -697,6 +807,9 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     const int NONCE_LENGTH = 12;
 
     Future<Uint8List> encryptData(List<int> data) async {
+      if (plaintext) {
+        return data is Uint8List ? data : Uint8List.fromList(data);
+      }
       final nonce = List<int>.generate(NONCE_LENGTH, (i) => Random.secure().nextInt(256));
       final box = await algorithm.encrypt(data, secretKey: secretKey, nonce: nonce);
       final builder = BytesBuilder(copy: false);
