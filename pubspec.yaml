@@ -70,6 +70,8 @@ dependencies:
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   path_provider: ^2.1.5 # الوصول لمسارات الملفات
+  # ✅ دمج فيديو + صوت (Mux) بدون إعادة ترميز - نسخة min (LGPL) كافية لأن stream-copy لا يحتاج أي كوديك ترميز
+  ffmpeg_kit_flutter_new_min: ^3.1.0
   permission_handler: ^12.0.1 # إدارة الأذونات
 
   # File Handling & Uploads
