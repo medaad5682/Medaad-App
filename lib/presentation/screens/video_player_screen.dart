@@ -75,25 +75,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Duration _accumulatedSeekAmount = Duration.zero;
 
   // ✅ [AV-SYNC] متغيرات مزامنة الصوت والصورة
-  // آخر موضع تم تسجيله للفيديو (video position)
   Duration _lastKnownPosition = Duration.zero;
-  // الوقت الحقيقي الذي سُجّل فيه هذا الموضع
   DateTime _lastPositionTimestamp = DateTime.now();
-  // مؤقت دوري لرصد الإطارات المجمّدة أو التقدّم المفاجئ للخلف
   Timer? _avSyncTimer;
-  // علامة: هل نحن في منتصف seek مقصود من المستخدم؟
   bool _isUserSeeking = false;
-  // علامة: هل يجري الآن resync تلقائي (لمنع التكرار)؟
   bool _isAutoResyncing = false;
 
   // ✅ [DOUBLE-TAP SEEK] متغيرات النقر المزدوج للتقديم/الرجوع
-  // عدد النقرات المتراكمة على اليسار (رجوع) وعلى اليمين (تقديم)
   int _leftTapCount = 0;
   int _rightTapCount = 0;
-  // مؤقت لإخفاء الـ overlay بعد توقف النقر
   Timer? _leftTapTimer;
   Timer? _rightTapTimer;
-  // هل يظهر الـ overlay الآن؟
   bool _showLeftTapOverlay = false;
   bool _showRightTapOverlay = false;
 
@@ -140,31 +132,22 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       curve: Curves.easeOut,
     );
 
-    _initializeProtection(); // ✅ تفعيل الحماية أولاً
+    _initializeProtection();
     _initializePlayerScreen();
   }
 
-  // ✅ 1. دالة تفعيل الحماية والاستماع للتسجيل
   Future<void> _initializeProtection() async {
     try {
-      // منع لقطات الشاشة وتسجيل الفيديو (يظهر شاشة سوداء)
       await FlutterWindowManagerPlus.addFlags(
           FlutterWindowManagerPlus.FLAG_SECURE);
-
-      // منع التقاط الصوت الداخلي
       await _protectionService.blockAudioCapture();
-
-      // بدء مراقبة التطبيقات التي تسجل الصوت
       await _protectionService.startMonitoring();
-
-      // الاستماع للتنبيهات
       _recordingSubscription =
           _protectionService.recordingStateStream.listen((isRecording) {
         if (isRecording) {
           _handleRecordingDetected();
         }
       });
-
       debugPrint("🛡️ Protection Enabled in Video Player");
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -172,28 +155,21 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
   }
 
-  // ✅ 2. دالة التعامل الصارم مع اكتشاف التسجيل (كتم الصوت + إيقاف)
   void _handleRecordingDetected() {
     if (!mounted) return;
-
     setState(() => _isRecordingDetected = true);
-
-    // 🛑 الإجراء الحاسم: كتم الصوت تماماً وإيقاف المشغل
     _player.setVolume(0.0);
     _player.pause();
-
     FirebaseCrashlytics.instance
         .log("🚨 Security: Screen Recording Detected! Player Muted & Paused.");
   }
 
-  // ✅ 3. مراقبة حالة التطبيق عند الخروج والعودة
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
       _player.pause();
     } else if (state == AppLifecycleState.resumed) {
       _protectionService.blockAudioCapture();
-      // إعادة التحقق: إذا كان هناك تسجيل، تأكد من كتم الصوت مجدداً
       if (_isRecordingDetected) {
         _player.setVolume(0.0);
         _player.pause();
@@ -247,14 +223,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         await (_player.platform as dynamic).setProperty('hwdec', 'auto');
       }
 
-      // ✅ [CACHE-PAUSE-WAIT] انتظر 3 ثوانٍ من البيانات قبل استئناف التشغيل
-      // بدلاً من الاستئناف فور وصول أي بيانات، يضمن هذا حصانة ضد الاهتزاز المتكرر
-      // على الشبكات البطيئة أو المتقطعة.
       await (_player.platform as dynamic)
           .setProperty('cache-pause-wait', '3');
-
-      // ✅ [AV-SYNC] إعدادات إضافية لتحسين مزامنة الصوت والصورة
-      // اجعل mpv يتسامح مع انجراف بسيط بين المسارين قبل أن يعيد المزامنة
       await (_player.platform as dynamic)
           .setProperty('audio-desync-correction', 'yes');
 
@@ -266,7 +236,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         ),
       );
 
-      // ✅ التعديل الأول (حل مشكلة الاتصال): اكتشاف انقطاع الإنترنت وإبلاغ المستخدم وحفظ مكان التوقف
       _player.stream.error.listen((error) {
         final errorString = error.toString().toLowerCase();
 
@@ -278,14 +247,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             errorString.contains('decoding audio')) {
           
           if (mounted && !_isDisposing) {
-            final currentPos = _player.state.position; // حفظ مكان التوقف بدقة
+            final currentPos = _player.state.position;
             setState(() {
               _isError = true;
               _errorPosition = currentPos;
               _errorMessage = "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
               _isVideoLoading = false;
             });
-            _player.pause(); // إيقاف المشغل لمنع التخبط
+            _player.pause();
           }
         }
 
@@ -295,19 +264,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       });
 
-      // ✅ 4. منع التشغيل التلقائي عند انتهاء التحميل إذا كان هناك تسجيل
       _player.stream.buffering.listen((buffering) {
         if (!buffering && _isVideoLoading) {
           if (mounted) {
             setState(() => _isVideoLoading = false);
-
-            // 🛑 حارس الأمان: لا تشغل إذا تم اكتشاف تسجيل
             if (_isRecordingDetected) {
               _player.setVolume(0.0);
               _player.pause();
               return;
             }
-
             if (_isOfflineMode) {
               _startCountdown();
             } else {
@@ -317,18 +282,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       });
 
-      // ✅ [AV-SYNC] تسجيل الموضع الحقيقي للفيديو باستمرار لرصد التقدّم الخاطئ للخلف
       _player.stream.position.listen((pos) {
-        // فقط عندما يكون الفيديو قيد التشغيل الفعلي (غير متوقف وغير في حالة خطأ)
         if (!_isDisposing && !_isError && !_isAutoResyncing) {
           _lastKnownPosition = pos;
           _lastPositionTimestamp = DateTime.now();
         }
       });
 
-      // ✅ [AV-SYNC] مراقب دوري: يكتشف تجمّد الإطارات والرجوع الخاطئ للخلف
       _startAvSyncWatchdog();
-
       _loadUserData();
       _startWatermarkAnimation();
 
@@ -367,13 +328,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
     _countdownTimer?.cancel();
 
-    // ✅ [AV-SYNC] إعادة تعيين حالة المراقب عند بدء تحميل فيديو جديد
-    // لمنع أي تدخّل خاطئ أثناء مرحلة التحميل
-    _isUserSeeking = true; // اعتبر مرحلة التحميل كـ seek مقصود
+    _isUserSeeking = true;
     _isAutoResyncing = false;
     _lastKnownPosition = startAt ?? Duration.zero;
     _lastPositionTimestamp = DateTime.now();
-    // سيُزال _isUserSeeking بعد ثانيتين من بدء التشغيل الفعلي (في stream.position)
     Future.delayed(const Duration(seconds: 3), () {
       if (!_isDisposing) _isUserSeeking = false;
     });
@@ -395,7 +353,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         final file = File(playUrl);
         if (!await file.exists()) throw Exception("Offline file missing");
         
-        // ✅ [FIX F-08] استخدام الرابط الموقّع بشكل ديناميكي (HMAC)
         playUrl = _proxyService.getSignedUrl(file.path, isAudio: false);
 
         if (audioUrl == null && Hive.isBoxOpen('downloads_box')) {
@@ -410,7 +367,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             if (downloadItem != null && downloadItem['audioPath'] != null) {
               final audioPath = downloadItem['audioPath'];
               if (await File(audioPath).exists()) {
-                // ✅ [FIX F-08] استخدام الرابط الموقّع للملف الصوتي أيضاً
                 audioUrl = _proxyService.getSignedUrl(audioPath, isAudio: true);
               }
             }
@@ -429,7 +385,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
       await _player.open(Media(playUrl, httpHeaders: headers), play: false);
 
-      // ✅ 5. حارس أمان إضافي عند فتح الميديا
       if (_isRecordingDetected) {
         await _player.setVolume(0.0);
         return;
@@ -472,13 +427,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   Future<void> _seekRelative(Duration amount) async {
-    // منع التنقل إذا كان هناك تسجيل
     if (_isRecordingDetected) return;
 
     _accumulatedSeekAmount += amount;
     if (_seekDebounceTimer?.isActive ?? false) _seekDebounceTimer!.cancel();
 
-    // ✅ [CASE-2] علّم الـ watchdog بأن ما سيأتي هو seek مقصود من المستخدم
     _isUserSeeking = true;
 
     _seekDebounceTimer = Timer(const Duration(milliseconds: 600), () async {
@@ -497,8 +450,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         FirebaseCrashlytics.instance.recordError(e, null, reason: 'Seek Error');
       } finally {
         _accumulatedSeekAmount = Duration.zero;
-        // أعطِ mpv ثانية لتستقر ثم أزل علامة الـ user-seek
-        // حتى يعود الـ watchdog للمراقبة الطبيعية
         Future.delayed(const Duration(seconds: 1), () {
           _isUserSeeking = false;
         });
@@ -506,23 +457,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
   }
 
-  // ✅ [AV-SYNC] الدالة الرئيسية للمراقبة الدورية لمزامنة الصوت والصورة
   void _startAvSyncWatchdog() {
     _avSyncTimer?.cancel();
 
-    // فحص كل ثانية واحدة
     _avSyncTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_isDisposing) {
         timer.cancel();
         return;
       }
-      // لا تفحص في هذه الحالات:
-      // - يتم التهيئة أو الإغلاق
-      // - يوجد خطأ
-      // - الفيديو محمّل (loading)
-      // - الفيديو متوقف (paused) - لا يوجد تقدّم متوقع
-      // - المستخدم يقوم بـ seek
-      // - يجري resync الآن
       if (!_isInitialized ||
           _isError ||
           _isVideoLoading ||
@@ -531,31 +473,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           _isAutoResyncing) return;
 
       final isPlaying = _player.state.playing;
-      if (!isPlaying) return; // الفيديو متوقف بشكل مقصود
+      if (!isPlaying) return;
 
       final currentPos = _player.state.position;
       final duration = _player.state.duration;
 
-      // تجاهل إذا كانت المدة غير معروفة بعد
       if (duration == Duration.zero) return;
 
-      // ──────────────────────────────────────────────────────────────
-      // [CASE-1A] رصد الرجوع المفاجئ للخلف أثناء التشغيل
-      //
-      // السيناريو: المستخدم كان عند 1:36 ↔ موضع الصورة رجع فجأة إلى ~00:00
-      // بينما الصوت يستمر بشكل طبيعي.
-      //
-      // المنطق: إذا انخفض الموضع الحالي بأكثر من 5 ثوانٍ عن آخر موضع
-      // مسجَّل (وكان آخر موضع قد تم تسجيله منذ أقل من 3 ثوانٍ)،
-      // فهذا يعني أن الصورة قفزت للخلف بشكل غير مقصود.
-      // ──────────────────────────────────────────────────────────────
       final timeSinceLastRecord =
           DateTime.now().difference(_lastPositionTimestamp).inMilliseconds;
 
-      if (timeSinceLastRecord < 3000 && // الموضع الأخير حديث
-          _lastKnownPosition.inSeconds > 5 && // لم نكن في البداية
+      if (timeSinceLastRecord < 3000 &&
+          _lastKnownPosition.inSeconds > 5 &&
           currentPos < _lastKnownPosition - const Duration(seconds: 5)) {
-        // الصورة رجعت للخلف بأكثر من 5 ثوانٍ دون طلب المستخدم
         debugPrint(
             "⚠️ [AV-SYNC] Video jumped back! was=${_lastKnownPosition.inSeconds}s now=${currentPos.inSeconds}s → resyncing silently");
         FirebaseCrashlytics.instance.log(
@@ -564,22 +494,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         return;
       }
 
-      // ──────────────────────────────────────────────────────────────
-      // [CASE-1B] رصد تجمّد الإطارات (frozen video)
-      //
-      // السيناريو: الفيديو "يلعب" لكن الموضع لا يتقدم لأكثر من 4 ثوانٍ.
-      // الصوت يستمر لكن الصورة ثابتة.
-      //
-      // المنطق: إذا مرّت 4+ ثوانٍ وموضع الصورة لم يتغير بما يكفي،
-      // نعيد المزامنة للموضع الصحيح بصمت.
-      // ──────────────────────────────────────────────────────────────
       if (timeSinceLastRecord > 4000) {
-        // مرّت أكثر من 4 ثوانٍ بدون تحديث للموضع رغم أن الفيديو "يشتغل"
-        // → الصورة مجمّدة
         final expectedPos =
             _lastKnownPosition + Duration(milliseconds: timeSinceLastRecord);
 
-        // إذا كان الموضع المتوقع أقل من نهاية الفيديو بثانيتين (أي لم ننتهِ)
         if (expectedPos < duration - const Duration(seconds: 2) &&
             currentPos < expectedPos - const Duration(seconds: 3)) {
           debugPrint(
@@ -592,20 +510,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
   }
 
-  // ✅ [AV-SYNC] إعادة المزامنة بصمت: نقل الصورة للموضع الصحيح دون مقاطعة الصوت
   Future<void> _silentResync(Duration targetPosition) async {
     if (_isAutoResyncing || _isDisposing || _isError) return;
 
     _isAutoResyncing = true;
     try {
       final duration = _player.state.duration;
-      // تأكد أن الهدف منطقي
       if (duration == Duration.zero || targetPosition > duration) {
         _isAutoResyncing = false;
         return;
       }
 
-      // اجعل الهدف في حدود الفيديو مع هامش أمان 0.5 ثانية
       final safeTarget = targetPosition < Duration.zero
           ? Duration.zero
           : (targetPosition > duration - const Duration(milliseconds: 500)
@@ -613,8 +528,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               : targetPosition);
 
       await _player.seek(safeTarget);
-
-      // انتظر ثانية لتستقر الصورة ثم أعد التسجيل
       await Future.delayed(const Duration(seconds: 1));
 
       if (!_isDisposing) {
@@ -629,23 +542,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
   }
 
-  // ✅ [DOUBLE-TAP SEEK] معالج النقر المزدوج على اليسار
-  // المنطق الصحيح للعدّ:
-  //   onDoubleTap الأول  (2 نقرات) = _leftTapCount يصبح 1 → 10s
-  //   نقرة ثالثة         (3 نقرات) = _leftTapCount يصبح 2 → 20s
-  //   نقرة رابعة         (4 نقرات) = _leftTapCount يصبح 3 → 30s
   void _onDoubleTapLeft() {
     if (_isRecordingDetected || _isDisposing || _isError) return;
 
     _leftTapCount++;
-
-    // شغّل أنيميشن الدائرة المتموجة من الصفر عند كل نقرة
     _leftRippleController.forward(from: 0.0);
 
     if (mounted) setState(() => _showLeftTapOverlay = true);
 
-    // نُعيد ضبط المؤقت في كل نقرة جديدة
-    // عند انتهاء المهلة نستخدم _leftTapCount الحالي (وليس snapshot قديم)
     _leftTapTimer?.cancel();
     _leftTapTimer = Timer(const Duration(milliseconds: 600), () {
       if (!mounted) return;
@@ -659,12 +563,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
   }
 
-  // ✅ [DOUBLE-TAP SEEK] معالج النقر المزدوج على اليمين
   void _onDoubleTapRight() {
     if (_isRecordingDetected || _isDisposing || _isError) return;
 
     _rightTapCount++;
-
     _rightRippleController.forward(from: 0.0);
 
     if (mounted) setState(() => _showRightTapOverlay = true);
@@ -682,19 +584,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
   }
 
-  // ✅ [LONG-PRESS SPEED] تفعيل سرعة ×2 عند الضغط المطوّل
-  // يمنع ظهور شريط التحكم تلقائياً عند الضغط المطوّل
   void _onLongPressStart() {
     if (_isRecordingDetected || _isDisposing || _isError) return;
     if (mounted) setState(() => _isLongPressActive = true);
     _player.setRate(2.0);
   }
 
-  // ✅ [LONG-PRESS SPEED] العودة للسرعة الأصلية عند رفع الإصبع
   void _onLongPressEnd() {
     if (_isDisposing) return;
     if (mounted) setState(() => _isLongPressActive = false);
-    _player.setRate(_currentSpeed); // العودة للسرعة التي اختارها المستخدم
+    _player.setRate(_currentSpeed);
   }
 
   void _showSettingsSheet() {
@@ -821,8 +720,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         timer.cancel();
         if (mounted) {
           setState(() => _stabilizingCountdown = 0);
-
-          // ✅ 6. حارس الأمان للعد التنازلي
           if (!_isRecordingDetected) {
             _player.play();
           } else {
@@ -847,14 +744,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
 
     _sortedQualities = widget.streams.keys.toList();
-    // ترتيب الجودات تصاعدياً (مثلاً 360p ثم 480p ثم 720p)
     _sortedQualities.sort((a, b) {
       int valA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       int valB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       return valA.compareTo(valB);
     });
 
-    // اختيار الجودة الأولية: 480p ثم 360p ثم 720p ثم أعلى جودة متاحة
     if (_sortedQualities.contains("480p")) {
       _currentQuality = "480p";
     } else if (_sortedQualities.contains("360p")) {
@@ -862,7 +757,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     } else if (_sortedQualities.contains("720p")) {
       _currentQuality = "720p";
     } else if (_sortedQualities.isNotEmpty) {
-      _currentQuality = _sortedQualities.last; // آخر عنصر في الترتيب التصاعدي هو الأعلى
+      _currentQuality = _sortedQualities.last;
     } else {
       _currentQuality = "";
     }
@@ -913,15 +808,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
   }
 
-  // ✅ التعديل الثاني (حل مشكلة أبعاد الشاشة والمربع الأسود عند الخروج): 
-  // فرض العودة للوضع الطولي وإعطاء النظام مهلة لإعادة رسم الواجهة قبل الرجوع
   Future<void> _resetSystemChrome() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
         overlays: SystemUiOverlay.values);
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
     ]);
-    await Future.delayed(const Duration(milliseconds: 250)); // مهلة الرسم
+    await Future.delayed(const Duration(milliseconds: 250));
   }
 
   Future<void> _safeExit() async {
@@ -933,19 +826,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _seekDebounceTimer?.cancel();
       _watermarkTimer?.cancel();
       _countdownTimer?.cancel();
-      _avSyncTimer?.cancel(); // ✅ [AV-SYNC] إيقاف مراقب المزامنة
-      _leftTapTimer?.cancel();  // ✅ [DOUBLE-TAP] إيقاف مؤقتات النقر
+      _avSyncTimer?.cancel();
+      _leftTapTimer?.cancel();
       _rightTapTimer?.cancel();
-      _leftTapInhibitTimer?.cancel(); // ✅ [TAP-INTERCEPT] إيقاف مؤقتات منع التحكم
+      _leftTapInhibitTimer?.cancel();
       _rightTapInhibitTimer?.cancel();
-      _leftRippleController.dispose();  // ✅ [RIPPLE] تحرير متحكمات الأنيميشن
+      _leftRippleController.dispose();
       _rightRippleController.dispose();
       await _player.stop();
       await _player.dispose();
       await WakelockPlus.disable();
-      
-      // التأكد من استدعاء إرجاع الأبعاد بشكل صحيح ومزامنتها قبل الخروج
-      await _resetSystemChrome(); 
+      await _resetSystemChrome();
     } catch (e) {
       debugPrint("⚠️ SafeExit Error: $e");
     } finally {
@@ -963,10 +854,142 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     super.dispose();
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Helper: builds one symmetric seek overlay (left rewind / right forward)
+  //
+  // [isLeft]        true  → rewind chevrons pointing left
+  //                 false → forward chevrons pointing right
+  // [tapCount]      number of accumulated double-taps so far
+  // [rippleAnim]    the Animation<double> for the expanding ripple ring
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildSeekOverlay({
+    required bool isLeft,
+    required int tapCount,
+    required Animation<double> rippleAnim,
+  }) {
+    // ── Icon choice ──────────────────────────────────────────────────────
+    // Both sides use the same "double chevron" family so they are
+    // mirror images of each other — not two completely different metaphors.
+    final IconData seekIcon = isLeft
+        ? Icons.keyboard_double_arrow_left_rounded
+        : Icons.keyboard_double_arrow_right_rounded;
+
+    // ── Gradient runs inward from the tapped edge → transparent centre ───
+    final gradient = LinearGradient(
+      begin: isLeft ? Alignment.centerLeft : Alignment.centerRight,
+      end: isLeft ? Alignment.centerRight : Alignment.centerLeft,
+      colors: [
+        Colors.black.withOpacity(0.28),
+        Colors.transparent,
+      ],
+    );
+
+    // ── Rounded corner on the inward edge only ────────────────────────────
+    final borderRadius = isLeft
+        ? const BorderRadius.only(
+            topRight: Radius.circular(999),
+            bottomRight: Radius.circular(999),
+          )
+        : const BorderRadius.only(
+            topLeft: Radius.circular(999),
+            bottomLeft: Radius.circular(999),
+          );
+
+    return IgnorePointer(
+      child: AnimatedOpacity(
+        opacity: 1.0,
+        duration: const Duration(milliseconds: 120),
+        child: Stack(
+          children: [
+            // ── Background gradient ────────────────────────────────────
+            Container(
+              decoration: BoxDecoration(
+                gradient: gradient,
+                borderRadius: borderRadius,
+              ),
+            ),
+
+            // ── Expanding ripple ring ──────────────────────────────────
+            Center(
+              child: AnimatedBuilder(
+                animation: rippleAnim,
+                builder: (_, __) {
+                  final size = 72.0 + rippleAnim.value * 36.0;
+                  return Opacity(
+                    opacity: (1.0 - rippleAnim.value) * 0.35,
+                    child: Container(
+                      width: size,
+                      height: size,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2.5),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            // ── Main circle with icon + label ──────────────────────────
+            Center(
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.18),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.45),
+                    width: 1.5,
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // ── Seek direction icon ──────────────────────────
+                    Icon(seekIcon, color: Colors.white, size: 28),
+                    const SizedBox(height: 2),
+                    // ── Dynamic seconds label (10s, 20s, 30s …) ─────
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      transitionBuilder: (child, anim) => ScaleTransition(
+                        scale: Tween<double>(begin: 0.6, end: 1.0).animate(
+                          CurvedAnimation(
+                              parent: anim, curve: Curves.easeOutBack),
+                        ),
+                        child: FadeTransition(opacity: anim, child: child),
+                      ),
+                      child: Text(
+                        '${tapCount * 10}s',
+                        key: ValueKey(tapCount),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final padding = MediaQuery.of(context).viewPadding;
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Controls theme
+    // • Seek buttons (replay_10 / forward_10) removed from primaryButtonBar.
+    //   Seeking is now exclusively via left/right double-tap gestures.
+    // • The progress bar + position indicator remain in the bottom bar.
+    // ─────────────────────────────────────────────────────────────────────
     final controlsTheme = MaterialVideoControlsThemeData(
       displaySeekBar: false,
       padding: EdgeInsets.only(
@@ -977,21 +1000,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       bottomButtonBar: [
         const MaterialPositionIndicator(),
         const SizedBox(width: 10),
-        // ✅ [CASE-2] تمييز السحب على شريط التقدم كـ seek مقصود من المستخدم
-        // لمنع الـ AV-Sync watchdog من التدخل أثناء أو بعد السحب مباشرةً
+        // ✅ [CASE-2] تمييز السحب على شريط التقدم كـ seek مقصود
         Expanded(
           child: GestureDetector(
             onHorizontalDragStart: (_) {
               _isUserSeeking = true;
             },
             onHorizontalDragEnd: (_) {
-              // أعطِ mpv ثانية ونصف لتستقر بعد الـ seek
               Future.delayed(const Duration(milliseconds: 1500), () {
                 _isUserSeeking = false;
               });
             },
             onTapDown: (_) {
-              // النقر المباشر على الشريط أيضاً يُعدّ seek مقصود
               _isUserSeeking = true;
             },
             onTapUp: (_) {
@@ -1026,19 +1046,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 fontSize: 16,
                 fontWeight: FontWeight.bold)),
       ],
+      // ── Only play/pause remains in the centre — no seek buttons ──────
       primaryButtonBar: [
         const Spacer(flex: 2),
-        MaterialCustomButton(
-          onPressed: () => _seekRelative(const Duration(seconds: -10)),
-          icon: const Icon(Icons.replay_10, size: 36, color: Colors.white),
-        ),
-        const SizedBox(width: 24),
         const MaterialPlayOrPauseButton(iconSize: 56),
-        const SizedBox(width: 24),
-        MaterialCustomButton(
-          onPressed: () => _seekRelative(const Duration(seconds: 10)),
-          icon: const Icon(Icons.forward_10, size: 36, color: Colors.white),
-        ),
         const Spacer(flex: 2),
       ],
       automaticallyImplySkipNextButton: false,
@@ -1082,7 +1093,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                           FirebaseCrashlytics.instance
                               .log("🔄 User clicked Retry on network error");
                           setState(() => _isError = false);
-                          // ✅ تمرير وقت التوقف (errorPosition) ليعود لنفس الدقيقة
                           _playVideo(widget.streams[_currentQuality]!, startAt: _errorPosition);
                         },
                         style: ElevatedButton.styleFrom(
@@ -1097,8 +1107,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               )
             else
               Center(
-                // ✅ التعديل الثالث (حل مشكلة انهيار شريط التقديم Null Check):
-                // نمنع لمس المشغل والشريط بالكامل إذا كان هناك خطأ أو يتم إغلاق الشاشة
                 child: IgnorePointer(
                   ignoring: _isDisposing || _isError,
                   child: MaterialVideoControlsTheme(
@@ -1154,19 +1162,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
-            // ✅ [DOUBLE-TAP + LONG-PRESS] طبقة الإيماءات فوق المشغّل مباشرةً
-            // مقسّمة إلى نصفين: يسار (رجوع) ويمين (تقديم)
-            // ⚠️ مستثنىٌ منها الشريط العلوي (70px) والشريط السفلي (70px)
-            //    حتى تعمل أزرار الرجوع والتصغير بشكل طبيعي
-            //
-            // منطق النقرات (HitTestBehavior.translucent):
-            //   - النقرة الفردية: تمر عبر الطبقة إلى مشغّل الفيديو (media_kit يُبدّل التحكم)
-            //     ولا تُطلق onTap عند وجود onDoubleTap إلا بعد انتهاء مهلة 300ms
-            //   - النقرة المزدوجة: يفوز onDoubleTap في arena الإيماءات → seek
-            //     والـ onTap الأول يُلغى تلقائياً → لا flash للتحكم
-            //   - ضغط مطوّل: تُنفّذ السرعة ×2 مباشرةً
-            //
-            // translucent بدلاً من opaque يسمح للنقرة الفردية بالوصول لـ media_kit
+            // ── Gesture layer: left half (rewind) + right half (forward) ──
             if (!_isDisposing && !_isError && _isInitialized && !_isRecordingDetected)
               Positioned(
                 top: 70,
@@ -1175,14 +1171,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 right: 0,
                 child: Row(
                   children: [
-                    // ─── النصف الأيسر: رجوع ─10s بالنقر المزدوج ───
                     Expanded(
                       child: GestureDetector(
-                        // translucent: النقرة الفردية تصل لـ media_kit من تحتنا
-                        // onDoubleTap يُلغي onTap تلقائياً في Flutter gesture arena
                         behavior: HitTestBehavior.translucent,
-                        // onTap مؤجّل 300ms بسبب وجود onDoubleTap → لا flash عند النقر المزدوج
-                        // يُستخدم فقط عندما يكون overlay نشطاً لإضافة 10s إضافية (نقرة ثالثة/رابعة)
                         onTap: _showLeftTapOverlay ? _onDoubleTapLeft : null,
                         onDoubleTap: _onDoubleTapLeft,
                         onLongPressStart: (_) => _onLongPressStart(),
@@ -1191,7 +1182,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         child: const SizedBox.expand(),
                       ),
                     ),
-                    // ─── النصف الأيمن: تقديم +10s بالنقر المزدوج ───
                     Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
@@ -1207,221 +1197,35 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
-            // ✅ [DOUBLE-TAP OVERLAY] مؤشر دائري للنقر المزدوج على اليسار
+            // ── Left seek overlay ─────────────────────────────────────────
             if (_showLeftTapOverlay && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 left: 0,
                 top: 0,
                 bottom: 0,
                 width: MediaQuery.of(context).size.width * 0.45,
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    opacity: _showLeftTapOverlay ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 120),
-                    child: Stack(
-                      children: [
-                        // خلفية متدرجة
-                        Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                              colors: [
-                                Colors.black.withOpacity(0.25),
-                                Colors.transparent,
-                              ],
-                            ),
-                            borderRadius: const BorderRadius.only(
-                              topRight: Radius.circular(999),
-                              bottomRight: Radius.circular(999),
-                            ),
-                          ),
-                        ),
-                        // دائرة متموجة (ripple)
-                        Center(
-                          child: AnimatedBuilder(
-                            animation: _leftRippleAnim,
-                            builder: (_, __) {
-                              final rippleSize = 72.0 + (_leftRippleAnim.value * 36.0);
-                              return Opacity(
-                                opacity: (1.0 - _leftRippleAnim.value) * 0.35,
-                                child: Container(
-                                  width: rippleSize,
-                                  height: rippleSize,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 2.5,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        // الدائرة الرئيسية + المحتوى
-                        Center(
-                          child: Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white.withOpacity(0.18),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.45),
-                                width: 1.5,
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(
-                                  Icons.replay_rounded,
-                                  color: Colors.white,
-                                  size: 26,
-                                ),
-                                const SizedBox(height: 2),
-                                AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  transitionBuilder: (child, anim) =>
-                                      ScaleTransition(
-                                    scale: Tween<double>(begin: 0.6, end: 1.0)
-                                        .animate(CurvedAnimation(
-                                            parent: anim,
-                                            curve: Curves.easeOutBack)),
-                                    child: FadeTransition(
-                                        opacity: anim, child: child),
-                                  ),
-                                  child: Text(
-                                    '${_leftTapCount * 10}s',
-                                    key: ValueKey(_leftTapCount),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      decoration: TextDecoration.none,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                child: _buildSeekOverlay(
+                  isLeft: true,
+                  tapCount: _leftTapCount,
+                  rippleAnim: _leftRippleAnim,
                 ),
               ),
 
-            // ✅ [DOUBLE-TAP OVERLAY] مؤشر دائري للنقر المزدوج على اليمين
+            // ── Right seek overlay ────────────────────────────────────────
             if (_showRightTapOverlay && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 right: 0,
                 top: 0,
                 bottom: 0,
                 width: MediaQuery.of(context).size.width * 0.45,
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    opacity: _showRightTapOverlay ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 120),
-                    child: Stack(
-                      children: [
-                        // خلفية متدرجة
-                        Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.centerRight,
-                              end: Alignment.centerLeft,
-                              colors: [
-                                Colors.black.withOpacity(0.25),
-                                Colors.transparent,
-                              ],
-                            ),
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(999),
-                              bottomLeft: Radius.circular(999),
-                            ),
-                          ),
-                        ),
-                        // دائرة متموجة (ripple)
-                        Center(
-                          child: AnimatedBuilder(
-                            animation: _rightRippleAnim,
-                            builder: (_, __) {
-                              final rippleSize = 72.0 + (_rightRippleAnim.value * 36.0);
-                              return Opacity(
-                                opacity: (1.0 - _rightRippleAnim.value) * 0.35,
-                                child: Container(
-                                  width: rippleSize,
-                                  height: rippleSize,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 2.5,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        // الدائرة الرئيسية + المحتوى
-                        Center(
-                          child: Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white.withOpacity(0.18),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.45),
-                                width: 1.5,
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(
-                                  Icons.forward_rounded,
-                                  color: Colors.white,
-                                  size: 26,
-                                ),
-                                const SizedBox(height: 2),
-                                AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 200),
-                                  transitionBuilder: (child, anim) =>
-                                      ScaleTransition(
-                                    scale: Tween<double>(begin: 0.6, end: 1.0)
-                                        .animate(CurvedAnimation(
-                                            parent: anim,
-                                            curve: Curves.easeOutBack)),
-                                    child: FadeTransition(
-                                        opacity: anim, child: child),
-                                  ),
-                                  child: Text(
-                                    '${_rightTapCount * 10}s',
-                                    key: ValueKey(_rightTapCount),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      decoration: TextDecoration.none,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                child: _buildSeekOverlay(
+                  isLeft: false,
+                  tapCount: _rightTapCount,
+                  rippleAnim: _rightRippleAnim,
                 ),
               ),
 
-            // ✅ [LONG-PRESS SPEED] مؤشر مرئي للتسريع ×2 عند الضغط المطوّل
+            // ── Long-press ×2 speed indicator ─────────────────────────────
             if (_isLongPressActive && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 top: 20,
@@ -1463,8 +1267,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
             if (!_isDisposing && !_isError && _isInitialized)
               AnimatedAlign(
-                alignment: _watermarkAlignment, // 👈 تم إضافة هذا السطر
-                duration: const Duration(seconds: 2), // 👈 وتم إضافة هذا السطر
+                alignment: _watermarkAlignment,
+                duration: const Duration(seconds: 2),
                 child: IgnorePointer(
                   child: Container(
                     padding:
@@ -1482,7 +1286,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
             
-            // ✅ 7. شاشة التحذير الحمراء مع التهديد
+            // ── Security alert overlay ────────────────────────────────────
             if (_isRecordingDetected)
               Container(
                 color: Colors.red.shade900,
@@ -1505,7 +1309,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.white70, fontSize: 16)),
                     const SizedBox(height: 32),
-                    // ⚠️ صندوق التهديد
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 32),
                       padding: const EdgeInsets.all(16),
