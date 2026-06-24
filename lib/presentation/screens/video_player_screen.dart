@@ -100,6 +100,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   // ✅ [LONG-PRESS SPEED] متغيرات الضغط المطوّل لتسريع ×2
   bool _isLongPressActive = false;
 
+  // ✅ [TAP-INTERCEPT] مؤقت لاكتشاف ما إذا كانت النقرة جزءاً من نقر مزدوج
+  // يُستخدم لمنع ظهور شريط التحكم عند النقر الأول من تسلسل نقر مزدوج
+  Timer? _leftTapInhibitTimer;
+  Timer? _rightTapInhibitTimer;
+  // عدد النقرات الخام لكل جانب (قبل انتهاء مهلة التحديد)
+  int _leftRawTapCount = 0;
+  int _rightRawTapCount = 0;
+
   final Map<String, String> _serverHeaders = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
@@ -599,52 +607,57 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   // ✅ [DOUBLE-TAP SEEK] معالج النقر المزدوج على اليسار
-  // 1 نقرة = لا شيء | 2 نقرة = 10s | 3 نقرات = 20s | ...
+  // يُستدعى فقط عند تأكيد النقر المزدوج (من onDoubleTap)
+  // لا يظهر شريط التحكم لأن onDoubleTap لا يُطلق onTap قبله
+  // النقر المزدوج = ─10s | ثلاثة نقرات متتالية = ─20s | إلخ...
   void _onDoubleTapLeft() {
     if (_isRecordingDetected || _isDisposing || _isError) return;
 
+    // نزيد العداد (يُعيَّن صفرًا بعد 500ms من آخر نقرة)
     _leftTapCount++;
-    // الثانية الأولى = نقرة واحدة (لا seek) → نبدأ العدّ من النقرة الثانية
-    // 2 نقرات = (2-1)*10 = 10s | 3 نقرات = (3-1)*10 = 20s
-    final totalSeconds = (_leftTapCount - 1) * 10;
+    final capturedCount = _leftTapCount;
+
+    // أظهر الـ overlay فورًا
+    if (mounted) setState(() => _showLeftTapOverlay = true);
 
     _leftTapTimer?.cancel();
-    _leftTapTimer = Timer(const Duration(milliseconds: 400), () {
-      // نقرة فردية فقط: تجاهل — يمرّر الحدث للمشغّل
-      if (_leftTapCount == 1) {
-        if (mounted) setState(() { _showLeftTapOverlay = false; _leftTapCount = 0; });
-        return;
-      }
+    _leftTapTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      // نُنفّذ الـ seek بعدد النقرات المتراكمة: كل نقرة مزدوجة إضافية = 10s
+      final totalSeconds = capturedCount * 10;
       _seekRelative(Duration(seconds: -totalSeconds));
-      if (mounted) setState(() { _showLeftTapOverlay = false; _leftTapCount = 0; });
+      setState(() {
+        _showLeftTapOverlay = false;
+        _leftTapCount = 0;
+        _leftRawTapCount = 0;
+      });
     });
-
-    // أظهر الـ overlay فقط من النقرة الثانية فصاعداً
-    if (_leftTapCount >= 2 && mounted) setState(() => _showLeftTapOverlay = true);
   }
 
   // ✅ [DOUBLE-TAP SEEK] معالج النقر المزدوج على اليمين
-  // 1 نقرة = لا شيء | 2 نقرة = 10s | 3 نقرات = 20s | ...
   void _onDoubleTapRight() {
     if (_isRecordingDetected || _isDisposing || _isError) return;
 
     _rightTapCount++;
-    final totalSeconds = (_rightTapCount - 1) * 10;
+    final capturedCount = _rightTapCount;
+
+    if (mounted) setState(() => _showRightTapOverlay = true);
 
     _rightTapTimer?.cancel();
-    _rightTapTimer = Timer(const Duration(milliseconds: 400), () {
-      if (_rightTapCount == 1) {
-        if (mounted) setState(() { _showRightTapOverlay = false; _rightTapCount = 0; });
-        return;
-      }
+    _rightTapTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      final totalSeconds = capturedCount * 10;
       _seekRelative(Duration(seconds: totalSeconds));
-      if (mounted) setState(() { _showRightTapOverlay = false; _rightTapCount = 0; });
+      setState(() {
+        _showRightTapOverlay = false;
+        _rightTapCount = 0;
+        _rightRawTapCount = 0;
+      });
     });
-
-    if (_rightTapCount >= 2 && mounted) setState(() => _showRightTapOverlay = true);
   }
 
   // ✅ [LONG-PRESS SPEED] تفعيل سرعة ×2 عند الضغط المطوّل
+  // يمنع ظهور شريط التحكم تلقائياً عند الضغط المطوّل
   void _onLongPressStart() {
     if (_isRecordingDetected || _isDisposing || _isError) return;
     if (mounted) setState(() => _isLongPressActive = true);
@@ -897,6 +910,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _avSyncTimer?.cancel(); // ✅ [AV-SYNC] إيقاف مراقب المزامنة
       _leftTapTimer?.cancel();  // ✅ [DOUBLE-TAP] إيقاف مؤقتات النقر
       _rightTapTimer?.cancel();
+      _leftTapInhibitTimer?.cancel(); // ✅ [TAP-INTERCEPT] إيقاف مؤقتات منع التحكم
+      _rightTapInhibitTimer?.cancel();
       await _player.stop();
       await _player.dispose();
       await WakelockPlus.disable();
@@ -1113,16 +1128,23 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
             // ✅ [DOUBLE-TAP + LONG-PRESS] طبقة الإيماءات فوق المشغّل مباشرةً
             // مقسّمة إلى نصفين: يسار (رجوع) ويمين (تقديم)
-            // يجب أن تكون فوق الفيديو وتحت الـ overlay المرئي ليظهر عليها
+            // ⚠️ مستثنىٌ منها الشريط العلوي (70px) والشريط السفلي (70px)
+            //    حتى تعمل أزرار الرجوع والتصغير بشكل طبيعي
             if (!_isDisposing && !_isError && _isInitialized && !_isRecordingDetected)
-              Positioned.fill(
+              Positioned(
+                top: 70,    // تجاوز شريط التحكم العلوي (زر الرجوع والعنوان)
+                bottom: 70, // تجاوز شريط التحكم السفلي (شريط التقدم والأزرار)
+                left: 0,
+                right: 0,
                 child: Row(
                   children: [
                     // ─── النصف الأيسر: رجوع ─10s بالنقر المزدوج + ×2 بالضغط المطوّل ───
+                    // يمتد من الحافة اليسرى حتى منتصف الشاشة
                     Expanded(
                       child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: _onDoubleTapLeft,
+                        behavior: HitTestBehavior.opaque,
+                        // onDoubleTap يتعرف مباشرةً على النقر المزدوج دون تمرير للمشغل
+                        onDoubleTap: _onDoubleTapLeft,
                         onLongPressStart: (_) => _onLongPressStart(),
                         onLongPressEnd: (_) => _onLongPressEnd(),
                         onLongPressCancel: _onLongPressEnd,
@@ -1130,10 +1152,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                       ),
                     ),
                     // ─── النصف الأيمن: تقديم +10s بالنقر المزدوج + ×2 بالضغط المطوّل ───
+                    // يمتد من منتصف الشاشة حتى الحافة اليمنى
                     Expanded(
                       child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: _onDoubleTapRight,
+                        behavior: HitTestBehavior.opaque,
+                        onDoubleTap: _onDoubleTapRight,
                         onLongPressStart: (_) => _onLongPressStart(),
                         onLongPressEnd: (_) => _onLongPressEnd(),
                         onLongPressCancel: _onLongPressEnd,
@@ -1177,7 +1200,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                             const Icon(Icons.replay, color: Colors.white, size: 32),
                             const SizedBox(height: 4),
                             Text(
-                              '${(_leftTapCount - 1) * 10}s',
+                              '${_leftTapCount * 10}s',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 15,
@@ -1226,7 +1249,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                             const Icon(Icons.forward, color: Colors.white, size: 32),
                             const SizedBox(height: 4),
                             Text(
-                              '${(_rightTapCount - 1) * 10}s',
+                              '${_rightTapCount * 10}s',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 15,
