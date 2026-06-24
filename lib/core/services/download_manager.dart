@@ -398,14 +398,15 @@ class DownloadManager with WidgetsBindingObserver {
             maxProgress: 100,
           );
 
-          final bool muxOk = await VideoMuxService.muxVideoAudio(
+          final muxResult = await VideoMuxService.muxVideoAudio(
             videoPath: videoRawPath,
             audioPath: audioRawPath,
             outputPath: muxedPath,
           );
 
-          if (!muxOk) {
-            throw Exception("Failed to merge audio and video streams");
+          if (!muxResult.success) {
+            throw Exception(
+                "Failed to merge audio and video streams: ${muxResult.failureReason}");
           }
 
           // الفيديو الخام والصوت الخام لم يعودا مطلوبين بعد نجاح الدمج - حذف آمن فوري
