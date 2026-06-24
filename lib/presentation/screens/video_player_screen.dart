@@ -53,7 +53,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool _isError = false;
   String _errorMessage = "";
   bool _isInitialized = false;
-
+  
   // ✅ متغير لحفظ مكان توقف الفيديو عند انقطاع الشبكة
   Duration _errorPosition = Duration.zero;
 
@@ -78,9 +78,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Duration _lastKnownPosition = Duration.zero;
   DateTime _lastPositionTimestamp = DateTime.now();
   Timer? _avSyncTimer;
-  // ✅ FIX-1: _isUserSeeking is now controlled by a Timer so we can cancel/extend it
   bool _isUserSeeking = false;
-  Timer? _userSeekingClearTimer;
   bool _isAutoResyncing = false;
 
   // ✅ [DOUBLE-TAP SEEK] متغيرات النقر المزدوج للتقديم/الرجوع
@@ -110,33 +108,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
   final Map<String, String> _youtubeHeaders = {};
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // FIX-1 HELPER: Mark that the user is intentionally seeking.
-  //
-  // Every seek (debounced or immediate) must call _markUserSeeking() FIRST,
-  // which:
-  //   1. Snaps _lastKnownPosition to the intended target immediately so the
-  //      AV-sync watchdog never sees a "position jumped back" false positive.
-  //   2. Cancels any pending clear timer and starts a fresh one that fires
-  //      only after the full seek pipeline has settled (debounce 600ms +
-  //      player seek latency 1 500ms + stream update lag 500ms = 2 600ms
-  //      minimum; we use 4 s to be safe on slow devices).
-  // ─────────────────────────────────────────────────────────────────────────
-  void _markUserSeeking(Duration intendedTarget) {
-    _isUserSeeking = true;
-
-    // Immediately anchor the watchdog's reference to avoid false resyncs
-    _lastKnownPosition = intendedTarget;
-    _lastPositionTimestamp = DateTime.now();
-
-    _userSeekingClearTimer?.cancel();
-    _userSeekingClearTimer = Timer(const Duration(milliseconds: 4000), () {
-      if (!_isDisposing) {
-        _isUserSeeking = false;
-      }
-    });
-  }
 
   @override
   void initState() {
@@ -274,13 +245,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             errorString.contains('resolve hostname') ||
             errorString.contains('route to host') ||
             errorString.contains('decoding audio')) {
+          
           if (mounted && !_isDisposing) {
             final currentPos = _player.state.position;
             setState(() {
               _isError = true;
               _errorPosition = currentPos;
-              _errorMessage =
-                  "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
+              _errorMessage = "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
               _isVideoLoading = false;
             });
             _player.pause();
@@ -312,10 +283,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       });
 
       _player.stream.position.listen((pos) {
-        // ✅ FIX-1: Only update the watchdog anchor when NOT in the middle
-        // of a user-initiated seek and NOT auto-resyncing. This prevents the
-        // watchdog from ever using a stale pre-seek position as its reference.
-        if (!_isDisposing && !_isError && !_isAutoResyncing && !_isUserSeeking) {
+        if (!_isDisposing && !_isError && !_isAutoResyncing) {
           _lastKnownPosition = pos;
           _lastPositionTimestamp = DateTime.now();
         }
@@ -360,9 +328,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
     _countdownTimer?.cancel();
 
-    // ✅ FIX-1: Anchor the watchdog before any seek during stream switch
-    _markUserSeeking(startAt ?? Duration.zero);
+    _isUserSeeking = true;
     _isAutoResyncing = false;
+    _lastKnownPosition = startAt ?? Duration.zero;
+    _lastPositionTimestamp = DateTime.now();
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!_isDisposing) _isUserSeeking = false;
+    });
 
     try {
       String playUrl = url;
@@ -380,7 +352,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         _isOfflineMode = true;
         final file = File(playUrl);
         if (!await file.exists()) throw Exception("Offline file missing");
-
+        
         playUrl = _proxyService.getSignedUrl(file.path, isAudio: false);
 
         if (audioUrl == null && Hive.isBoxOpen('downloads_box')) {
@@ -454,50 +426,33 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
   }
 
-  // ✅ FIX-1: _seekRelative now anchors _lastKnownPosition to the computed
-  // target BEFORE the debounce fires, so the watchdog never triggers between
-  // successive double-taps or between the tap and the actual player.seek().
   Future<void> _seekRelative(Duration amount) async {
     if (_isRecordingDetected) return;
 
     _accumulatedSeekAmount += amount;
-
-    // Compute what the final position will be and anchor the watchdog NOW
-    final duration = _player.state.duration;
-    if (duration != Duration.zero) {
-      final currentPos = _player.state.position;
-      var projectedTarget = currentPos + _accumulatedSeekAmount;
-      if (projectedTarget < Duration.zero) projectedTarget = Duration.zero;
-      if (projectedTarget > duration) projectedTarget = duration;
-      _markUserSeeking(projectedTarget);
-    } else {
-      // Duration unknown yet – just block the watchdog
-      _markUserSeeking(_lastKnownPosition);
-    }
-
     if (_seekDebounceTimer?.isActive ?? false) _seekDebounceTimer!.cancel();
+
+    _isUserSeeking = true;
 
     _seekDebounceTimer = Timer(const Duration(milliseconds: 600), () async {
       try {
-        final dur = _player.state.duration;
-        if (dur == Duration.zero) return;
+        final duration = _player.state.duration;
+        if (duration == Duration.zero) return;
 
         final currentPos = _player.state.position;
         var targetPos = currentPos + _accumulatedSeekAmount;
 
         if (targetPos < Duration.zero) targetPos = Duration.zero;
-        if (targetPos > dur) targetPos = dur;
-
-        // Re-anchor with the exact target right before seeking
-        _markUserSeeking(targetPos);
+        if (targetPos > duration) targetPos = duration;
 
         await _player.seek(targetPos);
       } catch (e) {
         FirebaseCrashlytics.instance.recordError(e, null, reason: 'Seek Error');
       } finally {
         _accumulatedSeekAmount = Duration.zero;
-        // _userSeekingClearTimer will naturally expire after 4 s from the
-        // last _markUserSeeking() call – no manual clear needed here.
+        Future.delayed(const Duration(seconds: 1), () {
+          _isUserSeeking = false;
+        });
       }
     });
   }
@@ -514,7 +469,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           _isError ||
           _isVideoLoading ||
           _isRecordingDetected ||
-          _isUserSeeking || // ✅ FIX-1: guarded properly via _markUserSeeking
+          _isUserSeeking ||
           _isAutoResyncing) return;
 
       final isPlaying = _player.state.playing;
@@ -629,12 +584,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
   }
 
-  // ✅ FIX-2: Long-press handlers now also call HapticFeedback to feel
-  // responsive while preventing the Video widget from receiving the gesture
-  // (the RawGestureDetector overlay handles absorption – see build()).
   void _onLongPressStart() {
     if (_isRecordingDetected || _isDisposing || _isError) return;
-    HapticFeedback.mediumImpact();
     if (mounted) setState(() => _isLongPressActive = true);
     _player.setRate(2.0);
   }
@@ -880,7 +831,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _rightTapTimer?.cancel();
       _leftTapInhibitTimer?.cancel();
       _rightTapInhibitTimer?.cancel();
-      _userSeekingClearTimer?.cancel(); // ✅ FIX-1: cancel the new timer too
       _leftRippleController.dispose();
       _rightRippleController.dispose();
       await _player.stop();
@@ -906,16 +856,25 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   // ─────────────────────────────────────────────────────────────────────────
   // Helper: builds one symmetric seek overlay (left rewind / right forward)
+  //
+  // [isLeft]        true  → rewind chevrons pointing left
+  //                 false → forward chevrons pointing right
+  // [tapCount]      number of accumulated double-taps so far
+  // [rippleAnim]    the Animation<double> for the expanding ripple ring
   // ─────────────────────────────────────────────────────────────────────────
   Widget _buildSeekOverlay({
     required bool isLeft,
     required int tapCount,
     required Animation<double> rippleAnim,
   }) {
+    // ── Icon choice ──────────────────────────────────────────────────────
+    // Both sides use the same "double chevron" family so they are
+    // mirror images of each other — not two completely different metaphors.
     final IconData seekIcon = isLeft
         ? Icons.keyboard_double_arrow_left_rounded
         : Icons.keyboard_double_arrow_right_rounded;
 
+    // ── Gradient runs inward from the tapped edge → transparent centre ───
     final gradient = LinearGradient(
       begin: isLeft ? Alignment.centerLeft : Alignment.centerRight,
       end: isLeft ? Alignment.centerRight : Alignment.centerLeft,
@@ -925,6 +884,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       ],
     );
 
+    // ── Rounded corner on the inward edge only ────────────────────────────
     final borderRadius = isLeft
         ? const BorderRadius.only(
             topRight: Radius.circular(999),
@@ -941,12 +901,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         duration: const Duration(milliseconds: 120),
         child: Stack(
           children: [
+            // ── Background gradient ────────────────────────────────────
             Container(
               decoration: BoxDecoration(
                 gradient: gradient,
                 borderRadius: borderRadius,
               ),
             ),
+
+            // ── Expanding ripple ring ──────────────────────────────────
             Center(
               child: AnimatedBuilder(
                 animation: rippleAnim,
@@ -966,6 +929,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 },
               ),
             ),
+
+            // ── Main circle with icon + label ──────────────────────────
             Center(
               child: Container(
                 width: 80,
@@ -981,8 +946,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    // ── Seek direction icon ──────────────────────────
                     Icon(seekIcon, color: Colors.white, size: 28),
                     const SizedBox(height: 2),
+                    // ── Dynamic seconds label (10s, 20s, 30s …) ─────
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 200),
                       transitionBuilder: (child, anim) => ScaleTransition(
@@ -1017,6 +984,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Widget build(BuildContext context) {
     final padding = MediaQuery.of(context).viewPadding;
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Controls theme
+    // • Seek buttons (replay_10 / forward_10) removed from primaryButtonBar.
+    //   Seeking is now exclusively via left/right double-tap gestures.
+    // • The progress bar + position indicator remain in the bottom bar.
+    // ─────────────────────────────────────────────────────────────────────
     final controlsTheme = MaterialVideoControlsThemeData(
       displaySeekBar: false,
       padding: EdgeInsets.only(
@@ -1027,19 +1000,24 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       bottomButtonBar: [
         const MaterialPositionIndicator(),
         const SizedBox(width: 10),
+        // ✅ [CASE-2] تمييز السحب على شريط التقدم كـ seek مقصود
         Expanded(
           child: GestureDetector(
             onHorizontalDragStart: (_) {
-              _markUserSeeking(_lastKnownPosition); // ✅ FIX-1
+              _isUserSeeking = true;
             },
             onHorizontalDragEnd: (_) {
-              // Let _markUserSeeking's timer handle clearing
+              Future.delayed(const Duration(milliseconds: 1500), () {
+                _isUserSeeking = false;
+              });
             },
             onTapDown: (_) {
-              _markUserSeeking(_lastKnownPosition); // ✅ FIX-1
+              _isUserSeeking = true;
             },
             onTapUp: (_) {
-              // Let _markUserSeeking's timer handle clearing
+              Future.delayed(const Duration(milliseconds: 1500), () {
+                _isUserSeeking = false;
+              });
             },
             behavior: HitTestBehavior.translucent,
             child: const MaterialSeekBar(),
@@ -1068,6 +1046,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 fontSize: 16,
                 fontWeight: FontWeight.bold)),
       ],
+      // ── Only play/pause remains in the centre — no seek buttons ──────
       primaryButtonBar: [
         const Spacer(flex: 2),
         const MaterialPlayOrPauseButton(iconSize: 56),
@@ -1091,11 +1070,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         body: Stack(
           fit: StackFit.expand,
           children: [
-            // ── Video / Error / Loading ───────────────────────────────────
             if (_isDisposing || !_isInitialized)
               Center(
-                  child: CircularProgressIndicator(
-                      color: AppColors.accentYellow))
+                  child:
+                      CircularProgressIndicator(color: AppColors.accentYellow))
             else if (_isError)
               Center(
                 child: Padding(
@@ -1103,33 +1081,25 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.wifi_off_rounded,
-                          color: AppColors.error, size: 64),
+                      Icon(Icons.wifi_off_rounded, color: AppColors.error, size: 64),
                       const SizedBox(height: 16),
                       Text(_errorMessage,
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 16),
+                          style: const TextStyle(color: Colors.white, fontSize: 16),
                           textAlign: TextAlign.center),
                       const SizedBox(height: 24),
                       ElevatedButton.icon(
-                        icon:
-                            const Icon(Icons.refresh, color: Colors.black),
+                        icon: const Icon(Icons.refresh, color: Colors.black),
                         onPressed: () {
-                          FirebaseCrashlytics.instance.log(
-                              "🔄 User clicked Retry on network error");
+                          FirebaseCrashlytics.instance
+                              .log("🔄 User clicked Retry on network error");
                           setState(() => _isError = false);
-                          _playVideo(widget.streams[_currentQuality]!,
-                              startAt: _errorPosition);
+                          _playVideo(widget.streams[_currentQuality]!, startAt: _errorPosition);
                         },
                         style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.accentYellow,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24, vertical: 12)),
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
                         label: const Text("إعادة المحاولة",
-                            style: TextStyle(
-                                color: Colors.black,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16)),
+                            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
                       )
                     ],
                   ),
@@ -1142,13 +1112,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   child: MaterialVideoControlsTheme(
                     normal: controlsTheme,
                     fullscreen: controlsTheme,
-                    child:
-                        Video(controller: _controller, fit: BoxFit.contain),
+                    child: Video(controller: _controller, fit: BoxFit.contain),
                   ),
                 ),
               ),
 
-            // ── Buffering / Stabilizing overlay ──────────────────────────
             if (!_isDisposing &&
                 !_isError &&
                 (_isVideoLoading ||
@@ -1172,7 +1140,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                               fontWeight: FontWeight.bold,
                               fontSize: 28,
                               letterSpacing: 2.0,
-                              shadows: const [
+                              shadows: [
                                 Shadow(
                                     blurRadius: 10,
                                     color: Colors.black,
@@ -1182,8 +1150,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         if (!_isVideoLoading)
                           const Padding(
                             padding: EdgeInsets.only(top: 12.0),
-                            child: Text(
-                                "Video Ready - Stabilizing Stream...",
+                            child: Text("Video Ready - Stabilizing Stream...",
                                 style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 14,
@@ -1195,32 +1162,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
-            // ── FIX-2: Gesture layer ──────────────────────────────────────
-            //
-            // The long-press must be caught BEFORE the Video widget sees any
-            // pointer event, otherwise media_kit_video's internal gesture
-            // detector opens the controls overlay on every touch.
-            //
-            // Solution: wrap each half in a Listener that intercepts
-            // PointerDownEvent during long-press.  We use two stacked
-            // GestureDetectors:
-            //
-            //   • Outer – handles long-press only, with `behavior:opaque` so
-            //     it absorbs the pointer during a long-press and the Video
-            //     layer never sees it.
-            //   • Inner – handles single-tap and double-tap, with
-            //     `behavior:translucent` so single taps still fall through to
-            //     the Video layer and toggle the controls overlay normally.
-            //
-            // This gives us:
-            //   single tap  → controls toggle (passes through to Video)  ✅
-            //   double tap  → seek overlay, no controls                  ✅
-            //   long press  → ×2 speed, no controls                      ✅
-            // ─────────────────────────────────────────────────────────────
-            if (!_isDisposing &&
-                !_isError &&
-                _isInitialized &&
-                !_isRecordingDetected)
+            // ── Gesture layer: left half (rewind) + right half (forward) ──
+            if (!_isDisposing && !_isError && _isInitialized && !_isRecordingDetected)
               Positioned(
                 top: 70,
                 bottom: 70,
@@ -1228,22 +1171,26 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 right: 0,
                 child: Row(
                   children: [
-                    // ── Left half ──────────────────────────────────────
                     Expanded(
-                      child: _SeekHalf(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: _showLeftTapOverlay ? _onDoubleTapLeft : null,
                         onDoubleTap: _onDoubleTapLeft,
-                        onLongPressStart: _onLongPressStart,
-                        onLongPressEnd: _onLongPressEnd,
-                        showOverlay: _showLeftTapOverlay,
+                        onLongPressStart: (_) => _onLongPressStart(),
+                        onLongPressEnd: (_) => _onLongPressEnd(),
+                        onLongPressCancel: _onLongPressEnd,
+                        child: const SizedBox.expand(),
                       ),
                     ),
-                    // ── Right half ─────────────────────────────────────
                     Expanded(
-                      child: _SeekHalf(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: _showRightTapOverlay ? _onDoubleTapRight : null,
                         onDoubleTap: _onDoubleTapRight,
-                        onLongPressStart: _onLongPressStart,
-                        onLongPressEnd: _onLongPressEnd,
-                        showOverlay: _showRightTapOverlay,
+                        onLongPressStart: (_) => _onLongPressStart(),
+                        onLongPressEnd: (_) => _onLongPressEnd(),
+                        onLongPressCancel: _onLongPressEnd,
+                        child: const SizedBox.expand(),
                       ),
                     ),
                   ],
@@ -1251,9 +1198,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
 
             // ── Left seek overlay ─────────────────────────────────────────
-            if (_showLeftTapOverlay &&
-                !_isDisposing &&
-                !_isRecordingDetected)
+            if (_showLeftTapOverlay && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 left: 0,
                 top: 0,
@@ -1267,9 +1212,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
 
             // ── Right seek overlay ────────────────────────────────────────
-            if (_showRightTapOverlay &&
-                !_isDisposing &&
-                !_isRecordingDetected)
+            if (_showRightTapOverlay && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 right: 0,
                 top: 0,
@@ -1283,9 +1226,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
 
             // ── Long-press ×2 speed indicator ─────────────────────────────
-            if (_isLongPressActive &&
-                !_isDisposing &&
-                !_isRecordingDetected)
+            if (_isLongPressActive && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 top: 20,
                 left: 0,
@@ -1324,15 +1265,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
-            // ── Watermark ─────────────────────────────────────────────────
             if (!_isDisposing && !_isError && _isInitialized)
               AnimatedAlign(
                 alignment: _watermarkAlignment,
                 duration: const Duration(seconds: 2),
                 child: IgnorePointer(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                     decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.6),
                         borderRadius: BorderRadius.circular(8)),
@@ -1345,7 +1285,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   ),
                 ),
               ),
-
+            
             // ── Security alert overlay ────────────────────────────────────
             if (_isRecordingDetected)
               Container(
@@ -1367,18 +1307,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                     const Text(
                         "Screen Recording Detected.\nPlayback has been disabled.",
                         textAlign: TextAlign.center,
-                        style:
-                            TextStyle(color: Colors.white70, fontSize: 16)),
+                        style: TextStyle(color: Colors.white70, fontSize: 16)),
                     const SizedBox(height: 32),
                     Container(
-                      margin:
-                          const EdgeInsets.symmetric(horizontal: 32),
+                      margin: const EdgeInsets.symmetric(horizontal: 32),
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.3),
                         borderRadius: BorderRadius.circular(12),
-                        border:
-                            Border.all(color: Colors.yellow, width: 2),
+                        border: Border.all(color: Colors.yellow, width: 2),
                       ),
                       child: const Column(
                         children: [
@@ -1391,8 +1328,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                           Text(
                               "تسجيل المحتوى مخالف لشروط الاستخدام.\nتكرار هذا الأمر سيؤدي إلى حظر حسابك نهائياً وحذف جميع بياناتك.",
                               textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  color: Colors.white, fontSize: 14),
+                              style:
+                                  TextStyle(color: Colors.white, fontSize: 14),
                               textDirection: TextDirection.rtl),
                         ],
                       ),
@@ -1406,8 +1343,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 32, vertical: 12)),
                       child: const Text("CLOSE PLAYER",
-                          style:
-                              TextStyle(fontWeight: FontWeight.bold)),
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                     )
                   ],
                 ),
@@ -1415,99 +1351,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           ],
         ),
       ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FIX-2: _SeekHalf
-//
-// A private widget that owns the gesture disambiguation logic for each half
-// of the screen (left = rewind, right = forward).
-//
-// Why a separate widget instead of an inline GestureDetector?
-//   GestureDetector's arena resolution means that `onDoubleTap` and
-//   `onLongPress` compete. We need:
-//     - single tap   → pass through to Video (translucent hit-test)
-//     - double tap   → consume the event (opaque during double-tap)
-//     - long press   → consume the event BEFORE the Video sees it
-//
-// The trick is to use TWO stacked GestureDetectors:
-//
-//   1. [OPAQUE outer] – catches only long-press gestures.
-//      HitTestBehavior.opaque ensures pointer DOWN is consumed during a
-//      long-press so the Video widget's internal tap recogniser never fires
-//      and the controls overlay stays hidden.
-//
-//   2. [TRANSLUCENT inner] – catches tap and double-tap.
-//      HitTestBehavior.translucent lets single-taps fall through to the
-//      Video layer so the controls overlay can be toggled normally.
-//      onTap is intentionally null here; we rely on fall-through.
-//
-// This exact combination is what stops the native controls from appearing
-// on long-press while keeping single-tap behaviour intact.
-// ─────────────────────────────────────────────────────────────────────────────
-class _SeekHalf extends StatefulWidget {
-  final VoidCallback onDoubleTap;
-  final VoidCallback onLongPressStart;
-  final VoidCallback onLongPressEnd;
-  final bool showOverlay;
-
-  const _SeekHalf({
-    required this.onDoubleTap,
-    required this.onLongPressStart,
-    required this.onLongPressEnd,
-    required this.showOverlay,
-  });
-
-  @override
-  State<_SeekHalf> createState() => _SeekHalfState();
-}
-
-class _SeekHalfState extends State<_SeekHalf> {
-  // Track whether we are currently in a long-press so we can absorb the
-  // pointer and prevent bubbling to the Video layer.
-  bool _longPressActive = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // ── Layer 1 (OPAQUE): long-press absorber ─────────────────────────
-        // Uses opaque hit-test so a long-press pointer-down is consumed here
-        // and never reaches the Video widget underneath.
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onLongPressStart: (_) {
-            setState(() => _longPressActive = true);
-            widget.onLongPressStart();
-          },
-          onLongPressEnd: (_) {
-            setState(() => _longPressActive = false);
-            widget.onLongPressEnd();
-          },
-          onLongPressCancel: () {
-            setState(() => _longPressActive = false);
-            widget.onLongPressEnd();
-          },
-          // ── During long-press: block ALL taps so controls don't open ──
-          // onTap left as null → gesture arena ignores single-tap here,
-          // but the opaque behaviour already consumed the pointer.
-          child: const SizedBox.expand(),
-        ),
-
-        // ── Layer 2 (TRANSLUCENT): double-tap detector ────────────────────
-        // Translucent so single-taps fall through to the Video layer and
-        // toggle the controls overlay as expected.
-        if (!_longPressActive)
-          GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onDoubleTap: widget.onDoubleTap,
-            // onTap intentionally omitted → single tap falls to Video layer
-            child: const SizedBox.expand(),
-          ),
-      ],
     );
   }
 }
