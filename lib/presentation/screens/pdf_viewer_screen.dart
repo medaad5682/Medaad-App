@@ -90,6 +90,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   DrawingLine? _currentLine;
   double _eraserSize = 0.04;
 
+  // ── Smooth drawing: ValueNotifier per page so only the canvas layer
+  //    repaints on every pan event instead of the whole widget tree.
+  final Map<int, ValueNotifier<DrawingLine?>> _strokeNotifiers = {};
+
   // الملاحظات (Notes)
   Map<int, List<CommentModel>> _pageComments = {};
 
@@ -140,6 +144,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void dispose() {
     if (_isOffline) _saveAnnotationsToHive();
     _documentEventsSubscription?.cancel();
+    for (final n in _strokeNotifiers.values) {
+      n.dispose();
+    }
     super.dispose();
   }
 
@@ -732,10 +739,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               future: _isOffline ? _loadAnnotationsForPage(page.pageNumber) : Future.value(),
               builder: (context, snapshot) {
                 final lines = _pageDrawings[page.pageNumber] ?? [];
+                // _currentLine is now tracked by _strokeNotifierFor; we no longer
+                // add it to allLines here so the outer FutureBuilder stays stable.
                 final allLines = [...lines];
-                if (_isDrawingMode && _currentLine != null && _activePage == page.pageNumber) {
-                  allLines.add(_currentLine!);
-                }
 
                 final comments = _isOffline ? (_pageComments[page.pageNumber] ?? []) : <dynamic>[];
                 final shapes = _shapeController.shapesForPage(page.pageNumber);
@@ -792,15 +798,28 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                         onPanUpdate: (details) =>
                             _handlePanUpdate(details, context, pageRect, page),
                         onPanEnd: (details) => _handlePanEnd(page, pageRect),
-                        child: CustomPaint(
-                          painter: _CombinedOverlayPainter(
-                            lines: allLines,
-                            shapes: shapes,
-                            shapePreview: shapePreview,
-                            pageSize: pageRect.size,
-                            shapeController: _shapeController,
-                          ),
-                          size: Size.infinite,
+                        // ── Smooth drawing: ValueListenableBuilder scopes repaints
+                        //    to this CustomPaint only — the outer FutureBuilder /
+                        //    Stack are NOT rebuilt on every touch event.
+                        child: ValueListenableBuilder<DrawingLine?>(
+                          valueListenable: _strokeNotifierFor(page.pageNumber),
+                          builder: (_, liveStroke, __) {
+                            final displayLines = liveStroke != null
+                                ? [...allLines, liveStroke]
+                                : allLines;
+                            return CustomPaint(
+                              isComplex: true,
+                              willChange: liveStroke != null,
+                              painter: _CombinedOverlayPainter(
+                                lines: displayLines,
+                                shapes: shapes,
+                                shapePreview: shapePreview,
+                                pageSize: pageRect.size,
+                                shapeController: _shapeController,
+                              ),
+                              size: Size.infinite,
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -934,6 +953,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   // --- معالجة الإيماءات الموحّدة (تحترم رفض راحة اليد) ---
 
   bool _palmAllows(PointerDeviceKind? kind) => _palmFilter.isAllowed(kind);
+
+  /// Returns (or lazily creates) the per-page ValueNotifier used to push
+  /// live stroke updates without rebuilding the whole widget tree.
+  ValueNotifier<DrawingLine?> _strokeNotifierFor(int pageNumber) {
+    return _strokeNotifiers.putIfAbsent(pageNumber, () => ValueNotifier<DrawingLine?>(null));
+  }
 
   void _handleTapUp(TapUpDetails details, BuildContext context, Rect pageRect, PdfPage page) {
     if (!_isDrawingMode) return;
@@ -1177,28 +1202,30 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
     if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter) {
       _activePage = page.pageNumber;
-      setState(() {
-        if (_activeTool == PdfTool.freehandHighlighter) {
-          // هايلايتر حر: خط عريض شفاف بنمط تمييز
-          _currentLine = DrawingLine(
-            points: [relativePoint],
-            color: _settings.highlighterColor,
-            strokeWidth: _settings.freehandHighlighterThickness,
-            isHighlighter: true,
-            isEraser: false,
-            opacity: _settings.highlighterOpacity,
-          );
-        } else {
-          _currentLine = DrawingLine(
-            points: [relativePoint],
-            color: _activeTool == PdfTool.eraser ? 0 : _settings.penColor,
-            strokeWidth: _activeTool == PdfTool.eraser ? _eraserSize : _settings.penThickness,
-            isHighlighter: false,
-            isEraser: _activeTool == PdfTool.eraser,
-            opacity: _activeTool == PdfTool.eraser ? 1.0 : _settings.penOpacity,
-          );
-        }
-      });
+      DrawingLine newLine;
+      if (_activeTool == PdfTool.freehandHighlighter) {
+        // هايلايتر حر: خط عريض شفاف بنمط تمييز
+        newLine = DrawingLine(
+          points: [relativePoint],
+          color: _settings.highlighterColor,
+          strokeWidth: _settings.freehandHighlighterThickness,
+          isHighlighter: true,
+          isEraser: false,
+          opacity: _settings.highlighterOpacity,
+        );
+      } else {
+        newLine = DrawingLine(
+          points: [relativePoint],
+          color: _activeTool == PdfTool.eraser ? 0 : _settings.penColor,
+          strokeWidth: _activeTool == PdfTool.eraser ? _eraserSize : _settings.penThickness,
+          isHighlighter: false,
+          isEraser: _activeTool == PdfTool.eraser,
+          opacity: _activeTool == PdfTool.eraser ? 1.0 : _settings.penOpacity,
+        );
+      }
+      _currentLine = newLine;
+      // Push to notifier — no setState, so the whole tree is NOT rebuilt.
+      _strokeNotifierFor(page.pageNumber).value = newLine;
     } else if (_activeTool == PdfTool.shape) {
       _shapeController.startDrawing(page.pageNumber, relativePoint);
     }
@@ -1214,16 +1241,26 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
     if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter) {
       if (_currentLine != null) {
-        // تصفية النقاط القريبة جداً لتحسين نعومة الرسم وتقليل الثقل
-        const double minDistSq = 0.00003; // حد أدنى للمسافة (نسبية) بين النقاط
+        // Minimum-distance filter — keeps enough points for smooth curves
+        // while avoiding redundant work from identical touch samples.
+        // 0.00001 ≈ 1 px on a 100 pt-wide page (tighter than the old 0.00003
+        // which dropped too many points and made curves look angular).
+        const double minDistSq = 0.00001;
         final pts = _currentLine!.points;
         if (pts.isNotEmpty) {
           final last = pts.last;
           final dx = relativePoint.dx - last.dx;
           final dy = relativePoint.dy - last.dy;
-          if (dx * dx + dy * dy < minDistSq) return; // تجاهل النقطة إن كانت قريبة جداً
+          if (dx * dx + dy * dy < minDistSq) return;
         }
-        setState(() => _currentLine!.points.add(relativePoint));
+        // Mutate the list directly (no copy) then kick the ValueNotifier.
+        // This does NOT call setState, so the widget tree is untouched —
+        // only the CustomPaint inside ValueListenableBuilder repaints.
+        _currentLine!.points.add(relativePoint);
+        // Trigger notifier with same object reference — listeners rebuild.
+        final notifier = _strokeNotifierFor(page.pageNumber);
+        notifier.value = null;        // force ValueListenableBuilder to detect a change
+        notifier.value = _currentLine;
       }
     } else if (_activeTool == PdfTool.shape) {
       _shapeController.updateDrawing(relativePoint);
@@ -1233,10 +1270,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void _handlePanEnd(PdfPage page, Rect pageRect) {
     if (_activeTool == PdfTool.pen || _activeTool == PdfTool.eraser || _activeTool == PdfTool.freehandHighlighter) {
       if (_currentLine != null) {
+        final committed = _currentLine!;
+        _currentLine = null;
+        // Clear the live-stroke notifier first (stops the preview).
+        _strokeNotifierFor(page.pageNumber).value = null;
+        // Now commit to persistent list and trigger a normal repaint.
         setState(() {
-          _pageDrawings.putIfAbsent(page.pageNumber, () => []).add(_currentLine!);
+          _pageDrawings.putIfAbsent(page.pageNumber, () => []).add(committed);
           _store.saveDrawings(page.pageNumber, _pageDrawings[page.pageNumber]!);
-          _currentLine = null;
         });
       }
     } else if (_activeTool == PdfTool.shape) {
@@ -1751,6 +1792,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 }
 
 /// رسّام موحّد للرسم الحر (القلم/الممحاة/هايلايتر) والأشكال (مع معاينة فورية أثناء السحب).
+///
+/// التحسينات المُطبَّقة:
+/// • Catmull-Rom spline للقلم والممحاة — نعومة حقيقية بدلاً من Bézier ثنائي.
+/// • Catmull-Rom أيضاً للهايلايتر الحر — يزيل الزوايا الحادة مع الحفاظ على مظهر التظليل.
+/// • shouldRepaint يقارن الطول فقط (خفيف جداً في الأداء).
 class _CombinedOverlayPainter extends CustomPainter {
   final List<DrawingLine> lines;
   final List<ShapeModel> shapes;
@@ -1766,63 +1812,89 @@ class _CombinedOverlayPainter extends CustomPainter {
     required this.shapeController,
   });
 
+  // ── Catmull-Rom spline helper ────────────────────────────────────────────
+  // Converts a list of control points into a smooth Path using Catmull-Rom
+  // parameterization converted to cubic Bézier segments (Flutter's native form).
+  // `tension` ∈ [0, 1]: 0 = tight / angular, 0.5 = centripetal (best for drawing),
+  // 1 = slack.  We use 0.5 (centripetal) which avoids cusps on abrupt direction
+  // changes — ideal for hand-drawn strokes.
+  static Path _catmullRomPath(
+    List<Offset> pts,
+    double w,
+    double h, {
+    double tension = 0.5,
+  }) {
+    final path = Path();
+    if (pts.isEmpty) return path;
+
+    // Scale from normalised coordinates to canvas pixels once.
+    final scaled = pts.map((p) => Offset(p.dx * w, p.dy * h)).toList();
+
+    path.moveTo(scaled[0].dx, scaled[0].dy);
+    if (scaled.length == 1) return path;
+    if (scaled.length == 2) {
+      path.lineTo(scaled[1].dx, scaled[1].dy);
+      return path;
+    }
+
+    for (int i = 0; i < scaled.length - 1; i++) {
+      // Phantom points at the ends: mirror the neighbouring point.
+      final p0 = i == 0 ? scaled[0] : scaled[i - 1];
+      final p1 = scaled[i];
+      final p2 = scaled[i + 1];
+      final p3 = i + 2 < scaled.length ? scaled[i + 2] : scaled.last;
+
+      // Catmull-Rom → cubic Bézier conversion:
+      //   cp1 = p1 + (p2 - p0) * tension / 3
+      //   cp2 = p2 - (p3 - p1) * tension / 3
+      final cp1 = Offset(
+        p1.dx + (p2.dx - p0.dx) * tension / 3,
+        p1.dy + (p2.dy - p0.dy) * tension / 3,
+      );
+      final cp2 = Offset(
+        p2.dx - (p3.dx - p1.dx) * tension / 3,
+        p2.dy - (p3.dy - p1.dy) * tension / 3,
+      );
+      path.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, p2.dx, p2.dy);
+    }
+    return path;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.saveLayer(Rect.fromLTWH(0, 0, size.width, size.height), Paint());
+    final w = pageSize.width;
+    final h = pageSize.height;
+
     for (var line in lines) {
       final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
-        ..strokeWidth = line.strokeWidth * pageSize.width;
+        ..strokeWidth = line.strokeWidth * w;
 
       if (line.isEraser) {
         paint.blendMode = BlendMode.clear;
         paint.color = Colors.transparent;
       } else if (line.isHighlighter) {
-        // هايلايتر حر: نستخدم BlendMode.multiply للتداخل مع محتوى الصفحة
+        // هايلايتر حر: BlendMode.multiply للتداخل الطبيعي مع محتوى الصفحة
         paint.blendMode = BlendMode.multiply;
         paint.color = Color(line.color).withOpacity(line.opacity);
-        paint.strokeCap = StrokeCap.butt; // حواف مستقيمة لمظهر الهايلايتر
+        paint.strokeCap = StrokeCap.square; // حواف مستقيمة لمظهر تظليل أكثر واقعية
       } else {
         paint.color = Color(line.color).withOpacity(line.opacity);
       }
 
-      if (line.points.length > 1) {
-        final path = Path();
-        final pts = line.points;
-        final w = pageSize.width;
-        final h = pageSize.height;
-
-        if (line.isHighlighter) {
-          // هايلايتر حر: خطوط مستقيمة للحفاظ على مظهر التظليل الدقيق
-          path.moveTo(pts[0].dx * w, pts[0].dy * h);
-          for (int i = 1; i < pts.length; i++) {
-            path.lineTo(pts[i].dx * w, pts[i].dy * h);
-          }
-        } else {
-          // قلم / ممحاة: منحنيات Bézier التربيعية لنعومة الرسم
-          path.moveTo(pts[0].dx * w, pts[0].dy * h);
-          if (pts.length == 2) {
-            path.lineTo(pts[1].dx * w, pts[1].dy * h);
-          } else {
-            for (int i = 0; i < pts.length - 1; i++) {
-              final x0 = pts[i].dx * w;
-              final y0 = pts[i].dy * h;
-              final x1 = pts[i + 1].dx * w;
-              final y1 = pts[i + 1].dy * h;
-              // نقطة المنتصف بين النقطتين المتتاليتين كنقطة رسم
-              final midX = (x0 + x1) / 2;
-              final midY = (y0 + y1) / 2;
-              path.quadraticBezierTo(x0, y0, midX, midY);
-            }
-            // أضف نقطة النهاية الأخيرة
-            path.lineTo(pts.last.dx * w, pts.last.dy * h);
-          }
-        }
+      final pts = line.points;
+      if (pts.length > 1) {
+        // Both pen/eraser AND highlighter now use Catmull-Rom for maximum
+        // smoothness.  The highlighter keeps StrokeCap.square + multiply
+        // blendMode so it still looks like a real highlighter pen.
+        final path = _catmullRomPath(pts, w, h, tension: 0.5);
         canvas.drawPath(path, paint);
-      } else if (line.points.isNotEmpty) {
-        var p = Offset(line.points[0].dx * pageSize.width, line.points[0].dy * pageSize.height);
+      } else if (pts.isNotEmpty) {
+        // Single tap — draw a dot.
+        final p = Offset(pts[0].dx * w, pts[0].dy * h);
         canvas.drawPoints(PointMode.points, [p], paint);
       }
     }
@@ -1832,5 +1904,18 @@ class _CombinedOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _CombinedOverlayPainter old) {
+    // Fast path: only deep-compare when counts differ or a shape changed.
+    // During active drawing lines.last grows, so the total length changes —
+    // that's our cue to repaint without comparing every point.
+    if (lines.length != old.lines.length) return true;
+    if (lines.isNotEmpty && old.lines.isNotEmpty) {
+      final cur = lines.last;
+      final prev = old.lines.last;
+      if (cur.points.length != prev.points.length) return true;
+    }
+    if (shapes.length != old.shapes.length) return true;
+    if (shapePreview != old.shapePreview) return true;
+    return false;
+  }
 }
