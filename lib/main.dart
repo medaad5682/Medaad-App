@@ -26,6 +26,7 @@ import 'package:flutter_background_service_android/flutter_background_service_an
 import 'core/services/notification_service.dart';
 import 'core/services/app_state.dart';
 import 'core/services/storage_service.dart';
+import 'core/services/secure_temp_service.dart';
 // ✅ استيراد شاشة الإشعارات ليتم التوجيه إليها
 import 'presentation/screens/notifications_screen.dart';
 
@@ -131,6 +132,11 @@ void main() async {
     await StorageService.openBox('settings_box');
     await StorageService.openBox('downloads_box');
     await StorageService.openBox('pdf_drawings_db');
+
+    // ✅ تنظيف أي ملفات مؤقتة (فيديو/صوت خام أو ملف مدموج) متبقية من تعطل
+    // التطبيق في منتصف عملية تحميل+دمج سابقة. يضمن عدم وجود أي ملف غير
+    // مشفر دائم على القرص حتى بعد إغلاق غير متوقع للتطبيق.
+    unawaited(SecureTempService.sweepOrphans());
 
     // ✅ طلب إذن الإشعارات من المستخدم وجلب التوكن وحفظه في Hive
     FirebaseMessaging messaging = FirebaseMessaging.instance;
