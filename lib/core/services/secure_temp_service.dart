@@ -28,10 +28,21 @@ class SecureTempService {
   }
 
   /// توليد مسار مؤقت فريد لمهمة تحميل/دمج معيّنة (بحسب lessonId)
-  static Future<String> newTempPath(String lessonId, String suffix) async {
+  ///
+  /// [ext]: امتداد الملف المؤقت.
+  /// - ملفات الفيديو/الصوت الخام: '.tmp'  (FFmpeg يستقبلها بـ -i وليس كإخراج)
+  /// - ملف الدمج (muxed output): '.mp4'  ← ضروري جداً حتى يتعرّف FFmpeg
+  ///   تلقائياً على صيغة الحاوية المطلوبة (MP4)؛ بدونه يفشل بـ
+  ///   "Unable to choose an output format" حتى لو كان المحتوى صحيحاً 100%.
+  ///   (المشكلة الجذرية لفشل الدمج عند 85% على جميع الأجهزة)
+  static Future<String> newTempPath(
+    String lessonId,
+    String suffix, {
+    String ext = '.tmp',
+  }) async {
     final dir = await getWorkDir();
     final rand = Random.secure().nextInt(1 << 32);
-    return '${dir.path}/${lessonId}_${suffix}_$rand.tmp';
+    return '${dir.path}/${lessonId}_${suffix}_$rand$ext';
   }
 
   /// ✅ الحذف الآمن: الكتابة فوق محتوى الملف بالكامل ببيانات عشوائية قبل حذفه.

@@ -351,7 +351,7 @@ class DownloadManager with WidgetsBindingObserver {
         tempAudioPath =
             await SecureTempService.newTempPath(lessonId, 'audio_raw');
         tempMuxedPath =
-            await SecureTempService.newTempPath(lessonId, 'muxed');
+            await SecureTempService.newTempPath(lessonId, 'muxed', ext: '.mp4');
 
         // نسخ غير قابلة للـ null لتمريرها بأمان للدوال التي تتطلب String غير nullable
         final String videoRawPath = tempVideoPath;
