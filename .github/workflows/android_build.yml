@@ -17,7 +17,6 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # ✅ 1. تسريع التحميل عبر الكاش (Gradle)
       - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
@@ -32,9 +31,8 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true # ✅ تفعيل كاش الفلاتر نفسه
+          cache: true
 
-      # ✅ 2. تسريع تحميل مكتبات Dart
       - name: Cache Pub packages
         uses: actions/cache@v4
         with:
@@ -43,7 +41,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pub-
 
-      # ✅ التعديل الحاسم هنا: حذف ملف القفل التالف قبل التثبيت
       - name: Clean and Get Packages
         run: |
           echo "Removing corrupted pubspec.lock..."
@@ -53,7 +50,7 @@ jobs:
 
       - name: Generate App Icons
         run: flutter pub run flutter_launcher_icons
-        
+
       - name: Create and Verify Keystore
         env:
           DATA: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
@@ -61,18 +58,18 @@ jobs:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          # التحقق من وجود الأسرار قبل فك التشفير لتجنب الأخطاء
           if [ -n "$DATA" ]; then
             echo "$DATA" | tr -d '[:space:]' | base64 -d > android/app/google-services.json
           fi
-          
+
           if [ -n "$KEYSTORE_DATA" ]; then
-            # ✅ التعديل لحل المشكلة: إنشاء مجلد keystore أولاً ثم وضع المفتاح بداخله
             mkdir -p android/app/keystore
             echo "$KEYSTORE_DATA" | tr -d '[:space:]' | base64 -d > android/app/keystore/upload-keystore.jks
           fi
 
-      # ✅ 3. البناء الموحد (ملف واحد شامل للمعالجين)
+      # ✅ FIX: FIREBASE_APPCHECK_DEBUG_TOKEN is now forwarded to Gradle
+      #         via the env block so System.getenv() in build.gradle.kts
+      #         actually receives it during the build.
       - name: Build Fat APK (Universal)
         env:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -81,8 +78,9 @@ jobs:
           APP_SECRET: ${{ secrets.APP_SECRET }}
           FIREBASE_APPCHECK_DEBUG_TOKEN: ${{ secrets.FIREBASE_APPCHECK_DEBUG_TOKEN }}
         run: |
-          # بناء APK واحد يحتوي على كل المعماريات
-          flutter build apk --release --target-platform android-arm,android-arm64 --dart-define=APP_SECRET="$APP_SECRET" 
+          flutter build apk --release \
+            --target-platform android-arm,android-arm64 \
+            --dart-define=APP_SECRET="$APP_SECRET"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
