@@ -109,9 +109,11 @@ void main() async {
     // ✅ تفعيل Firebase App Check (حماية الخوادم ضد المحاكي والروت)
     // =========================================================
     await FirebaseAppCheck.instance.activate(
-  androidProvider: AndroidProvider.debug,
-  appleProvider: AppleProvider.debug,
-);
+      // Play Integrity للأندرويد (الأقوى ضد الروت والتعديل) في وضع الإنتاج، أو Debug في وضع التطوير
+      androidProvider: kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+      // App Attest للآيفون في وضع الإنتاج، أو Debug في وضع التطوير
+      appleProvider: kReleaseMode ? AppleProvider.appAttest : AppleProvider.debug,
+    );
     // =========================================================
 
     // ✅ ربط دالة الخلفية بفايربيز لاستقبال الإشعارات والتطبيق مغلق
