@@ -351,12 +351,15 @@ class DownloadManager with WidgetsBindingObserver {
             await SecureTempService.newTempPath(lessonId, 'video_raw');
         tempAudioPath =
             await SecureTempService.newTempPath(lessonId, 'audio_raw');
-        // ✅ [PIPE-MUX] tempMuxedPath مطلوب فقط عند الـ fallback للطريقة الكلاسيكية
-        // لا نُنشئه مسبقاً - نُنشئه فقط إذا احتجناه
+        // ✅ tempMuxedPath: ملف مؤقت للـ MP4 المدموج (قبل التشفير)
+        // يُحذف داخل muxAndEncryptWithIsolate مباشرةً بعد التشفير
+        tempMuxedPath =
+            await SecureTempService.newTempPath(lessonId, 'muxed', ext: '.mp4');
 
         // نسخ غير قابلة للـ null لتمريرها بأمان للدوال التي تتطلب String غير nullable
         final String videoRawPath = tempVideoPath;
         final String audioRawPath = tempAudioPath;
+        final String muxedPath = tempMuxedPath!;
 
         try {
           // ─── المرحلة 1: تحميل الفيديو والصوت معاً (parallel) ───────────────
@@ -391,7 +394,11 @@ class DownloadManager with WidgetsBindingObserver {
                 type: DioExceptionType.cancel);
           }
 
-          // ─── المرحلة 2: دمج + تشفير معاً عبر pipe ──────────────────────────
+          // ─── المرحلة 2: دمج (FFmpegKit) + تشفير (Isolate) ──────────────────
+          // ✅ FFmpegKit هو الطريقة الوحيدة الصحيحة على Android/iOS
+          //    (Process.start('ffmpeg',...) يعطي Permission denied على Android)
+          // ✅ التشفير يعمل في Isolate منفصل حتى لا يتجمّد الـ UI
+          // ✅ muxAndEncryptWithIsolate يحذف tempMuxedPath داخلياً بعد التشفير
           notifService.showProgressNotification(
             id: notificationId,
             title: "Processing: $videoTitle",
@@ -400,10 +407,10 @@ class DownloadManager with WidgetsBindingObserver {
             maxProgress: 100,
           );
 
-          // ✅ [PIPE-MUX] محاولة الدمج والتشفير معاً بدون ملف وسيط
-          final pipedResult = await VideoMuxService.muxAndEncryptPiped(
+          final muxEncResult = await VideoMuxService.muxAndEncryptWithIsolate(
             videoPath: videoRawPath,
             audioPath: audioRawPath,
+            tempMuxedPath: muxedPath,
             encryptedOutputPath: videoSavePath,
             keyBytes: chachaKeyBytes,
             onProgress: (p) {
@@ -416,52 +423,15 @@ class DownloadManager with WidgetsBindingObserver {
             },
           );
 
-          // ✅ [FALLBACK] إذا فشل pipe (جهاز لا يدعمه أو FFmpeg لا يدعم pipe:1)
-          // نرجع للطريقة الكلاسيكية (mux → ملف وسيط → encrypt) تلقائياً
-          if (!pipedResult.success) {
-            FirebaseCrashlytics.instance.log(
-                '⚠️ [PIPE-MUX] Pipe failed (${pipedResult.failureReason}), using classic mux+encrypt fallback');
+          // tempMuxedPath حُذف داخلياً بواسطة muxAndEncryptWithIsolate
+          tempMuxedPath = null;
 
-            // ننشئ المسار المؤقت للملف المدموج فقط عند الحاجة للـ fallback
-            tempMuxedPath = await SecureTempService.newTempPath(
-                lessonId, 'muxed',
-                ext: '.mp4');
-            final String muxedPath = tempMuxedPath!;
-
-            notifService.showProgressNotification(
-              id: notificationId,
-              title: "Merging: $videoTitle",
-              body: "Combining audio & video...",
-              progress: 88,
-              maxProgress: 100,
-            );
-
-            final muxResult = await VideoMuxService.muxVideoAudio(
-              videoPath: videoRawPath,
-              audioPath: audioRawPath,
-              outputPath: muxedPath,
-            );
-
-            if (!muxResult.success) {
-              throw Exception(
-                  "Failed to merge audio and video streams: ${muxResult.failureReason}");
-            }
-
-            notifService.showProgressNotification(
-              id: notificationId,
-              title: "Encrypting: $videoTitle",
-              body: "Finalizing...",
-              progress: 95,
-              maxProgress: 100,
-            );
-
-            await FileCryptoService.encryptFileChunked(muxedPath, videoSavePath);
-
-            await SecureTempService.secureDelete(muxedPath);
-            tempMuxedPath = null;
+          if (!muxEncResult.success) {
+            throw Exception(
+                "Failed to mux/encrypt: ${muxEncResult.failureReason}");
           }
 
-          // ─── المرحلة 3: حذف ملفات الخام (مشترك بين pipe والـ fallback) ──────
+          // ─── المرحلة 3: حذف الملفات الخام بعد نجاح الدمج والتشفير ──────────
           await SecureTempService.secureDeleteAll([videoRawPath, audioRawPath]);
           tempVideoPath = null;
           tempAudioPath = null;
@@ -469,6 +439,7 @@ class DownloadManager with WidgetsBindingObserver {
           updateAggregatedProgress(extra: 1.0);
         } catch (e) {
           // تنظيف أي ملفات مؤقتة متبقية عند فشل أي مرحلة من المراحل أعلاه
+          // ملاحظة: tempMuxedPath قد يكون null بالفعل إذا حذفه muxAndEncryptWithIsolate
           await SecureTempService.secureDeleteAll(
               [tempVideoPath, tempAudioPath, tempMuxedPath]);
           rethrow;
