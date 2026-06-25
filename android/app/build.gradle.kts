@@ -18,10 +18,14 @@ val localProperties = Properties().apply {
     }
 }
 
+// ✅ FIX: fail fast if the token is missing instead of baking an empty string
 val firebaseAppCheckDebugToken: String =
     (localProperties.getProperty("firebaseAppCheckDebugToken")
         ?: System.getenv("FIREBASE_APPCHECK_DEBUG_TOKEN")
-        ?: "")
+        ?: throw GradleException(
+            "FIREBASE_APPCHECK_DEBUG_TOKEN is not set. " +
+            "Add it to local.properties (for local builds) or as a GitHub Actions secret."
+        ))
 
 android {
     ndkVersion = "28.2.13676358"
@@ -55,7 +59,6 @@ android {
     buildTypes {
 
         release {
-            // توقيع نسخة الريليز
             signingConfig = signingConfigs.getByName("release")
 
             isMinifyEnabled = true
@@ -66,16 +69,13 @@ android {
                 "proguard-rules.pro"
             )
 
-            // استخدام نفس App Check Debug Token في الـ Release
             manifestPlaceholders["firebaseAppCheckDebugToken"] =
                 firebaseAppCheckDebugToken
         }
 
         getByName("debug") {
-            // استخدام توقيع الريليز في الديبج
             signingConfig = signingConfigs.getByName("release")
 
-            // استخدام نفس App Check Debug Token في الـ Debug
             manifestPlaceholders["firebaseAppCheckDebugToken"] =
                 firebaseAppCheckDebugToken
         }
@@ -98,7 +98,6 @@ flutter {
 }
 
 dependencies {
-    // Desugaring support
     coreLibraryDesugaring(
         "com.android.tools:desugar_jdk_libs:2.1.5"
     )
