@@ -9,33 +9,15 @@ plugins {
     id("com.google.firebase.crashlytics")
 }
 
-// App Check debug token.
-// Reads from local.properties first, then from environment variables.
-val localProperties = Properties().apply {
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        FileInputStream(localPropertiesFile).use { load(it) }
-    }
-}
-
-// ✅ FIX: fail fast if the token is missing instead of baking an empty string
-val firebaseAppCheckDebugToken: String =
-    (localProperties.getProperty("firebaseAppCheckDebugToken")
-        ?: System.getenv("FIREBASE_APPCHECK_DEBUG_TOKEN")
-        ?: throw GradleException(
-            "FIREBASE_APPCHECK_DEBUG_TOKEN is not set. " +
-            "Add it to local.properties (for local builds) or as a GitHub Actions secret."
-        ))
-
 android {
     ndkVersion = "28.2.13676358"
     namespace = "medaad.app.com"
-    compileSdk = 36
+    compileSdk = 36 
 
     defaultConfig {
         applicationId = "medaad.app.com"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 36 
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
@@ -43,45 +25,31 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = System.getenv("KEY_ALIAS")?.trim()
-                ?: throw GradleException("KEY_ALIAS not set")
-
-            keyPassword = System.getenv("KEY_PASSWORD")?.trim()
-                ?: throw GradleException("KEY_PASSWORD not set")
-
-            storePassword = System.getenv("STORE_PASSWORD")?.trim()
-                ?: throw GradleException("STORE_PASSWORD not set")
-
+            keyAlias = System.getenv("KEY_ALIAS")?.trim() ?: throw GradleException("KEY_ALIAS not set")
+            keyPassword = System.getenv("KEY_PASSWORD")?.trim() ?: throw GradleException("KEY_PASSWORD not set")
+            storePassword = System.getenv("STORE_PASSWORD")?.trim() ?: throw GradleException("STORE_PASSWORD not set")
             storeFile = file("keystore/upload-keystore.jks")
         }
     }
 
     buildTypes {
-
         release {
+            // ربط التوقيع بالنسخة النهائية
             signingConfig = signingConfigs.getByName("release")
-
+            
             isMinifyEnabled = true
             isShrinkResources = true
-
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-
-            manifestPlaceholders["firebaseAppCheckDebugToken"] =
-                firebaseAppCheckDebugToken
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
-
+        
+        // ✅ التعديل هنا: إجبار نسخة الـ Debug على استخدام توقيع الـ Release
         getByName("debug") {
             signingConfig = signingConfigs.getByName("release")
-
-            manifestPlaceholders["firebaseAppCheckDebugToken"] =
-                firebaseAppCheckDebugToken
         }
     }
-
+    
     compileOptions {
+        // ✅ 1. تفعيل Core Library Desugaring (مطلوب لمكتبة الإشعارات لتعمل على إصدارات أندرويد القديمة)
         isCoreLibraryDesugaringEnabled = true
 
         sourceCompatibility = JavaVersion.VERSION_17
@@ -98,14 +66,10 @@ flutter {
 }
 
 dependencies {
-    coreLibraryDesugaring(
-        "com.android.tools:desugar_jdk_libs:2.1.5"
-    )
+    // ✅ 2. إضافة مكتبة Desugaring JDK Libs الضرورية لتفعيل الميزة أعلاه
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
-    implementation(
-        platform("com.google.firebase:firebase-bom:34.8.0")
-    )
-
+    implementation(platform("com.google.firebase:firebase-bom:34.8.0"))
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-crashlytics")
     implementation("androidx.multidex:multidex:2.0.1")
