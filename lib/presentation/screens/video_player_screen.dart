@@ -58,6 +58,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool _isOfflineMode = false;
   bool _isWeakDevice = false;
 
+  // ✅ [FIX-SEEKBAR-CRASH] When true, the seek bar and all pointer input
+  // are absorbed so that in-flight pointer events (onPointerMove /
+  // onPointerUp) cannot reach MaterialSeekBar after the widget is disposed.
+  bool _blockInput = false;
+
+  // ✅ [FIX-NETWORK-ERROR] Tracks whether the last error was a transient
+  // network issue so we can avoid spamming Firebase with expected errors.
+  bool _isNetworkError = false;
+
   // ✅ [FIX] Prevents the buffering listener from calling play() while
   // _playVideo() is still in the middle of setting up the source.
   bool _isLoadingNewSource = false;
@@ -80,7 +89,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Duration _accumulatedSeekAmount = Duration.zero;
 
   int _seekLockCount = 0;
-  Timer? _seekLockReleaseTimer;
+  // _seekLockReleaseTimer removed — lock now uses Future.delayed per-call
+  // so overlapping acquires each release independently (see _acquireSeekLock)
 
   // ✅ [DOUBLE-TAP SEEK]
   int _leftTapCount = 0;
@@ -246,25 +256,45 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _player.stream.error.listen((error) {
         final errorString = error.toString().toLowerCase();
 
-        if (errorString.contains('tcp') ||
+        // ✅ [FIX-NETWORK-ERROR] These are all expected transient network
+        // failures. We show a retry UI but do NOT call recordError() since
+        // they are user-environment issues, not code bugs — logging them
+        // floods Firebase with non-actionable non-fatal events.
+        final bool isNetworkError = errorString.contains('tcp') ||
             errorString.contains('timeout') ||
             errorString.contains('ffurl_read') ||
             errorString.contains('resolve hostname') ||
             errorString.contains('route to host') ||
-            errorString.contains('decoding audio')) {
+            errorString.contains('decoding audio') ||
+            errorString.contains('0xffffff92') ||
+            errorString.contains('0xffffff8e');
+
+        if (isNetworkError) {
           if (mounted && !_isDisposing) {
+            // Save position BEFORE pausing so retry resumes from same spot.
             final currentPos = _player.state.position;
             setState(() {
               _isError = true;
-              _errorPosition = currentPos;
+              _isNetworkError = true;
+              // Only update _errorPosition if we actually played past 0,
+              // so a pre-playback error doesn't resume from Duration.zero
+              // on a source that never started.
+              if (currentPos > Duration.zero) {
+                _errorPosition = currentPos;
+              }
               _errorMessage =
                   "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
               _isVideoLoading = false;
             });
             _player.pause();
+            // Log as a breadcrumb only — not a recordError.
+            FirebaseCrashlytics.instance.log(
+                "⚠️ Network error (non-fatal, expected): $errorString");
           }
+          return; // ← Don't fall through to recordError below
         }
 
+        // Real unexpected errors — log to Firebase.
         if (!errorString.contains("failed to open")) {
           FirebaseCrashlytics.instance
               .recordError(error, null, reason: 'MediaKit Stream Error');
@@ -530,9 +560,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   void _acquireSeekLock(Duration holdFor) {
+    // ✅ [FIX-SEEK-LOCK] Each caller gets its own delayed decrement.
+    // We no longer cancel the previous timer, so overlapping calls each
+    // correctly release their own hold and _seekLockCount always reaches 0.
     _seekLockCount++;
-    _seekLockReleaseTimer?.cancel();
-    _seekLockReleaseTimer = Timer(holdFor, () {
+    Future.delayed(holdFor, () {
       if (_seekLockCount > 0) _seekLockCount--;
     });
   }
@@ -783,9 +815,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
     if (mounted) {
       setState(() {
+        // ✅ [FIX-NULL-CRASH] Use ?. instead of !. here — userData may have
+        // become null between the check above and this setState call,
+        // especially on slow devices where async gaps are longer.
         _watermarkText = displayText.isNotEmpty
             ? displayText
-            : AppState().userData!['username'] ?? 'Unknown User';
+            : AppState().userData?['username'] ?? 'Unknown User';
       });
     }
   }
@@ -819,13 +854,21 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Future<void> _safeExit() async {
     if (_isDisposing) return;
 
-    if (mounted) setState(() => _isDisposing = true);
+    // ✅ [FIX-SEEKBAR-CRASH] Block ALL pointer input immediately before
+    // anything is disposed. This prevents in-flight onPointerMove /
+    // onPointerUp events from reaching MaterialSeekBar after its State's
+    // context has been unmounted, which caused the fatal null-check crash:
+    //   MaterialSeekBarState.onPointerMove → State.context → NPE
+    //   MaterialSeekBarState.onPointerUp   → State.context → NPE
+    if (mounted) setState(() {
+      _blockInput = true;
+      _isDisposing = true;
+    });
 
     try {
       _seekDebounceTimer?.cancel();
       _watermarkTimer?.cancel();
       _countdownTimer?.cancel();
-      _seekLockReleaseTimer?.cancel();
       _leftTapTimer?.cancel();
       _rightTapTimer?.cancel();
       _leftTapInhibitTimer?.cancel();
@@ -849,7 +892,25 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _recordingSubscription?.cancel();
     _protectionService.stopMonitoring();
 
-    if (!_isDisposing) _safeExit();
+    // ✅ [FIX-DOUBLE-DISPOSE] If _safeExit() was NOT called (e.g. Flutter
+    // removes the widget directly without a back-button press), we do the
+    // cleanup here. We do NOT call Navigator.pop() because the widget is
+    // already being removed from the tree — calling pop() here would cause
+    // a double-pop and corrupt the navigation stack.
+    if (!_isDisposing) {
+      _seekDebounceTimer?.cancel();
+      _watermarkTimer?.cancel();
+      _countdownTimer?.cancel();
+      _leftTapTimer?.cancel();
+      _rightTapTimer?.cancel();
+      _leftTapInhibitTimer?.cancel();
+      _rightTapInhibitTimer?.cancel();
+      try { _leftRippleController.dispose(); } catch (_) {}
+      try { _rightRippleController.dispose(); } catch (_) {}
+      try { _player.stop(); } catch (_) {}
+      try { _player.dispose(); } catch (_) {}
+      WakelockPlus.disable();
+    }
     super.dispose();
   }
 
@@ -974,21 +1035,27 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         const MaterialPositionIndicator(),
         const SizedBox(width: 10),
         Expanded(
-          child: GestureDetector(
-            onHorizontalDragStart: (_) {
-              _acquireSeekLock(const Duration(seconds: 2));
-            },
-            onHorizontalDragEnd: (_) {
-              _acquireSeekLock(const Duration(milliseconds: 1500));
-            },
-            onTapDown: (_) {
-              _acquireSeekLock(const Duration(seconds: 2));
-            },
-            onTapUp: (_) {
-              _acquireSeekLock(const Duration(milliseconds: 1500));
-            },
-            behavior: HitTestBehavior.translucent,
-            child: const MaterialSeekBar(),
+          child: AbsorbPointer(
+            // ✅ [FIX-SEEKBAR-CRASH] Absorb all pointer events when we are
+            // shutting down. This prevents onPointerMove / onPointerUp
+            // inside MaterialSeekBar from accessing a disposed State context.
+            absorbing: _blockInput || _isDisposing,
+            child: GestureDetector(
+              onHorizontalDragStart: (_) {
+                _acquireSeekLock(const Duration(seconds: 2));
+              },
+              onHorizontalDragEnd: (_) {
+                _acquireSeekLock(const Duration(milliseconds: 1500));
+              },
+              onTapDown: (_) {
+                _acquireSeekLock(const Duration(seconds: 2));
+              },
+              onTapUp: (_) {
+                _acquireSeekLock(const Duration(milliseconds: 1500));
+              },
+              behavior: HitTestBehavior.translucent,
+              child: const MaterialSeekBar(),
+            ),
           ),
         ),
         const SizedBox(width: 10),
@@ -1063,7 +1130,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         onPressed: () {
                           FirebaseCrashlytics.instance.log(
                               "🔄 User clicked Retry on network error");
-                          setState(() => _isError = false);
+                          // ✅ [FIX-NETWORK-ERROR] Reset both error flags
+                          // and use _errorPosition (which was safely captured
+                          // before the error) so playback resumes correctly.
+                          setState(() {
+                            _isError = false;
+                            _isNetworkError = false;
+                          });
                           _playVideo(widget.streams[_currentQuality]!,
                               startAt: _errorPosition);
                         },
