@@ -903,7 +903,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       //  from here — they now live exclusively in dispose().)
 
       // ── FIX #4: Stop the local proxy server. ────────────────────────
-      try { await _proxyService.stop(); } catch (_) {}
+      try { _proxyService.stop(); } catch (_) {}
 
       if (_isPlayerInitialized) {
         await _player.stop();
