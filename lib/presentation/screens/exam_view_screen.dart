@@ -5,7 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:firebase_app_check/firebase_app_check.dart'; // ✅ تم الاستيراد
+import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import 'exam_result_screen.dart';
 import '../../core/services/storage_service.dart';
@@ -32,13 +32,18 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
   bool _loading = true;
   List<dynamic> _questions = [];
 
-  // متغير لتحديد ما إذا كنا في وضع "نموذج الإجابة"
   bool _isModelAnswerMode = false;
 
   int currentIdx = 0;
-  Map<String, int> userAnswers = {};
 
-  // قائمة لتخزين الأسئلة التي تم وضع علامة عليها (Flagged)
+  // MCQ answers: questionId -> optionId
+  Map<String, int> userMcqAnswers = {};
+  // Essay answers: questionId -> text
+  Map<String, String> userEssayAnswers = {};
+
+  // Controllers for essay TextFields — one per question index
+  final Map<int, TextEditingController> _essayControllers = {};
+
   Set<String> flaggedQuestions = {};
 
   int timeLeft = 0;
@@ -48,7 +53,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
   String? _userId;
   String? _deviceId;
   String? _token;
-  String? _appCheckToken; // ✅ متغير لتخزين توكن الحماية
+  String? _appCheckToken;
   final String _appSecret = const String.fromEnvironment('APP_SECRET');
 
   final String _baseUrl = ApiConstants.baseUrl;
@@ -60,23 +65,61 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
     _startExamAttempt();
   }
 
+  @override
+  void dispose() {
+    _timer?.cancel();
+    for (final ctrl in _essayControllers.values) {
+      ctrl.dispose();
+    }
+    super.dispose();
+  }
+
+  TextEditingController _essayController(int index) {
+    return _essayControllers.putIfAbsent(index, () => TextEditingController());
+  }
+
+  bool get _isEssayQuestion {
+    if (_questions.isEmpty) return false;
+    return _questions[currentIdx]['question_type'] == 'essay';
+  }
+
+  // Returns true if question at given index is an essay type
+  bool _isEssay(int index) {
+    if (index >= _questions.length) return false;
+    return _questions[index]['question_type'] == 'essay';
+  }
+
+  // Count answered questions (both MCQ and essay with non-empty text)
+  int get _answeredCount {
+    int count = 0;
+    for (int i = 0; i < _questions.length; i++) {
+      final q = _questions[i];
+      final qId = q['id'].toString();
+      if (_isEssay(i)) {
+        final ctrl = _essayControllers[i];
+        final text = ctrl?.text.trim() ?? userEssayAnswers[qId]?.trim() ?? '';
+        if (text.isNotEmpty) count++;
+      } else {
+        if (userMcqAnswers.containsKey(qId)) count++;
+      }
+    }
+    return count;
+  }
+
   Future<void> _startExamAttempt() async {
     try {
-      // جلب البيانات الأساسية من التخزين المحلي لاستخدامها إذا لزم الأمر (مثل الصور)
       var box = await StorageService.openBox('auth_box');
       _userId = box.get('user_id');
       _deviceId = box.get('device_id');
       _token = box.get('jwt_token');
       final name = box.get('first_name') ?? 'Student';
 
-      // ✅ جلب توكن App Check لاستخدامه في الصور
       try {
         _appCheckToken = await FirebaseAppCheck.instance.getToken();
       } catch (e) {
         debugPrint("App Check Error: $e");
       }
 
-      // تم الاعتماد على ApiClient ولن نحتاج لتمرير الـ Headers يدوياً للـ API
       final res = await ApiClient.instance.post(
         '$_baseUrl/api/exams/start-attempt',
         data: {'examId': widget.examId, 'studentName': name},
@@ -85,7 +128,6 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       if (mounted && res.statusCode == 200) {
         final data = res.data;
 
-        // التحقق من وضع نموذج الإجابة
         if (data['mode'] == 'model_answer') {
           setState(() {
             _isModelAnswerMode = true;
@@ -94,7 +136,6 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
             _loading = false;
           });
         } else {
-          // الوضع الطبيعي (بدء امتحان أو إعادة تدريب)
           int apiDuration = data['durationMinutes'] ?? 30;
 
           setState(() {
@@ -116,7 +157,14 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
         if (e is DioException) {
           if (e.response?.statusCode == 403)
             msg = e.response?.data['error'] ?? "Access Denied";
-          if (e.response?.statusCode == 409) msg = "Exam already completed";
+          if (e.response?.statusCode == 409) {
+            final data = e.response?.data;
+            if (data != null && data['isPendingGrading'] == true) {
+              msg = data['error'] ?? "الامتحان قيد المراجعة من المعلم";
+            } else {
+              msg = "Exam already completed";
+            }
+          }
         }
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(msg), backgroundColor: AppColors.error));
@@ -136,12 +184,6 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
     });
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
   String _formatTime(int seconds) {
     if (seconds <= 0) return "0:00";
     final m = (seconds / 60).floor();
@@ -149,17 +191,32 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
     return "$m:${s.toString().padLeft(2, '0')}";
   }
 
+  /// Sync essay controller text into the answers map before submitting
+  void _syncEssayAnswers() {
+    for (int i = 0; i < _questions.length; i++) {
+      if (_isEssay(i)) {
+        final ctrl = _essayControllers[i];
+        if (ctrl != null) {
+          final qId = _questions[i]['id'].toString();
+          userEssayAnswers[qId] = ctrl.text.trim();
+        }
+      }
+    }
+  }
+
   Future<void> _submitExam({bool autoSubmit = false}) async {
-    // في وضع نموذج الإجابة، هذا الزر يعمل كزر خروج فقط
     if (_isModelAnswerMode) {
       Navigator.pop(context);
       return;
     }
 
-    // منع تسليم الامتحان إذا كانت هناك أسئلة فارغة (إلا في حالة انتهاء الوقت autoSubmit)
+    // Sync essay text fields into the map
+    _syncEssayAnswers();
+
     if (!autoSubmit) {
-      if (userAnswers.length < _questions.length) {
-        int unanswered = _questions.length - userAnswers.length;
+      final int answered = _answeredCount;
+      if (answered < _questions.length) {
+        final int unanswered = _questions.length - answered;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -170,13 +227,12 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
             duration: const Duration(seconds: 3),
           ),
         );
-        return; // إيقاف العملية
+        return;
       }
     }
 
     _timer?.cancel();
 
-    // إظهار Loading
     showDialog(
         context: context,
         barrierDismissible: false,
@@ -184,29 +240,34 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
             child: CircularProgressIndicator(color: AppColors.accentYellow)));
 
     try {
-      Map<String, int> finalAnswers = {};
-      userAnswers.forEach((k, v) => finalAnswers[k] = v);
+      // Merge MCQ and essay answers into a single map for the API
+      // MCQ: questionId -> optionId (int)
+      // Essay: questionId -> text (String)
+      final Map<String, dynamic> combinedAnswers = {};
+      userMcqAnswers.forEach((k, v) => combinedAnswers[k] = v);
+      userEssayAnswers.forEach((k, v) {
+        if (v.isNotEmpty) combinedAnswers[k] = v;
+      });
 
-      // تم الاعتماد على ApiClient وإزالة الـ Headers اليدوية للـ API
       final res = await ApiClient.instance.post(
         '$_baseUrl/api/exams/submit-attempt',
         data: {
-          'attemptId': _attemptId, 
-          'answers': finalAnswers,
-          'examId': widget.examId, // مهم جداً لوضع التدريب (temp_retake_mode)
+          'attemptId': _attemptId,
+          'answers': combinedAnswers,
+          'examId': widget.examId,
         },
       );
 
       if (mounted) {
-        Navigator.pop(context); // إغلاق Loading
+        Navigator.pop(context); // Close loading
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => ExamResultScreen(
-              attemptId: _attemptId!, 
+              attemptId: _attemptId!,
               examTitle: widget.examTitle,
-              // ✅ تمرير النتائج مباشرة إذا كان في وضع التدريب لتجنب الفشل في جلبها من السيرفر
-              practiceResults: _attemptId == 'temp_retake_mode' ? res.data : null,
+              practiceResults:
+                  _attemptId == 'temp_retake_mode' ? res.data : null,
             ),
           ),
         );
@@ -221,7 +282,6 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
     }
   }
 
-  // دالة لإظهار تحذير الخروج
   Future<void> _showExitWarningDialog() async {
     final shouldSubmit = await showDialog<bool>(
       context: context,
@@ -236,12 +296,12 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
             style: TextStyle(color: AppColors.textSecondary)),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false), // البقاء في الامتحان
+            onPressed: () => Navigator.pop(ctx, false),
             child:
                 Text("Stay", style: TextStyle(color: AppColors.textSecondary)),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true), // تسليم وخروج
+            onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text("Submit & Exit",
                 style: TextStyle(
@@ -256,7 +316,6 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
     }
   }
 
-  // دالة لتكبير الصورة
   void _showZoomableImage(String imageUrl) {
     showDialog(
       context: context,
@@ -272,12 +331,12 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
               maxScale: 4.0,
               child: CachedNetworkImage(
                 imageUrl: imageUrl,
-                // ✅ نمرر كل الهيدرز اليدوية لأن CachedNetworkImage لا تمر عبر الـ Interceptor
                 httpHeaders: {
                   'Authorization': 'Bearer $_token',
                   'x-device-id': _deviceId ?? '',
                   'x-app-secret': _appSecret,
-                  if (_appCheckToken != null) 'X-Firebase-AppCheck': _appCheckToken!,
+                  if (_appCheckToken != null)
+                    'X-Firebase-AppCheck': _appCheckToken!,
                 },
                 placeholder: (context, url) => Center(
                     child: CircularProgressIndicator(
@@ -302,29 +361,147 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Build essay question widget
+  // ─────────────────────────────────────────────────────────────────────────────
+  Widget _buildEssayQuestion(String questionId, int index) {
+    final ctrl = _essayController(index);
+
+    // In model_answer mode for essay, just show a placeholder (essays have no
+    // is_correct on options — the model answer is shown as text if present)
+    if (_isModelAnswerMode) {
+      final modelAnswer = _questions[index]['model_answer'] as String?;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.accentYellow.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.accentYellow.withOpacity(0.3)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(LucideIcons.pencilLine,
+                    color: AppColors.accentYellow, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    modelAnswer?.isNotEmpty == true
+                        ? modelAnswer!
+                        : 'No model answer provided.',
+                    style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 14,
+                        height: 1.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Normal exam mode: text field
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.accentYellow.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(8),
+            border:
+                Border.all(color: AppColors.accentYellow.withOpacity(0.25)),
+          ),
+          child: Row(
+            children: [
+              Icon(LucideIcons.pencilLine,
+                  color: AppColors.accentYellow, size: 16),
+              const SizedBox(width: 8),
+              Text(
+                "Written Question — Type your answer below",
+                style: TextStyle(
+                    color: AppColors.accentYellow,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: ctrl,
+          maxLines: 8,
+          minLines: 4,
+          style: TextStyle(color: AppColors.textPrimary, fontSize: 15, height: 1.5),
+          decoration: InputDecoration(
+            hintText: "Write your answer here...",
+            hintStyle:
+                TextStyle(color: AppColors.textSecondary.withOpacity(0.5)),
+            filled: true,
+            fillColor: AppColors.backgroundSecondary,
+            contentPadding: const EdgeInsets.all(16),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.white12),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.white12),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  BorderSide(color: AppColors.accentYellow, width: 1.5),
+            ),
+          ),
+          onChanged: (val) {
+            // Keep the map in sync while typing
+            setState(() {
+              userEssayAnswers[questionId] = val.trim();
+            });
+          },
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            "${ctrl.text.trim().length} characters",
+            style: TextStyle(
+                color: AppColors.textSecondary.withOpacity(0.5), fontSize: 11),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading)
       return Scaffold(
           backgroundColor: AppColors.backgroundPrimary,
           body: Center(
-              child: CircularProgressIndicator(color: AppColors.accentYellow)));
+              child:
+                  CircularProgressIndicator(color: AppColors.accentYellow)));
 
     final questionData = _questions[currentIdx];
     final String questionId = questionData['id'].toString();
     final String? imageFileId = questionData['image_file_id'];
-    final options =
-        (questionData['options'] as List).cast<Map<String, dynamic>>();
+    final bool isEssay = _isEssay(currentIdx);
+    final options = isEssay
+        ? <Map<String, dynamic>>[]
+        : (questionData['options'] as List).cast<Map<String, dynamic>>();
 
-    // التحقق مما إذا كان السؤال الحالي معلم عليه
     bool isFlagged = flaggedQuestions.contains(questionId);
 
     return PopScope(
-      canPop:
-          _isModelAnswerMode, // السماح بالخروج مباشرة فقط إذا كان نموذج إجابة
+      canPop: _isModelAnswerMode,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        // إذا حاول المستخدم الخروج أثناء الامتحان، نعرض التحذير
         await _showExitWarningDialog();
       },
       child: Scaffold(
@@ -332,14 +509,13 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              // Header & Timer & Flag
+              // ── Header ──────────────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 24.0, vertical: 16.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // زر وضع العلامة (Flag)
                     if (!_isModelAnswerMode)
                       IconButton(
                         onPressed: () {
@@ -413,7 +589,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                 ),
               ),
 
-              // شريط التنقل بين الأسئلة (Horizontal Navigator)
+              // ── Question Navigator ──────────────────────────────────────────
               Container(
                 height: 50,
                 width: double.infinity,
@@ -426,9 +602,17 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                   itemBuilder: (ctx, index) {
                     final q = _questions[index];
                     final qIdStr = q['id'].toString();
+                    final bool isQEssay = _isEssay(index);
 
                     bool isCurrent = index == currentIdx;
-                    bool isAnswered = userAnswers.containsKey(qIdStr);
+                    bool isAnswered;
+                    if (isQEssay) {
+                      final ctrl = _essayControllers[index];
+                      isAnswered = (ctrl?.text.trim().isNotEmpty == true) ||
+                          (userEssayAnswers[qIdStr]?.isNotEmpty == true);
+                    } else {
+                      isAnswered = userMcqAnswers.containsKey(qIdStr);
+                    }
                     bool isMarked = flaggedQuestions.contains(qIdStr);
 
                     Color boxColor = AppColors.backgroundSecondary;
@@ -463,14 +647,32 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                           color: boxColor,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                              color: borderColor, width: isMarked ? 2.0 : 1.5),
+                              color: borderColor,
+                              width: isMarked ? 2.0 : 1.5),
                         ),
-                        child: Text(
-                          "${index + 1}",
-                          style: TextStyle(
-                            color: textColor,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Text(
+                              "${index + 1}",
+                              style: TextStyle(
+                                color: textColor,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            // Small pencil badge for essay questions
+                            if (isQEssay)
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: Icon(
+                                  LucideIcons.pencilLine,
+                                  size: 8,
+                                  color: textColor.withOpacity(0.7),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     );
@@ -480,12 +682,14 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
 
               const Divider(color: Colors.white10, height: 1),
 
+              // ── Question Body ───────────────────────────────────────────────
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Question image
                       if (imageFileId != null && imageFileId.isNotEmpty)
                         GestureDetector(
                           onTap: () {
@@ -509,12 +713,12 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                                   child: CachedNetworkImage(
                                     imageUrl:
                                         '$_baseUrl/api/exams/get-image?file_id=$imageFileId',
-                                    // ✅ إضافة الهيدرز يدوياً في الصورة المصغرة أيضاً
                                     httpHeaders: {
                                       'Authorization': 'Bearer $_token',
                                       'x-device-id': _deviceId ?? '',
                                       'x-app-secret': _appSecret,
-                                      if (_appCheckToken != null) 'X-Firebase-AppCheck': _appCheckToken!,
+                                      if (_appCheckToken != null)
+                                        'X-Firebase-AppCheck': _appCheckToken!,
                                     },
                                     placeholder: (context, url) => Center(
                                         child: CircularProgressIndicator(
@@ -525,7 +729,6 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                                     fit: BoxFit.contain,
                                   ),
                                 ),
-                                // أيقونة صغيرة لتوضيح إمكانية التكبير
                                 Positioned(
                                   bottom: 8,
                                   right: 8,
@@ -533,13 +736,34 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                                     padding: const EdgeInsets.all(4),
                                     decoration: BoxDecoration(
                                         color: Colors.black54,
-                                        borderRadius: BorderRadius.circular(4)),
+                                        borderRadius:
+                                            BorderRadius.circular(4)),
                                     child: const Icon(LucideIcons.maximize2,
                                         color: Colors.white, size: 16),
                                   ),
                                 ),
                               ],
                             ),
+                          ),
+                        ),
+
+                      // Question type badge
+                      if (isEssay)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.accentYellow.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            "WRITTEN QUESTION",
+                            style: TextStyle(
+                                color: AppColors.accentYellow,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.0),
                           ),
                         ),
 
@@ -554,100 +778,108 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
 
                       const SizedBox(height: 32),
 
-                      // الخيارات
-                      ...options.map((opt) {
-                        final int optId = opt['id'];
+                      // Essay OR MCQ widget
+                      if (isEssay)
+                        _buildEssayQuestion(questionId, currentIdx)
+                      else
+                        ...options.map((opt) {
+                          final int optId = opt['id'];
+                          bool isSelected = false;
+                          bool isCorrectModel = false;
 
-                        bool isSelected = false;
-                        bool isCorrectModel = false;
+                          if (_isModelAnswerMode) {
+                            isCorrectModel = opt['is_correct'] == true;
+                          } else {
+                            isSelected = userMcqAnswers[questionId] == optId;
+                          }
 
-                        if (_isModelAnswerMode) {
-                          isCorrectModel = opt['is_correct'] == true;
-                        } else {
-                          isSelected = userAnswers[questionId] == optId;
-                        }
+                          Color bgColor = AppColors.backgroundSecondary;
+                          Color borderColor = Colors.white.withOpacity(0.05);
 
-                        Color bgColor = AppColors.backgroundSecondary;
-                        Color borderColor = Colors.white.withOpacity(0.05);
+                          if (_isModelAnswerMode && isCorrectModel) {
+                            bgColor = AppColors.success.withOpacity(0.2);
+                            borderColor = AppColors.success;
+                          } else if (isSelected) {
+                            bgColor =
+                                AppColors.accentYellow.withOpacity(0.1);
+                            borderColor = AppColors.accentYellow;
+                          }
 
-                        if (_isModelAnswerMode && isCorrectModel) {
-                          bgColor = AppColors.success.withOpacity(0.2);
-                          borderColor = AppColors.success;
-                        } else if (isSelected) {
-                          bgColor = AppColors.accentYellow.withOpacity(0.1);
-                          borderColor = AppColors.accentYellow;
-                        }
-
-                        return GestureDetector(
-                          onTap: () {
-                            if (_isModelAnswerMode) return;
-                            setState(() => userAnswers[questionId] = optId);
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: bgColor,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: borderColor,
-                                width: (isSelected || isCorrectModel) ? 1.5 : 1,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 24,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                        color: (isSelected || isCorrectModel)
-                                            ? (_isModelAnswerMode &&
-                                                    isCorrectModel
-                                                ? AppColors.success
-                                                : AppColors.accentYellow)
-                                            : Colors.white24,
-                                        width: 2),
-                                    color: (isSelected || isCorrectModel)
-                                        ? (_isModelAnswerMode && isCorrectModel
-                                            ? AppColors.success
-                                            : AppColors.accentYellow)
-                                        : Colors.transparent,
-                                  ),
-                                  child: (isSelected || isCorrectModel)
-                                      ? Icon(Icons.check,
-                                          size: 16,
-                                          color: AppColors.backgroundPrimary)
-                                      : null,
+                          return GestureDetector(
+                            onTap: () {
+                              if (_isModelAnswerMode) return;
+                              setState(
+                                  () => userMcqAnswers[questionId] = optId);
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: bgColor,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: borderColor,
+                                  width:
+                                      (isSelected || isCorrectModel) ? 1.5 : 1,
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Text(
-                                    opt['option_text'],
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: (isSelected || isCorrectModel)
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                          color: (isSelected || isCorrectModel)
+                                              ? (_isModelAnswerMode &&
+                                                      isCorrectModel
+                                                  ? AppColors.success
+                                                  : AppColors.accentYellow)
+                                              : Colors.white24,
+                                          width: 2),
                                       color: (isSelected || isCorrectModel)
-                                          ? AppColors.textPrimary
-                                          : AppColors.textSecondary,
+                                          ? (_isModelAnswerMode &&
+                                                  isCorrectModel
+                                              ? AppColors.success
+                                              : AppColors.accentYellow)
+                                          : Colors.transparent,
+                                    ),
+                                    child: (isSelected || isCorrectModel)
+                                        ? Icon(Icons.check,
+                                            size: 16,
+                                            color:
+                                                AppColors.backgroundPrimary)
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Text(
+                                      opt['option_text'],
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: (isSelected ||
+                                                isCorrectModel)
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
+                                        color: (isSelected || isCorrectModel)
+                                            ? AppColors.textPrimary
+                                            : AppColors.textSecondary,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      }),
+                          );
+                        }),
                     ],
                   ),
                 ),
               ),
 
-              // أزرار التنقل
+              // ── Navigation Buttons ──────────────────────────────────────────
               Container(
                 padding: const EdgeInsets.all(24),
                 decoration: const BoxDecoration(
@@ -659,7 +891,8 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                         child: OutlinedButton(
                           onPressed: () => setState(() => currentIdx--),
                           style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 16),
                               side: const BorderSide(color: Colors.white10),
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12))),
@@ -691,7 +924,8 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                             foregroundColor: _isModelAnswerMode
                                 ? Colors.white
                                 : AppColors.backgroundPrimary,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12))),
                         child: Text(

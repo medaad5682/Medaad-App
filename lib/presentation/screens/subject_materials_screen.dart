@@ -540,6 +540,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         final exam = visibleExams[index];
         final bool isCompleted = exam['isCompleted'] ?? false;
         final bool isExpired = exam['isExpired'] ?? false;
+        // ✅ حالة جديدة: الامتحان مُسلَّم وبانتظار تصحيح المعلم اليدوي (أسئلة مقالية)
+        final bool isPendingGrading = exam['isPendingGrading'] ?? false;
         
         // ✅ 1. التعديل هنا: قراءة المتغير بأمان تام لدعم جميع أنواع البيانات
         final bool allowRetake = exam['allow_retake'] == true || exam['allow_retake'] == 'true' || exam['allow_retake'] == 1;
@@ -548,7 +550,12 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         String statusText = "UNSOLVED";
         IconData statusIcon = LucideIcons.fileX;
 
-        if (isCompleted) {
+        if (isPendingGrading) {
+          // الامتحان مُسلَّم ويحتوي على أسئلة مقالية بانتظار تصحيح المعلم
+          statusColor = AppColors.accentYellow;
+          statusText = "PENDING";
+          statusIcon = LucideIcons.clipboardPen;
+        } else if (isCompleted) {
           // ✅ 2. التعديل هنا: إزالة شرط (!_isTeacher) لكي يرى المعلم زر التدريب
           if (allowRetake) {
             statusColor = AppColors.accentYellow;
@@ -696,6 +703,37 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
   void _openExam(Map exam, bool isCompleted, bool isExpired) {
     // ✅ قراءة المتغير بأمان تام
     final bool allowRetake = exam['allow_retake'] == true || exam['allow_retake'] == 'true' || exam['allow_retake'] == 1;
+    // ✅ حالة الامتحان بانتظار تصحيح المعلم اليدوي
+    final bool isPendingGrading = exam['isPendingGrading'] ?? false;
+
+    // ✅ إذا كان الامتحان بانتظار التصحيح اليدوي، نظهر رسالة توضيحية
+    if (isPendingGrading) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppColors.backgroundSecondary,
+          title: Row(
+            children: [
+              Icon(LucideIcons.clipboardPen, color: AppColors.accentYellow, size: 20),
+              const SizedBox(width: 10),
+              Text('قيد المراجعة',
+                  style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+            ],
+          ),
+          content: Text(
+            'لقد سلّمت هذا الامتحان وهو الآن بانتظار مراجعة المعلم.\n\nسيتم إشعارك عند نشر النتيجة النهائية.',
+            style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('حسناً', style: TextStyle(color: AppColors.accentYellow)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
 
     // دوال مساعدة للتوجيه
     void navigateToResult() {
