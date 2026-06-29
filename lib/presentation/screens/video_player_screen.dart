@@ -35,6 +35,9 @@ class VideoPlayerScreen extends StatefulWidget {
 
 class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
+  // ── FIX #2: Guard late fields with an init flag so dispose() never
+  // touches them if initState()'s async body never completed.
+  bool _isPlayerInitialized = false;
   late final Player _player;
   late final VideoController _controller;
 
@@ -43,6 +46,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   StreamSubscription? _recordingSubscription;
   bool _isRecordingDetected = false;
+
+  // ── FIX #1: Store media_kit stream subscriptions so they can be cancelled.
+  StreamSubscription? _errorStreamSub;
+  StreamSubscription? _bufferingStreamSub;
 
   String _currentQuality = "";
   List<String> _sortedQualities = [];
@@ -58,22 +65,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool _isOfflineMode = false;
   bool _isWeakDevice = false;
 
-  // ✅ [FIX-SEEKBAR-CRASH] When true, the seek bar and all pointer input
-  // are absorbed so that in-flight pointer events (onPointerMove /
-  // onPointerUp) cannot reach MaterialSeekBar after the widget is disposed.
   bool _blockInput = false;
 
-  // ✅ [FIX-NETWORK-ERROR] Tracks whether the last error was a transient
-  // network issue so we can avoid spamming Firebase with expected errors.
-  bool _isNetworkError = false;
+  // ── FIX #3: Token-based cancellation for concurrent _playVideo calls.
+  // Each call increments this counter; a call that finds its token stale
+  // knows it has been superseded and bails out early.
+  int _playToken = 0;
 
-  // ✅ [FIX] Prevents the buffering listener from calling play() while
-  // _playVideo() is still in the middle of setting up the source.
   bool _isLoadingNewSource = false;
-
-  // ✅ [FIX] Prevents repeated buffering=false events mid-stream (network
-  // hiccup, demuxer restart after setAudioTrack) from re-triggering play()
-  // and jumping back to position 0.
   bool _hasStartedPlayback = false;
 
   int _stabilizingCountdown = 0;
@@ -89,8 +88,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Duration _accumulatedSeekAmount = Duration.zero;
 
   int _seekLockCount = 0;
-  // _seekLockReleaseTimer removed — lock now uses Future.delayed per-call
-  // so overlapping acquires each release independently (see _acquireSeekLock)
 
   // ✅ [DOUBLE-TAP SEEK]
   int _leftTapCount = 0;
@@ -103,16 +100,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   // ✅ [LONG-PRESS SPEED]
   bool _isLongPressActive = false;
 
+  // ── FIX #10: Removed dead _leftRawTapCount / _rightRawTapCount fields.
   Timer? _leftTapInhibitTimer;
   Timer? _rightTapInhibitTimer;
-  int _leftRawTapCount = 0;
-  int _rightRawTapCount = 0;
 
   // ✅ [RIPPLE ANIMATION]
   late AnimationController _leftRippleController;
   late AnimationController _rightRippleController;
   late Animation<double> _leftRippleAnim;
   late Animation<double> _rightRippleAnim;
+
+  // ── FIX #5: Track whether animation controllers have been initialised so
+  // dispose() never tries to tear them down before init completed.
+  bool _animControllersInitialized = false;
 
   final Map<String, String> _serverHeaders = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
@@ -140,6 +140,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       parent: _rightRippleController,
       curve: Curves.easeOut,
     );
+    _animControllersInitialized = true;
 
     _initializeProtection();
     _initializePlayerScreen();
@@ -167,14 +168,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   void _handleRecordingDetected() {
     if (!mounted) return;
     setState(() => _isRecordingDetected = true);
-    _player.setVolume(0.0);
-    _player.pause();
+    if (_isPlayerInitialized) {
+      _player.setVolume(0.0);
+      _player.pause();
+    }
     FirebaseCrashlytics.instance
         .log("🚨 Security: Screen Recording Detected! Player Muted & Paused.");
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_isPlayerInitialized) return;
     if (state == AppLifecycleState.paused) {
       _player.pause();
     } else if (state == AppLifecycleState.resumed) {
@@ -216,12 +220,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       }
 
+      // ── FIX #12: Removed explicit vo: 'gpu' — media_kit picks the best VO
+      // automatically per platform. Forcing 'gpu' can conflict with
+      // androidAttachSurfaceAfterVideoParameters and cause black screens on
+      // Android 10 devices.
       _player = Player(
         configuration: PlayerConfiguration(
           bufferSize: _isWeakDevice ? 8 * 1024 * 1024 : 32 * 1024 * 1024,
-          vo: 'gpu',
         ),
       );
+
+      // ── FIX #2: Mark player as ready before any await that could let
+      // dispose() run first.
+      _isPlayerInitialized = true;
 
       if (forceSoftwareDecoding) {
         await (_player.platform as dynamic).setProperty('hwdec', 'no');
@@ -252,14 +263,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         ),
       );
 
-      // ── Error stream ────────────────────────────────────────────────────
-      _player.stream.error.listen((error) {
+      // ── FIX #1: Store subscriptions so they are cancelled on dispose. ──
+
+      // ── Error stream ──────────────────────────────────────────────────────
+      _errorStreamSub = _player.stream.error.listen((error) {
         final errorString = error.toString().toLowerCase();
 
-        // ✅ [FIX-NETWORK-ERROR] These are all expected transient network
-        // failures. We show a retry UI but do NOT call recordError() since
-        // they are user-environment issues, not code bugs — logging them
-        // floods Firebase with non-actionable non-fatal events.
         final bool isNetworkError = errorString.contains('tcp') ||
             errorString.contains('timeout') ||
             errorString.contains('ffurl_read') ||
@@ -271,56 +280,51 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
         if (isNetworkError) {
           if (mounted && !_isDisposing) {
-            // Save position BEFORE pausing so retry resumes from same spot.
             final currentPos = _player.state.position;
             setState(() {
               _isError = true;
-              _isNetworkError = true;
-              // Only update _errorPosition if we actually played past 0,
-              // so a pre-playback error doesn't resume from Duration.zero
-              // on a source that never started.
+              // ── FIX #11: _isNetworkError removed — it was set but never
+              // read anywhere. The bool was dead code.
+              _errorMessage =
+                  "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
+              // ── FIX #8: Always clear the loading flag on any error path
+              // so the spinner doesn't stay over the error UI.
+              _isVideoLoading = false;
               if (currentPos > Duration.zero) {
                 _errorPosition = currentPos;
               }
-              _errorMessage =
-                  "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
-              _isVideoLoading = false;
             });
             _player.pause();
-            // Log as a breadcrumb only — not a recordError.
             FirebaseCrashlytics.instance.log(
                 "⚠️ Network error (non-fatal, expected): $errorString");
           }
-          return; // ← Don't fall through to recordError below
+          return;
         }
 
-        // Real unexpected errors — log to Firebase.
+        // Real unexpected errors.
         if (!errorString.contains("failed to open")) {
           FirebaseCrashlytics.instance
               .recordError(error, null, reason: 'MediaKit Stream Error');
         }
+
+        // ── FIX #8: Set _isVideoLoading = false on the non-network error
+        // path too, so the loading overlay doesn't block the error UI.
+        if (mounted && !_isDisposing) {
+          setState(() {
+            _isError = true;
+            _errorMessage = "حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.";
+            _isVideoLoading = false;
+          });
+          _player.pause();
+        }
       });
 
-      // ── Buffering stream ────────────────────────────────────────────────
-      // ✅ [FIX] Two guards added:
-      //
-      //   1. _isLoadingNewSource — true while _playVideo() hasn't finished
-      //      attaching the audio track and seeking to startAt. Prevents the
-      //      very first buffering=false (fired right after open()) from
-      //      calling play() before the audio track is ready, which caused
-      //      mpv to restart the demuxer and jump back to position 0.
-      //
-      //   2. _hasStartedPlayback — latches to true after the first valid
-      //      play() call for this source. Prevents a second buffering=false
-      //      (caused by the demuxer restart that follows setAudioTrack())
-      //      from calling play() a second time, which was the main reason
-      //      the video visibly reset to 0 on mid-range / weak devices.
-      _player.stream.buffering.listen((buffering) {
+      // ── Buffering stream ──────────────────────────────────────────────────
+      _bufferingStreamSub = _player.stream.buffering.listen((buffering) {
         if (!buffering &&
             _isVideoLoading &&
             !_isLoadingNewSource &&
             !_hasStartedPlayback) {
-          // Latch immediately so any subsequent buffering=false is ignored.
           _hasStartedPlayback = true;
 
           if (mounted) {
@@ -370,13 +374,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   Future<void> _playVideo(String url, {Duration? startAt}) async {
-    if (_isDisposing) return;
+    if (_isDisposing || !_isPlayerInitialized) return;
 
-    // ✅ [FIX] Raise the loading-source flag BEFORE anything else so the
-    // buffering listener cannot sneak in a play() call while we are still
-    // setting up the source. Also reset the playback-started latch so the
-    // listener will fire exactly once for this new source.
+    // ── FIX #3: Grab a unique token for this invocation. If a newer call
+    // starts before we finish, our token will be stale and we bail out at
+    // each checkpoint, preventing races on _isLoadingNewSource and
+    // _hasStartedPlayback.
+    final int myToken = ++_playToken;
+
     _isLoadingNewSource = true;
+
+    // ── FIX #9: Reset _hasStartedPlayback here — BEFORE any await — so
+    // even if an exception is thrown very early the buffering listener is
+    // not permanently blocked on the next load.
     _hasStartedPlayback = false;
 
     setState(() {
@@ -388,6 +398,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _acquireSeekLock(const Duration(seconds: 4));
 
     try {
+      // ── Token check: bail if superseded. ──────────────────────────────
+      if (myToken != _playToken) return;
+
       String playUrl = url;
       String? audioUrl;
 
@@ -430,7 +443,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       }
 
+      // ── Token check ──────────────────────────────────────────────────
+      if (myToken != _playToken) return;
+
       await _player.stop();
+
+      // ── Token check ──────────────────────────────────────────────────
+      if (myToken != _playToken) return;
 
       final bool isYoutubeSource = playUrl.contains('googlevideo.com');
       final headers = isYoutubeSource ? _youtubeHeaders : _serverHeaders;
@@ -439,23 +458,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
       if (_isRecordingDetected) {
         await _player.setVolume(0.0);
-        // ✅ [FIX] Always clear the flag before every early return so the
-        // listener is not permanently blocked on the next source load.
-        _isLoadingNewSource = false;
         return;
       }
 
-      // ── Audio track attachment ──────────────────────────────────────────
-      // ✅ [FIX] The audio track is attached here, INSIDE the loading guard.
-      // mpv restarts the demuxer when a second audio stream is added, which
-      // fires an extra buffering=false event. Because _isLoadingNewSource is
-      // still true at that point, the buffering listener ignores that event
-      // and does NOT call play() prematurely or reset position to 0.
+      // ── Token check ──────────────────────────────────────────────────
+      if (myToken != _playToken) return;
+
+      // ── Audio track attachment ────────────────────────────────────────
       if (audioUrl != null) {
         if (_isWeakDevice) {
-          // Wait for the first buffering=false before attaching on weak
-          // devices to give the video demuxer time to become ready.
-          // We use a one-shot completer so we don't rely on a fixed delay.
           final readyCompleter = Completer<void>();
           StreamSubscription? sub;
           final timeout = Timer(const Duration(seconds: 6), () {
@@ -470,28 +481,29 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           timeout.cancel();
           await sub.cancel();
         } else {
-          // On capable devices a short delay is sufficient; the demuxer is
-          // ready well within 500 ms.
           await Future.delayed(const Duration(milliseconds: 500));
         }
+
+        // ── Token check ────────────────────────────────────────────────
+        if (myToken != _playToken) return;
 
         try {
           await _player.setAudioTrack(
               AudioTrack.uri(audioUrl, title: "HQ Audio", language: "en"));
         } catch (e) {
           await Future.delayed(const Duration(seconds: 2));
+          // ── Token check ──────────────────────────────────────────────
+          if (myToken != _playToken) return;
           try {
             await _player.setAudioTrack(
                 AudioTrack.uri(audioUrl, title: "HQ Audio", language: "en"));
           } catch (_) {}
         }
 
-        // ✅ [FIX] After setAudioTrack(), mpv fires one more demuxer-restart
-        // buffering cycle. We wait for it to settle before releasing the
-        // loading guard, so the buffering listener only sees the final stable
-        // buffering=false and calls play() exactly once.
-        final settleCompleter = Completer<void>();
+        // ── FIX #13: Keep a reference to the settle subscription so it
+        // can be cancelled if this call is superseded before settling.
         StreamSubscription? settleSub;
+        final settleCompleter = Completer<void>();
         final settleTimeout = Timer(const Duration(seconds: 5), () {
           if (!settleCompleter.isCompleted) settleCompleter.complete();
         });
@@ -500,12 +512,23 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             settleCompleter.complete();
           }
         });
-        await settleCompleter.future;
+
+        // Race: settle vs token invalidation.
+        await Future.any([
+          settleCompleter.future,
+          Future.doWhile(() async {
+            await Future.delayed(const Duration(milliseconds: 100));
+            return myToken == _playToken && !settleCompleter.isCompleted;
+          }),
+        ]);
+
         settleTimeout.cancel();
         await settleSub.cancel();
+
+        // ── Token check after settle ──────────────────────────────────
+        if (myToken != _playToken) return;
       }
 
-      // ── Seek to resume position ─────────────────────────────────────────
       if (startAt != null && startAt != Duration.zero) {
         await _player.seek(startAt);
       }
@@ -520,19 +543,21 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         setState(() {
           _isError = true;
           _errorMessage = "فشل في تحميل الفيديو.";
+          // ── FIX #8: Ensure loading overlay is cleared on exception too.
           _isVideoLoading = false;
         });
       }
     } finally {
-      // ✅ [FIX] Always release the loading guard here — whether we succeeded,
-      // failed, or returned early. The buffering listener is now free to call
-      // play() on the next buffering=false event it receives.
-      _isLoadingNewSource = false;
+      // Only release the guard if this call is still the active one.
+      // A superseded call must NOT clear the flag for the newer call.
+      if (myToken == _playToken) {
+        _isLoadingNewSource = false;
+      }
     }
   }
 
   Future<void> _seekRelative(Duration amount) async {
-    if (_isRecordingDetected) return;
+    if (_isRecordingDetected || !_isPlayerInitialized) return;
 
     _accumulatedSeekAmount += amount;
     if (_seekDebounceTimer?.isActive ?? false) _seekDebounceTimer!.cancel();
@@ -560,9 +585,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   void _acquireSeekLock(Duration holdFor) {
-    // ✅ [FIX-SEEK-LOCK] Each caller gets its own delayed decrement.
-    // We no longer cancel the previous timer, so overlapping calls each
-    // correctly release their own hold and _seekLockCount always reaches 0.
     _seekLockCount++;
     Future.delayed(holdFor, () {
       if (_seekLockCount > 0) _seekLockCount--;
@@ -587,7 +609,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       setState(() {
         _showLeftTapOverlay = false;
         _leftTapCount = 0;
-        _leftRawTapCount = 0;
       });
     });
   }
@@ -608,19 +629,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       setState(() {
         _showRightTapOverlay = false;
         _rightTapCount = 0;
-        _rightRawTapCount = 0;
       });
     });
   }
 
   void _onLongPressStart() {
-    if (_isRecordingDetected || _isDisposing || _isError) return;
+    if (_isRecordingDetected || _isDisposing || _isError || !_isPlayerInitialized) return;
     if (mounted) setState(() => _isLongPressActive = true);
     _player.setRate(2.0);
   }
 
   void _onLongPressEnd() {
-    if (_isDisposing) return;
+    if (_isDisposing || !_isPlayerInitialized) return;
     if (mounted) setState(() => _isLongPressActive = false);
     _player.setRate(_currentSpeed);
   }
@@ -690,10 +710,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                     onTap: () {
                       Navigator.pop(ctx);
                       if (q != _currentQuality) {
-                        final currentPos = _player.state.position;
+                        final currentPos = _isPlayerInitialized
+                            ? _player.state.position
+                            : Duration.zero;
                         setState(() {
                           _currentQuality = q;
                           _isError = false;
+                          // ── FIX #7: Clear the error position on quality
+                          // switch so retries on the new stream don't seek
+                          // to the old stream's error position.
+                          _errorPosition = Duration.zero;
                         });
                         _playVideo(widget.streams[q]!, startAt: currentPos);
                       }
@@ -728,7 +754,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                     onTap: () {
                       Navigator.pop(ctx);
                       setState(() => _currentSpeed = s);
-                      _player.setRate(s);
+                      if (_isPlayerInitialized) _player.setRate(s);
                     },
                   ))
               .toList(),
@@ -749,7 +775,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
       if (_stabilizingCountdown <= 1) {
         timer.cancel();
-        if (mounted) {
+        if (mounted && _isPlayerInitialized) {
           setState(() => _stabilizingCountdown = 0);
           if (!_isRecordingDetected) {
             _player.play();
@@ -815,9 +841,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
     if (mounted) {
       setState(() {
-        // ✅ [FIX-NULL-CRASH] Use ?. instead of !. here — userData may have
-        // become null between the check above and this setState call,
-        // especially on slow devices where async gaps are longer.
         _watermarkText = displayText.isNotEmpty
             ? displayText
             : AppState().userData?['username'] ?? 'Unknown User';
@@ -854,12 +877,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Future<void> _safeExit() async {
     if (_isDisposing) return;
 
-    // ✅ [FIX-SEEKBAR-CRASH] Block ALL pointer input immediately before
-    // anything is disposed. This prevents in-flight onPointerMove /
-    // onPointerUp events from reaching MaterialSeekBar after its State's
-    // context has been unmounted, which caused the fatal null-check crash:
-    //   MaterialSeekBarState.onPointerMove → State.context → NPE
-    //   MaterialSeekBarState.onPointerUp   → State.context → NPE
     if (mounted) setState(() {
       _blockInput = true;
       _isDisposing = true;
@@ -873,10 +890,25 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _rightTapTimer?.cancel();
       _leftTapInhibitTimer?.cancel();
       _rightTapInhibitTimer?.cancel();
-      _leftRippleController.dispose();
-      _rightRippleController.dispose();
-      await _player.stop();
-      await _player.dispose();
+
+      // ── FIX #1: Cancel media_kit stream subscriptions. ──────────────
+      await _errorStreamSub?.cancel();
+      await _bufferingStreamSub?.cancel();
+
+      // ── FIX #5: Animation controllers are disposed only in dispose()
+      // (after the widget is removed from the tree), not here, to avoid
+      // driving a disposed controller during the remaining build phase
+      // between this point and Navigator.pop().
+      // (Removed _leftRippleController.dispose() / _rightRippleController.dispose()
+      //  from here — they now live exclusively in dispose().)
+
+      // ── FIX #4: Stop the local proxy server. ────────────────────────
+      try { await _proxyService.stop(); } catch (_) {}
+
+      if (_isPlayerInitialized) {
+        await _player.stop();
+        await _player.dispose();
+      }
       await WakelockPlus.disable();
       await _resetSystemChrome();
     } catch (e) {
@@ -892,12 +924,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _recordingSubscription?.cancel();
     _protectionService.stopMonitoring();
 
-    // ✅ [FIX-DOUBLE-DISPOSE] If _safeExit() was NOT called (e.g. Flutter
-    // removes the widget directly without a back-button press), we do the
-    // cleanup here. We do NOT call Navigator.pop() because the widget is
-    // already being removed from the tree — calling pop() here would cause
-    // a double-pop and corrupt the navigation stack.
     if (!_isDisposing) {
+      // _safeExit() was NOT called (Flutter removed the widget directly).
       _seekDebounceTimer?.cancel();
       _watermarkTimer?.cancel();
       _countdownTimer?.cancel();
@@ -905,12 +933,35 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _rightTapTimer?.cancel();
       _leftTapInhibitTimer?.cancel();
       _rightTapInhibitTimer?.cancel();
-      try { _leftRippleController.dispose(); } catch (_) {}
-      try { _rightRippleController.dispose(); } catch (_) {}
-      try { _player.stop(); } catch (_) {}
-      try { _player.dispose(); } catch (_) {}
+
+      // ── FIX #1: Cancel media_kit stream subscriptions. ──────────────
+      _errorStreamSub?.cancel();
+      _bufferingStreamSub?.cancel();
+
+      // ── FIX #4: Stop proxy. ─────────────────────────────────────────
+      try { _proxyService.stop(); } catch (_) {}
+
+      // ── FIX #2: Only touch the player if it was successfully created.
+      if (_isPlayerInitialized) {
+        try { _player.stop(); } catch (_) {}
+        try { _player.dispose(); } catch (_) {}
+      }
       WakelockPlus.disable();
     }
+
+    // ── FIX #5 & #6: Dispose animation controllers here and only here,
+    // after the widget is fully removed from the tree. The try/catch is
+    // narrowed to a real exception log instead of silent swallowing so
+    // real double-dispose bugs surface during development.
+    if (_animControllersInitialized) {
+      try {
+        _leftRippleController.dispose();
+        _rightRippleController.dispose();
+      } catch (e) {
+        debugPrint("⚠️ AnimationController dispose error: $e");
+      }
+    }
+
     super.dispose();
   }
 
@@ -1036,9 +1087,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         const SizedBox(width: 10),
         Expanded(
           child: AbsorbPointer(
-            // ✅ [FIX-SEEKBAR-CRASH] Absorb all pointer events when we are
-            // shutting down. This prevents onPointerMove / onPointerUp
-            // inside MaterialSeekBar from accessing a disposed State context.
             absorbing: _blockInput || _isDisposing,
             child: GestureDetector(
               onHorizontalDragStart: (_) {
@@ -1130,12 +1178,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         onPressed: () {
                           FirebaseCrashlytics.instance.log(
                               "🔄 User clicked Retry on network error");
-                          // ✅ [FIX-NETWORK-ERROR] Reset both error flags
-                          // and use _errorPosition (which was safely captured
-                          // before the error) so playback resumes correctly.
                           setState(() {
                             _isError = false;
-                            _isNetworkError = false;
                           });
                           _playVideo(widget.streams[_currentQuality]!,
                               startAt: _errorPosition);
