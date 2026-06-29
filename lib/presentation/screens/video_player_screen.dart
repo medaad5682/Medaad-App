@@ -10,6 +10,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+// ✅ مكتبات الحماية
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import '../../core/services/audio_protection_service.dart';
 
@@ -39,8 +40,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   late final VideoController _controller;
 
   final LocalProxyService _proxyService = LocalProxyService();
-  final AudioProtectionService _protectionService = AudioProtectionService();
 
+  // ✅ خدمة الحماية الخاصة
+  final AudioProtectionService _protectionService = AudioProtectionService();
   StreamSubscription? _recordingSubscription;
   bool _isRecordingDetected = false;
 
@@ -51,21 +53,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool _isError = false;
   String _errorMessage = "";
   bool _isInitialized = false;
-
+  
+  // ✅ متغير لحفظ مكان توقف الفيديو عند انقطاع الشبكة
   Duration _errorPosition = Duration.zero;
 
   bool _isVideoLoading = true;
   bool _isOfflineMode = false;
+
   bool _isWeakDevice = false;
-
-  // ✅ [FIX] Prevents the buffering listener from calling play() while
-  // _playVideo() is still in the middle of setting up the source.
-  bool _isLoadingNewSource = false;
-
-  // ✅ [FIX] Prevents repeated buffering=false events mid-stream (network
-  // hiccup, demuxer restart after setAudioTrack) from re-triggering play()
-  // and jumping back to position 0.
-  bool _hasStartedPlayback = false;
 
   int _stabilizingCountdown = 0;
   Timer? _countdownTimer;
@@ -79,10 +74,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Timer? _seekDebounceTimer;
   Duration _accumulatedSeekAmount = Duration.zero;
 
+  // ✅ [SEEK-LOCK] Replaces the AV-sync watchdog.
+  // Every intentional seek increments this counter; the position listener
+  // ignores transient backward jumps while it is > 0.
   int _seekLockCount = 0;
   Timer? _seekLockReleaseTimer;
 
-  // ✅ [DOUBLE-TAP SEEK]
+  // ✅ [DOUBLE-TAP SEEK] متغيرات النقر المزدوج للتقديم/الرجوع
   int _leftTapCount = 0;
   int _rightTapCount = 0;
   Timer? _leftTapTimer;
@@ -90,15 +88,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool _showLeftTapOverlay = false;
   bool _showRightTapOverlay = false;
 
-  // ✅ [LONG-PRESS SPEED]
+  // ✅ [LONG-PRESS SPEED] متغيرات الضغط المطوّل لتسريع ×2
   bool _isLongPressActive = false;
 
+  // ✅ [TAP-INTERCEPT] مؤقت لاكتشاف ما إذا كانت النقرة جزءاً من نقر مزدوج
   Timer? _leftTapInhibitTimer;
   Timer? _rightTapInhibitTimer;
   int _leftRawTapCount = 0;
   int _rightRawTapCount = 0;
 
-  // ✅ [RIPPLE ANIMATION]
+  // ✅ [RIPPLE ANIMATION] متحكمات الأنيميشن للدوائر المتموجة
   late AnimationController _leftRippleController;
   late AnimationController _rightRippleController;
   late Animation<double> _leftRippleAnim;
@@ -114,6 +113,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    // ✅ [RIPPLE] تهيئة متحكمات أنيميشن الدوائر المتموجة
     _leftRippleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -218,9 +218,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         await (_player.platform as dynamic).setProperty('vd-lavc-threads', '4');
         await (_player.platform as dynamic)
             .setProperty('sws-scaler', 'fast-bilinear');
+        // ✅ [ROOT-FIX] For weak/offline devices: pre-buffer enough frames
+        // before the first decode so the video decoder never falls behind
+        // the audio track during the critical first ~60 seconds.
         await (_player.platform as dynamic).setProperty('cache-secs', '8');
-        await (_player.platform as dynamic)
-            .setProperty('demuxer-readahead-secs', '8');
+        await (_player.platform as dynamic).setProperty('demuxer-readahead-secs', '8');
+        // Keep video/audio tightly coupled; if video lags mpv drops frames
+        // rather than letting the position pointer jump backward.
         await (_player.platform as dynamic).setProperty('video-sync', 'audio');
         await (_player.platform as dynamic).setProperty('framedrop', 'vo');
       } else {
@@ -242,7 +246,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         ),
       );
 
-      // ── Error stream ────────────────────────────────────────────────────
       _player.stream.error.listen((error) {
         final errorString = error.toString().toLowerCase();
 
@@ -252,13 +255,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             errorString.contains('resolve hostname') ||
             errorString.contains('route to host') ||
             errorString.contains('decoding audio')) {
+          
           if (mounted && !_isDisposing) {
             final currentPos = _player.state.position;
             setState(() {
               _isError = true;
               _errorPosition = currentPos;
-              _errorMessage =
-                  "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
+              _errorMessage = "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
               _isVideoLoading = false;
             });
             _player.pause();
@@ -271,31 +274,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       });
 
-      // ── Buffering stream ────────────────────────────────────────────────
-      // ✅ [FIX] Two guards added:
-      //
-      //   1. _isLoadingNewSource — true while _playVideo() hasn't finished
-      //      attaching the audio track and seeking to startAt. Prevents the
-      //      very first buffering=false (fired right after open()) from
-      //      calling play() before the audio track is ready, which caused
-      //      mpv to restart the demuxer and jump back to position 0.
-      //
-      //   2. _hasStartedPlayback — latches to true after the first valid
-      //      play() call for this source. Prevents a second buffering=false
-      //      (caused by the demuxer restart that follows setAudioTrack())
-      //      from calling play() a second time, which was the main reason
-      //      the video visibly reset to 0 on mid-range / weak devices.
       _player.stream.buffering.listen((buffering) {
-        if (!buffering &&
-            _isVideoLoading &&
-            !_isLoadingNewSource &&
-            !_hasStartedPlayback) {
-          // Latch immediately so any subsequent buffering=false is ignored.
-          _hasStartedPlayback = true;
-
+        if (!buffering && _isVideoLoading) {
           if (mounted) {
             setState(() => _isVideoLoading = false);
-
             if (_isRecordingDetected) {
               _player.setVolume(0.0);
               _player.pause();
@@ -308,6 +290,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             }
           }
         }
+      });
+
+      _player.stream.position.listen((pos) {
+        // Nothing to do here anymore — stall detection is handled
+        // by mpv's own cache-pause / audio-desync-correction properties.
       });
 
       _loadUserData();
@@ -342,19 +329,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Future<void> _playVideo(String url, {Duration? startAt}) async {
     if (_isDisposing) return;
 
-    // ✅ [FIX] Raise the loading-source flag BEFORE anything else so the
-    // buffering listener cannot sneak in a play() call while we are still
-    // setting up the source. Also reset the playback-started latch so the
-    // listener will fire exactly once for this new source.
-    _isLoadingNewSource = true;
-    _hasStartedPlayback = false;
-
     setState(() {
       _isVideoLoading = true;
       _stabilizingCountdown = 0;
     });
     _countdownTimer?.cancel();
 
+    // ✅ [SEEK-LOCK] Acquire a lock so any position events during load
+    // are ignored. Released automatically after playback is stable.
     _acquireSeekLock(const Duration(seconds: 4));
 
     try {
@@ -373,7 +355,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         _isOfflineMode = true;
         final file = File(playUrl);
         if (!await file.exists()) throw Exception("Offline file missing");
-
+        
         playUrl = _proxyService.getSignedUrl(file.path, isAudio: false);
 
         if (audioUrl == null && Hive.isBoxOpen('downloads_box')) {
@@ -388,8 +370,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             if (downloadItem != null && downloadItem['audioPath'] != null) {
               final audioPath = downloadItem['audioPath'];
               if (await File(audioPath).exists()) {
-                audioUrl =
-                    _proxyService.getSignedUrl(audioPath, isAudio: true);
+                audioUrl = _proxyService.getSignedUrl(audioPath, isAudio: true);
               }
             }
           } catch (_) {}
@@ -409,23 +390,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
       if (_isRecordingDetected) {
         await _player.setVolume(0.0);
-        // ✅ [FIX] Always clear the flag before every early return so the
-        // listener is not permanently blocked on the next source load.
-        _isLoadingNewSource = false;
         return;
       }
 
-      // ── Audio track attachment ──────────────────────────────────────────
-      // ✅ [FIX] The audio track is attached here, INSIDE the loading guard.
-      // mpv restarts the demuxer when a second audio stream is added, which
-      // fires an extra buffering=false event. Because _isLoadingNewSource is
-      // still true at that point, the buffering listener ignores that event
-      // and does NOT call play() prematurely or reset position to 0.
       if (audioUrl != null) {
+        // ✅ [ROOT-FIX] Wait for the demuxer to be ready before attaching the
+        // external audio track. On weak devices the previous 2500 ms fixed
+        // delay was not enough when the CPU was under load; we now wait for
+        // the first buffering=false event (i.e. the player has received enough
+        // data) instead, with a generous timeout fallback.
         if (_isWeakDevice) {
-          // Wait for the first buffering=false before attaching on weak
-          // devices to give the video demuxer time to become ready.
-          // We use a one-shot completer so we don't rely on a fixed delay.
           final readyCompleter = Completer<void>();
           StreamSubscription? sub;
           final timeout = Timer(const Duration(seconds: 6), () {
@@ -440,8 +414,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           timeout.cancel();
           await sub.cancel();
         } else {
-          // On capable devices a short delay is sufficient; the demuxer is
-          // ready well within 500 ms.
           await Future.delayed(const Duration(milliseconds: 500));
         }
 
@@ -455,27 +427,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 AudioTrack.uri(audioUrl, title: "HQ Audio", language: "en"));
           } catch (_) {}
         }
-
-        // ✅ [FIX] After setAudioTrack(), mpv fires one more demuxer-restart
-        // buffering cycle. We wait for it to settle before releasing the
-        // loading guard, so the buffering listener only sees the final stable
-        // buffering=false and calls play() exactly once.
-        final settleCompleter = Completer<void>();
-        StreamSubscription? settleSub;
-        final settleTimeout = Timer(const Duration(seconds: 5), () {
-          if (!settleCompleter.isCompleted) settleCompleter.complete();
-        });
-        settleSub = _player.stream.buffering.listen((buffering) {
-          if (!buffering && !settleCompleter.isCompleted) {
-            settleCompleter.complete();
-          }
-        });
-        await settleCompleter.future;
-        settleTimeout.cancel();
-        await settleSub.cancel();
       }
 
-      // ── Seek to resume position ─────────────────────────────────────────
       if (startAt != null && startAt != Duration.zero) {
         await _player.seek(startAt);
       }
@@ -493,11 +446,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           _isVideoLoading = false;
         });
       }
-    } finally {
-      // ✅ [FIX] Always release the loading guard here — whether we succeeded,
-      // failed, or returned early. The buffering listener is now free to call
-      // play() on the next buffering=false event it receives.
-      _isLoadingNewSource = false;
     }
   }
 
@@ -507,6 +455,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _accumulatedSeekAmount += amount;
     if (_seekDebounceTimer?.isActive ?? false) _seekDebounceTimer!.cancel();
 
+    // ✅ [SEEK-LOCK] Acquire lock before the debounce fires so any
+    // AV-sync interruption that was pending is blocked.
     _acquireSeekLock(const Duration(seconds: 2));
 
     _seekDebounceTimer = Timer(const Duration(milliseconds: 600), () async {
@@ -529,6 +479,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
   }
 
+  // ✅ [SEEK-LOCK] Increment the lock counter and schedule a release.
+  // Multiple overlapping callers each get their own release timer so
+  // the lock is only fully dropped when all of them have expired.
   void _acquireSeekLock(Duration holdFor) {
     _seekLockCount++;
     _seekLockReleaseTimer?.cancel();
@@ -652,8 +605,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                                 ? AppColors.accentYellow
                                 : Colors.white)),
                     trailing: q == _currentQuality
-                        ? Icon(LucideIcons.check,
-                            color: AppColors.accentYellow)
+                        ? Icon(LucideIcons.check, color: AppColors.accentYellow)
                         : null,
                     onTap: () {
                       Navigator.pop(ctx);
@@ -690,8 +642,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                                 ? AppColors.accentYellow
                                 : Colors.white)),
                     trailing: s == _currentSpeed
-                        ? Icon(LucideIcons.check,
-                            color: AppColors.accentYellow)
+                        ? Icon(LucideIcons.check, color: AppColors.accentYellow)
                         : null,
                     onTap: () {
                       Navigator.pop(ctx);
@@ -853,15 +804,27 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     super.dispose();
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Helper: builds one symmetric seek overlay (left rewind / right forward)
+  //
+  // [isLeft]        true  → rewind chevrons pointing left
+  //                 false → forward chevrons pointing right
+  // [tapCount]      number of accumulated double-taps so far
+  // [rippleAnim]    the Animation<double> for the expanding ripple ring
+  // ─────────────────────────────────────────────────────────────────────────
   Widget _buildSeekOverlay({
     required bool isLeft,
     required int tapCount,
     required Animation<double> rippleAnim,
   }) {
+    // ── Icon choice ──────────────────────────────────────────────────────
+    // Both sides use the same "double chevron" family so they are
+    // mirror images of each other — not two completely different metaphors.
     final IconData seekIcon = isLeft
         ? Icons.keyboard_double_arrow_left_rounded
         : Icons.keyboard_double_arrow_right_rounded;
 
+    // ── Gradient runs inward from the tapped edge → transparent centre ───
     final gradient = LinearGradient(
       begin: isLeft ? Alignment.centerLeft : Alignment.centerRight,
       end: isLeft ? Alignment.centerRight : Alignment.centerLeft,
@@ -871,6 +834,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       ],
     );
 
+    // ── Rounded corner on the inward edge only ────────────────────────────
     final borderRadius = isLeft
         ? const BorderRadius.only(
             topRight: Radius.circular(999),
@@ -887,12 +851,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         duration: const Duration(milliseconds: 120),
         child: Stack(
           children: [
+            // ── Background gradient ────────────────────────────────────
             Container(
               decoration: BoxDecoration(
                 gradient: gradient,
                 borderRadius: borderRadius,
               ),
             ),
+
+            // ── Expanding ripple ring ──────────────────────────────────
             Center(
               child: AnimatedBuilder(
                 animation: rippleAnim,
@@ -912,6 +879,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 },
               ),
             ),
+
+            // ── Main circle with icon + label ──────────────────────────
             Center(
               child: Container(
                 width: 80,
@@ -927,8 +896,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    // ── Seek direction icon ──────────────────────────
                     Icon(seekIcon, color: Colors.white, size: 28),
                     const SizedBox(height: 2),
+                    // ── Dynamic seconds label (10s, 20s, 30s …) ─────
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 200),
                       transitionBuilder: (child, anim) => ScaleTransition(
@@ -963,6 +934,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Widget build(BuildContext context) {
     final padding = MediaQuery.of(context).viewPadding;
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Controls theme
+    // • Seek buttons (replay_10 / forward_10) removed from primaryButtonBar.
+    //   Seeking is now exclusively via left/right double-tap gestures.
+    // • The progress bar + position indicator remain in the bottom bar.
+    // ─────────────────────────────────────────────────────────────────────
     final controlsTheme = MaterialVideoControlsThemeData(
       displaySeekBar: false,
       padding: EdgeInsets.only(
@@ -973,6 +950,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       bottomButtonBar: [
         const MaterialPositionIndicator(),
         const SizedBox(width: 10),
+        // ✅ [SEEK-LOCK] Mark intentional seeks on the progress bar so
+        // no interference occurs after the user lifts their finger.
         Expanded(
           child: GestureDetector(
             onHorizontalDragStart: (_) {
@@ -1014,6 +993,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 fontSize: 16,
                 fontWeight: FontWeight.bold)),
       ],
+      // ── Only play/pause remains in the centre — no seek buttons ──────
       primaryButtonBar: [
         const Spacer(flex: 2),
         const MaterialPlayOrPauseButton(iconSize: 56),
@@ -1037,11 +1017,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         body: Stack(
           fit: StackFit.expand,
           children: [
-            // ── Player / Error / Init state ───────────────────────────────
             if (_isDisposing || !_isInitialized)
               Center(
-                  child: CircularProgressIndicator(
-                      color: AppColors.accentYellow))
+                  child:
+                      CircularProgressIndicator(color: AppColors.accentYellow))
             else if (_isError)
               Center(
                 child: Padding(
@@ -1049,33 +1028,25 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.wifi_off_rounded,
-                          color: AppColors.error, size: 64),
+                      Icon(Icons.wifi_off_rounded, color: AppColors.error, size: 64),
                       const SizedBox(height: 16),
                       Text(_errorMessage,
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 16),
+                          style: const TextStyle(color: Colors.white, fontSize: 16),
                           textAlign: TextAlign.center),
                       const SizedBox(height: 24),
                       ElevatedButton.icon(
-                        icon:
-                            const Icon(Icons.refresh, color: Colors.black),
+                        icon: const Icon(Icons.refresh, color: Colors.black),
                         onPressed: () {
-                          FirebaseCrashlytics.instance.log(
-                              "🔄 User clicked Retry on network error");
+                          FirebaseCrashlytics.instance
+                              .log("🔄 User clicked Retry on network error");
                           setState(() => _isError = false);
-                          _playVideo(widget.streams[_currentQuality]!,
-                              startAt: _errorPosition);
+                          _playVideo(widget.streams[_currentQuality]!, startAt: _errorPosition);
                         },
                         style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.accentYellow,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24, vertical: 12)),
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
                         label: const Text("إعادة المحاولة",
-                            style: TextStyle(
-                                color: Colors.black,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16)),
+                            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
                       )
                     ],
                   ),
@@ -1088,13 +1059,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   child: MaterialVideoControlsTheme(
                     normal: controlsTheme,
                     fullscreen: controlsTheme,
-                    child:
-                        Video(controller: _controller, fit: BoxFit.contain),
+                    child: Video(controller: _controller, fit: BoxFit.contain),
                   ),
                 ),
               ),
 
-            // ── Loading / stabilizing overlay ─────────────────────────────
             if (!_isDisposing &&
                 !_isError &&
                 (_isVideoLoading ||
@@ -1118,7 +1087,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                               fontWeight: FontWeight.bold,
                               fontSize: 28,
                               letterSpacing: 2.0,
-                              shadows: const [
+                              shadows: [
                                 Shadow(
                                     blurRadius: 10,
                                     color: Colors.black,
@@ -1128,8 +1097,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         if (!_isVideoLoading)
                           const Padding(
                             padding: EdgeInsets.only(top: 12.0),
-                            child: Text(
-                                "Video Ready - Stabilizing Stream...",
+                            child: Text("Video Ready - Stabilizing Stream...",
                                 style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 14,
@@ -1141,11 +1109,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
-            // ── Gesture layer ─────────────────────────────────────────────
-            if (!_isDisposing &&
-                !_isError &&
-                _isInitialized &&
-                !_isRecordingDetected)
+            // ── Gesture layer: left half (rewind) + right half (forward) ──
+            if (!_isDisposing && !_isError && _isInitialized && !_isRecordingDetected)
               Positioned(
                 top: 70,
                 bottom: 70,
@@ -1156,9 +1121,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                     Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
-                        onTap: _showLeftTapOverlay
-                            ? _onDoubleTapLeft
-                            : null,
+                        onTap: _showLeftTapOverlay ? _onDoubleTapLeft : null,
                         onDoubleTap: _onDoubleTapLeft,
                         onLongPressStart: (_) => _onLongPressStart(),
                         onLongPressEnd: (_) => _onLongPressEnd(),
@@ -1169,9 +1132,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                     Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
-                        onTap: _showRightTapOverlay
-                            ? _onDoubleTapRight
-                            : null,
+                        onTap: _showRightTapOverlay ? _onDoubleTapRight : null,
                         onDoubleTap: _onDoubleTapRight,
                         onLongPressStart: (_) => _onLongPressStart(),
                         onLongPressEnd: (_) => _onLongPressEnd(),
@@ -1184,9 +1145,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
 
             // ── Left seek overlay ─────────────────────────────────────────
-            if (_showLeftTapOverlay &&
-                !_isDisposing &&
-                !_isRecordingDetected)
+            if (_showLeftTapOverlay && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 left: 0,
                 top: 0,
@@ -1200,9 +1159,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
 
             // ── Right seek overlay ────────────────────────────────────────
-            if (_showRightTapOverlay &&
-                !_isDisposing &&
-                !_isRecordingDetected)
+            if (_showRightTapOverlay && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 right: 0,
                 top: 0,
@@ -1216,9 +1173,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
 
             // ── Long-press ×2 speed indicator ─────────────────────────────
-            if (_isLongPressActive &&
-                !_isDisposing &&
-                !_isRecordingDetected)
+            if (_isLongPressActive && !_isDisposing && !_isRecordingDetected)
               Positioned(
                 top: 20,
                 left: 0,
@@ -1257,15 +1212,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
-            // ── Watermark ─────────────────────────────────────────────────
             if (!_isDisposing && !_isError && _isInitialized)
               AnimatedAlign(
                 alignment: _watermarkAlignment,
                 duration: const Duration(seconds: 2),
                 child: IgnorePointer(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                     decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.6),
                         borderRadius: BorderRadius.circular(8)),
@@ -1278,7 +1232,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   ),
                 ),
               ),
-
+            
             // ── Security alert overlay ────────────────────────────────────
             if (_isRecordingDetected)
               Container(
@@ -1300,18 +1254,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                     const Text(
                         "Screen Recording Detected.\nPlayback has been disabled.",
                         textAlign: TextAlign.center,
-                        style:
-                            TextStyle(color: Colors.white70, fontSize: 16)),
+                        style: TextStyle(color: Colors.white70, fontSize: 16)),
                     const SizedBox(height: 32),
                     Container(
-                      margin:
-                          const EdgeInsets.symmetric(horizontal: 32),
+                      margin: const EdgeInsets.symmetric(horizontal: 32),
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.3),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                            color: Colors.yellow, width: 2),
+                        border: Border.all(color: Colors.yellow, width: 2),
                       ),
                       child: const Column(
                         children: [
@@ -1324,8 +1275,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                           Text(
                               "تسجيل المحتوى مخالف لشروط الاستخدام.\nتكرار هذا الأمر سيؤدي إلى حظر حسابك نهائياً وحذف جميع بياناتك.",
                               textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  color: Colors.white, fontSize: 14),
+                              style:
+                                  TextStyle(color: Colors.white, fontSize: 14),
                               textDirection: TextDirection.rtl),
                         ],
                       ),
@@ -1339,8 +1290,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 32, vertical: 12)),
                       child: const Text("CLOSE PLAYER",
-                          style:
-                              TextStyle(fontWeight: FontWeight.bold)),
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                     )
                   ],
                 ),
