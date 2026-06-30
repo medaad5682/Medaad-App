@@ -11,6 +11,7 @@ import 'exam_result_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class ExamViewScreen extends StatefulWidget {
   final String examId;
@@ -153,16 +154,16 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       FirebaseCrashlytics.instance
           .recordError(e, stack, reason: 'Start Exam Failed');
       if (mounted) {
-        String msg = "Failed to start exam";
+        String msg = AppLocalizations.of(context)!.failedToStartExam;
         if (e is DioException) {
           if (e.response?.statusCode == 403)
-            msg = e.response?.data['error'] ?? "Access Denied";
+            msg = e.response?.data['error'] ?? AppLocalizations.of(context)!.accessDeniedFallback;
           if (e.response?.statusCode == 409) {
             final data = e.response?.data;
             if (data != null && data['isPendingGrading'] == true) {
-              msg = data['error'] ?? "الامتحان قيد المراجعة من المعلم";
+              msg = data['error'] ?? AppLocalizations.of(context)!.examPendingReviewMessage;
             } else {
-              msg = "Exam already completed";
+              msg = AppLocalizations.of(context)!.examAlreadyCompleted;
             }
           }
         }
@@ -220,7 +221,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              "Cannot submit yet. You have $unanswered unanswered questions!",
+              AppLocalizations.of(context)!.cannotSubmitUnanswered(unanswered),
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             backgroundColor: AppColors.error,
@@ -276,7 +277,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Text("Failed to submit. Try again."),
+            content: Text(AppLocalizations.of(context)!.failedToSubmitTryAgain),
             backgroundColor: AppColors.error));
       }
     }
@@ -288,22 +289,22 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.backgroundSecondary,
-        title: Text("Exit Exam?",
+        title: Text(AppLocalizations.of(context)!.exitExamTitle,
             style: TextStyle(
                 color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
         content: Text(
-            "Leaving the exam screen now will AUTOMATICALLY SUBMIT your current answers and you cannot return.\n\nAre you sure?",
+            AppLocalizations.of(context)!.exitExamWarningMessage,
             style: TextStyle(color: AppColors.textSecondary)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child:
-                Text("Stay", style: TextStyle(color: AppColors.textSecondary)),
+                Text(AppLocalizations.of(context)!.stayButton, style: TextStyle(color: AppColors.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: const Text("Submit & Exit",
+            child: Text(AppLocalizations.of(context)!.submitAndExitButton,
                 style: TextStyle(
                     color: Colors.white, fontWeight: FontWeight.bold)),
           ),
@@ -391,7 +392,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                   child: Text(
                     modelAnswer?.isNotEmpty == true
                         ? modelAnswer!
-                        : 'No model answer provided.',
+                        : AppLocalizations.of(context)!.noModelAnswerProvided,
                     style: TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 14,
@@ -423,7 +424,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                   color: AppColors.accentYellow, size: 16),
               const SizedBox(width: 8),
               Text(
-                "Written Question — Type your answer below",
+                AppLocalizations.of(context)!.writtenQuestionInstructions,
                 style: TextStyle(
                     color: AppColors.accentYellow,
                     fontSize: 12,
@@ -439,7 +440,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
           minLines: 4,
           style: TextStyle(color: AppColors.textPrimary, fontSize: 15, height: 1.5),
           decoration: InputDecoration(
-            hintText: "Write your answer here...",
+            hintText: AppLocalizations.of(context)!.writeAnswerHint,
             hintStyle:
                 TextStyle(color: AppColors.textSecondary.withOpacity(0.5)),
             filled: true,
@@ -470,7 +471,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
         Align(
           alignment: Alignment.centerRight,
           child: Text(
-            "${ctrl.text.trim().length} characters",
+            AppLocalizations.of(context)!.charactersCountLabel(ctrl.text.trim().length),
             style: TextStyle(
                 color: AppColors.textSecondary.withOpacity(0.5), fontSize: 11),
           ),
@@ -532,10 +533,10 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                           color:
                               isFlagged ? AppColors.accentOrange : Colors.grey,
                         ),
-                        tooltip: "Mark Question",
+                        tooltip: AppLocalizations.of(context)!.markQuestionTooltip,
                       ),
 
-                    Text("Q ${currentIdx + 1}/${_questions.length}",
+                    Text(AppLocalizations.of(context)!.questionCounterLabel(currentIdx + 1, _questions.length),
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppColors.textSecondary)),
@@ -579,7 +580,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                         decoration: BoxDecoration(
                             color: AppColors.accentYellow.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(20)),
-                        child: Text("MODEL ANSWER",
+                        child: Text(AppLocalizations.of(context)!.modelAnswerLabel,
                             style: TextStyle(
                                 color: AppColors.accentYellow,
                                 fontSize: 10,
@@ -758,7 +759,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
-                            "WRITTEN QUESTION",
+                            AppLocalizations.of(context)!.writtenQuestionBadge,
                             style: TextStyle(
                                 color: AppColors.accentYellow,
                                 fontSize: 10,
@@ -768,7 +769,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                         ),
 
                       Text(
-                        questionData['question_text'] ?? "Question Text",
+                        questionData['question_text'] ?? AppLocalizations.of(context)!.questionTextFallback,
                         style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -896,7 +897,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                               side: const BorderSide(color: Colors.white10),
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12))),
-                          child: Text("BACK",
+                          child: Text(AppLocalizations.of(context)!.backButton,
                               style: TextStyle(
                                   color: AppColors.textSecondary,
                                   fontWeight: FontWeight.bold)),
@@ -930,8 +931,8 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                                 borderRadius: BorderRadius.circular(12))),
                         child: Text(
                             currentIdx == _questions.length - 1
-                                ? (_isModelAnswerMode ? "CLOSE" : "FINISH")
-                                : "NEXT",
+                                ? (_isModelAnswerMode ? AppLocalizations.of(context)!.examCloseButton : AppLocalizations.of(context)!.examFinishButton)
+                                : AppLocalizations.of(context)!.examNextButton,
                             style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 letterSpacing: 1.0)),

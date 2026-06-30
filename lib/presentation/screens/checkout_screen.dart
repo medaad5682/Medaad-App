@@ -12,6 +12,7 @@ import 'main_wrapper.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class CheckoutScreen extends StatefulWidget {
   final double amount;
@@ -177,12 +178,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: const Text("تم تطبيق كود الخصم بنجاح!"),
+              content: Text(AppLocalizations.of(context)!.discountCodeAppliedSuccess),
               backgroundColor: AppColors.success),
         );
       }
     } on DioException catch (e) {
-      String msg = "كود الخصم غير صحيح أو تم استخدامه مسبقاً.";
+      String msg = AppLocalizations.of(context)!.discountCodeInvalid;
       if (e.response != null &&
           e.response?.data != null &&
           e.response?.data['message'] != null) {
@@ -194,7 +195,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: const Text("حدث خطأ في الاتصال"),
+            content: Text(AppLocalizations.of(context)!.connectionError),
             backgroundColor: AppColors.error),
       );
     } finally {
@@ -228,7 +229,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: const Text("Could not launch link"),
+              content: Text(AppLocalizations.of(context)!.couldNotLaunchLink),
               backgroundColor: AppColors.error),
         );
       }
@@ -239,7 +240,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content: const Text("Copied to clipboard"),
+          content: Text(AppLocalizations.of(context)!.copiedToClipboard),
           backgroundColor: AppColors.success,
           duration: const Duration(seconds: 1)),
     );
@@ -249,7 +250,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (_receiptImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: const Text("Please upload the payment receipt image"),
+            content: Text(AppLocalizations.of(context)!.pleaseUploadReceiptImage),
             backgroundColor: AppColors.error),
       );
       return;
@@ -297,7 +298,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   Icon(LucideIcons.checkCircle,
                       color: AppColors.success, size: 48),
                   const SizedBox(height: 16),
-                  Text("REQUEST SENT",
+                  Text(AppLocalizations.of(context)!.requestSentTitle,
                       style: TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 18,
@@ -305,7 +306,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ],
               ),
               content: Text(
-                "We have received your request.\nYou will be notified once approved.",
+                AppLocalizations.of(context)!.requestReceivedMessage,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.textSecondary),
               ),
@@ -319,7 +320,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       (route) => false,
                     );
                   },
-                  child: Text("OK",
+                  child: Text(AppLocalizations.of(context)!.ok,
                       style: TextStyle(
                           color: AppColors.accentYellow,
                           fontWeight: FontWeight.bold)),
@@ -333,7 +334,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
                 content:
-                    Text(response.data['error'] ?? "Failed to send request"),
+                    Text(response.data['error'] ?? AppLocalizations.of(context)!.failedToSendRequest),
                 backgroundColor: AppColors.error),
           );
         }
@@ -342,7 +343,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: const Text("Connection Error"),
+              content: Text(AppLocalizations.of(context)!.connectionError),
               backgroundColor: AppColors.error),
         );
       }
@@ -384,7 +385,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ),
                   const SizedBox(width: 16),
                   Text(
-                    "CHECKOUT",
+                    AppLocalizations.of(context)!.checkoutTitle,
                     style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -421,7 +422,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             ),
                             child: Column(
                               children: [
-                                Text("TOTAL AMOUNT",
+                                Text(AppLocalizations.of(context)!.totalAmountLabel,
                                     style: TextStyle(
                                         color: AppColors.textSecondary,
                                         fontSize: 10,
@@ -430,7 +431,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 const SizedBox(height: 12),
                                 if (_discountedAmount != null) ...[
                                   // عرض السعر القديم مشطوباً
-                                  Text("${widget.amount} EGP",
+                                  Text(AppLocalizations.of(context)!.priceEgp(widget.amount.toString()),
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.bold,
@@ -440,13 +441,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   const SizedBox(height: 4),
                                   // عرض السعر الجديد
                                   Text(
-                                      "${_discountedAmount!.toStringAsFixed(0)} EGP",
+                                      AppLocalizations.of(context)!.priceEgp(_discountedAmount!.toStringAsFixed(0)),
                                       style: TextStyle(
                                           fontSize: 42,
                                           fontWeight: FontWeight.w900,
                                           color: AppColors.success)),
                                 ] else ...[
-                                  Text("${widget.amount} EGP",
+                                  Text(AppLocalizations.of(context)!.priceEgp(widget.amount.toString()),
                                       style: TextStyle(
                                           fontSize: 36,
                                           fontWeight: FontWeight.w900,
@@ -458,7 +459,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           const SizedBox(height: 32),
 
                           // 🆕 إدخال كود الخصم (Discount Code Input)
-                          Text("DISCOUNT CODE",
+                          Text(AppLocalizations.of(context)!.discountCodeLabel,
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
@@ -486,7 +487,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                         color: AppColors.textPrimary,
                                         fontWeight: FontWeight.bold),
                                     decoration: InputDecoration(
-                                      hintText: "Enter code here",
+                                      hintText: AppLocalizations.of(context)!.enterCodeHint,
                                       hintStyle: TextStyle(
                                           color: AppColors.textSecondary
                                               .withOpacity(0.5)),
@@ -539,7 +540,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                                 color:
                                                     AppColors.backgroundPrimary,
                                                 strokeWidth: 2))
-                                        : Text("APPLY",
+                                        : Text(AppLocalizations.of(context)!.applyButton,
                                             style: TextStyle(
                                                 color:
                                                     AppColors.backgroundPrimary,
@@ -552,7 +553,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
                           // 1. Cash Numbers Section
                           if (cashNumbers.isNotEmpty) ...[
-                            Text("CASH WALLETS",
+                            Text(AppLocalizations.of(context)!.cashWalletsLabel,
                                 style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
@@ -560,7 +561,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                     letterSpacing: 1.5)),
                             const SizedBox(height: 10),
                             ...cashNumbers.map((num) => _buildCopyableCard(
-                                "WALLET NUMBER",
+                                AppLocalizations.of(context)!.walletNumberLabel,
                                 num.toString(),
                                 Icons.account_balance_wallet)),
                             const SizedBox(height: 24),
@@ -568,7 +569,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
                           // 2. InstaPay Numbers Section
                           if (instapayNumbers.isNotEmpty) ...[
-                            Text("INSTAPAY NUMBERS",
+                            Text(AppLocalizations.of(context)!.instapayNumbersLabel,
                                 style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
@@ -576,7 +577,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                     letterSpacing: 1.5)),
                             const SizedBox(height: 10),
                             ...instapayNumbers.map((num) => _buildCopyableCard(
-                                "INSTAPAY PHONE",
+                                AppLocalizations.of(context)!.instapayPhoneLabel,
                                 num.toString(),
                                 Icons.phone_iphone)),
                             const SizedBox(height: 24),
@@ -584,7 +585,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
                           // 3. InstaPay Links Section
                           if (instapayLinks.isNotEmpty) ...[
-                            Text("INSTAPAY LINKS / USERNAME",
+                            Text(AppLocalizations.of(context)!.instapayLinksLabel,
                                 style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
@@ -614,12 +615,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   Icon(LucideIcons.alertCircle,
                                       color: AppColors.error, size: 30),
                                   const SizedBox(height: 10),
-                                  Text("Payment methods unavailable",
+                                  Text(AppLocalizations.of(context)!.paymentMethodsUnavailable,
                                       style: TextStyle(
                                           color: AppColors.error,
                                           fontWeight: FontWeight.bold)),
                                   Text(
-                                      "Please contact support or try again later.",
+                                      AppLocalizations.of(context)!.contactSupportOrRetryLater,
                                       style: TextStyle(
                                           color: AppColors.textSecondary,
                                           fontSize: 12)),
@@ -628,7 +629,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             ),
 
                           // Receipt Upload
-                          Text("UPLOAD RECEIPT",
+                          Text(AppLocalizations.of(context)!.uploadReceiptLabel,
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
@@ -665,7 +666,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                             color: AppColors.accentYellow,
                                             size: 40),
                                         const SizedBox(height: 12),
-                                        Text("Tap to upload screenshot",
+                                        Text(AppLocalizations.of(context)!.tapToUploadScreenshot,
                                             style: TextStyle(
                                                 color: AppColors.textSecondary,
                                                 fontSize: 12)),
@@ -689,7 +690,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           const SizedBox(height: 32),
 
                           // Notes
-                          Text("NOTES (OPTIONAL)",
+                          Text(AppLocalizations.of(context)!.notesOptionalLabel,
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
@@ -708,7 +709,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               style: TextStyle(color: AppColors.textPrimary),
                               maxLines: 3,
                               decoration: InputDecoration(
-                                hintText: "Add any notes...",
+                                hintText: AppLocalizations.of(context)!.addNotesHint,
                                 hintStyle: TextStyle(
                                     color: AppColors.textSecondary
                                         .withOpacity(0.5)),
@@ -747,7 +748,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           child: CircularProgressIndicator(
                               color: AppColors.backgroundPrimary,
                               strokeWidth: 2))
-                      : const Text("CONFIRM PAYMENT",
+                      : Text(AppLocalizations.of(context)!.confirmPaymentButton,
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
@@ -805,7 +806,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             icon: Icon(LucideIcons.copy,
                 size: 18, color: AppColors.textSecondary),
             onPressed: () => _copyToClipboard(value),
-            tooltip: "Copy",
+            tooltip: AppLocalizations.of(context)!.copyTooltip,
           )
         ],
       ),
@@ -860,7 +861,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               onPressed: () =>
                   _launchURL(link.startsWith('http') ? link : 'https://$link'),
               icon: const Icon(LucideIcons.externalLink, size: 14),
-              label: const Text("Open Link / InstaPay",
+              label: Text(AppLocalizations.of(context)!.openLinkInstapayButton,
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppColors.accentYellow,

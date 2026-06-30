@@ -11,6 +11,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class ExamResultScreen extends StatefulWidget {
   final String attemptId;
@@ -166,7 +167,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
   Widget _buildEssayResultCard(Map<String, dynamic> q, int index) {
     final userAnswer = q['user_answer'] as Map<String, dynamic>?;
     final String studentText =
-        userAnswer?['text_answer']?.toString() ?? '(No answer submitted)';
+        userAnswer?['text_answer']?.toString() ?? AppLocalizations.of(context)!.noAnswerSubmittedFallback;
     final dynamic rawScore = q['earned_score'];
     final int? earnedScore =
         rawScore != null ? (rawScore as num).toInt() : null;
@@ -204,7 +205,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    "WRITTEN",
+                    AppLocalizations.of(context)!.writtenBadgeShort,
                     style: TextStyle(
                         color: AppColors.accentYellow,
                         fontSize: 10,
@@ -213,7 +214,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text("Question ${index + 1}",
+                Text(AppLocalizations.of(context)!.questionNumberLabel(index + 1),
                     style: TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 12,
@@ -235,8 +236,8 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                     ),
                     child: Text(
                       isGraded
-                          ? "$earnedScore / $maxScore pts"
-                          : "— / $maxScore pts",
+                          ? AppLocalizations.of(context)!.pointsScoredLabel(earnedScore!, maxScore)
+                          : AppLocalizations.of(context)!.pointsPendingLabel(maxScore),
                       style: TextStyle(
                           color: isGraded
                               ? AppColors.success
@@ -304,7 +305,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
           // Student's answer
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: Text("YOUR ANSWER",
+            child: Text(AppLocalizations.of(context)!.yourAnswerLabel,
                 style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 10,
@@ -341,7 +342,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                   Icon(LucideIcons.checkCircle,
                       color: AppColors.success, size: 14),
                   const SizedBox(width: 6),
-                  Text("MODEL ANSWER",
+                  Text(AppLocalizations.of(context)!.modelAnswerLabel,
                       style: TextStyle(
                           color: AppColors.success,
                           fontSize: 10,
@@ -381,7 +382,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                   Icon(LucideIcons.messageSquare,
                       color: AppColors.accentYellow, size: 14),
                   const SizedBox(width: 6),
-                  Text("TEACHER FEEDBACK",
+                  Text(AppLocalizations.of(context)!.teacherFeedbackLabel,
                       style: TextStyle(
                           color: AppColors.accentYellow,
                           fontSize: 10,
@@ -434,7 +435,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             elevation: 0,
             iconTheme: IconThemeData(color: AppColors.textPrimary)),
         body: Center(
-            child: Text("Failed to load results",
+            child: Text(AppLocalizations.of(context)!.failedToLoadResults,
                 style: TextStyle(color: AppColors.error))),
       );
     }
@@ -473,7 +474,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  "Awaiting Teacher Review",
+                  AppLocalizations.of(context)!.awaitingTeacherReview,
                   style: TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 20,
@@ -483,7 +484,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                 const SizedBox(height: 12),
                 Text(
                   _resultData!['message'] ??
-                      "Your exam has been submitted and is being reviewed by your teacher. You will be notified once grading is complete.",
+                      AppLocalizations.of(context)!.examUnderReviewMessage,
                   style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 14,
@@ -501,7 +502,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12))),
-                    child: const Text("BACK TO COURSE",
+                    child: Text(AppLocalizations.of(context)!.backToCourseButton,
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             letterSpacing: 1.0)),
@@ -543,12 +544,12 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
         : (rawTotalPoints != null ? (rawTotalPoints as num).toInt() : mcqTotal);
 
     Color statusColor = percentage >= 0.5 ? AppColors.success : AppColors.error;
-    String statusMsg = percentage >= 0.5 ? "PASSED" : "FAILED";
+    String statusMsg = percentage >= 0.5 ? AppLocalizations.of(context)!.examPassedLabel : AppLocalizations.of(context)!.examFailedLabel;
 
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(
-        title: Text(isPractice ? "PRACTICE RESULT" : "EXAM RESULTS",
+        title: Text(isPractice ? AppLocalizations.of(context)!.practiceResultTitle : AppLocalizations.of(context)!.examResultsTitle,
             style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
@@ -579,9 +580,9 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                     Icon(LucideIcons.info,
                         color: AppColors.accentYellow, size: 20),
                     const SizedBox(width: 12),
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        "هذه نتيجة تدريبية (Practice Mode). لم يتم حفظ هذه النتيجة في سجل درجاتك الدائم.",
+                        AppLocalizations.of(context)!.practiceModeNotice,
                         style: TextStyle(
                             color: Colors.white, fontSize: 13, height: 1.4),
                       ),
@@ -660,7 +661,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                               color: AppColors.accentYellow, size: 14),
                           const SizedBox(width: 6),
                           Text(
-                            "Written questions pending grading",
+                            AppLocalizations.of(context)!.writtenQuestionsPendingGrading,
                             style: TextStyle(
                                 color: AppColors.accentYellow, fontSize: 11),
                           ),
@@ -678,7 +679,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             if (questions.isNotEmpty) ...[
               Align(
                 alignment: Alignment.centerLeft,
-                child: Text("DETAILED ANALYSIS",
+                child: Text(AppLocalizations.of(context)!.detailedAnalysisLabel,
                     style: TextStyle(
                         color: AppColors.accentYellow,
                         fontSize: 10,
@@ -728,7 +729,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                                   : AppColors.error,
                               size: 20),
                           const SizedBox(width: 10),
-                          Text("Question ${index + 1}",
+                          Text(AppLocalizations.of(context)!.questionNumberLabel(index + 1),
                               style: TextStyle(
                                   color: AppColors.textSecondary,
                                   fontSize: 12,

@@ -12,6 +12,7 @@ import '../../core/services/api_client.dart';
 import '../../core/services/teacher_service.dart';
 import '../widgets/custom_text_field.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -111,7 +112,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content:
-                Text("Could not fetch latest data, showing cached version."),
+                Text(AppLocalizations.of(context)!.couldNotFetchLatestData),
             backgroundColor: Colors.orange));
       }
     } finally {
@@ -292,14 +293,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text("Profile Updated Successfully"),
+              content: Text(AppLocalizations.of(context)!.profileUpdatedSuccess),
               backgroundColor: AppColors.success));
           Navigator.pop(context);
         }
       }
     } catch (e) {
       if (mounted) {
-        String errorMsg = "Failed to update profile";
+        String errorMsg = AppLocalizations.of(context)!.failedToUpdateProfile;
         if (e is DioException) {
           errorMsg = e.response?.data['message'] ??
               e.response?.data['error'] ??
@@ -344,7 +345,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                   const SizedBox(width: 16),
                   Text(
-                    "EDIT PROFILE",
+                    AppLocalizations.of(context)!.editProfileTitle,
                     style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -416,40 +417,40 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                         const SizedBox(height: 10),
                         const Center(
-                            child: Text("Tap to change photo",
+                            child: Text(AppLocalizations.of(context)!.tapToChangePhoto,
                                 style: TextStyle(
                                     color: Colors.grey, fontSize: 10))),
                         const SizedBox(height: 20),
                       ],
                       CustomTextField(
-                        label: "Full Name",
+                        label: AppLocalizations.of(context)!.fullNameLabel,
                         controller: _nameController,
-                        hintText: "Enter your full name",
+                        hintText: AppLocalizations.of(context)!.editFullNameHint,
                         prefixIcon: LucideIcons.user,
                         validator: (value) => value == null || value.isEmpty
-                            ? "Name is required"
+                            ? AppLocalizations.of(context)!.nameRequiredValidation
                             : null,
                       ),
                       const SizedBox(height: 20),
                       CustomTextField(
-                        label: "Phone Number",
+                        label: AppLocalizations.of(context)!.phoneNumberLabel,
                         controller: _phoneController,
-                        hintText: "01xxxxxxxxx",
+                        hintText: AppLocalizations.of(context)!.phoneNumberHint,
                         prefixIcon: LucideIcons.phone,
                         keyboardType: TextInputType.phone,
                         readOnly: true, // ✅ تمت الإضافة هنا لمنع التعديل
                         validator: (value) {
                           if (value == null || value.isEmpty) return null;
                           return value.length < 11
-                              ? "Invalid phone number"
+                              ? AppLocalizations.of(context)!.invalidPhoneNumberValidation
                               : null;
                         },
                       ),
                       const SizedBox(height: 20),
                       CustomTextField(
-                        label: "Username",
+                        label: AppLocalizations.of(context)!.usernameLabel,
                         controller: _usernameController,
-                        hintText: "English letters & numbers only",
+                        hintText: AppLocalizations.of(context)!.usernameEnglishNumbersOnlyHint,
                         prefixIcon: LucideIcons.atSign,
                         readOnly: true, // ✅ تمت الإضافة هنا لمنع التعديل
                         inputFormatters: [
@@ -458,9 +459,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ],
                         validator: (value) {
                           if (value == null || value.isEmpty)
-                            return "Username is required";
+                            return AppLocalizations.of(context)!.usernameRequiredValidation;
                           if (!RegExp(r'^[a-zA-Z0-9]+$').hasMatch(value)) {
-                            return "Only English letters & numbers allowed (No spaces)";
+                            return AppLocalizations.of(context)!.usernameInvalidCharsValidation;
                           }
                           return null;
                         },
@@ -469,7 +470,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         const SizedBox(height: 20),
                         const Divider(color: Colors.white10),
                         const SizedBox(height: 10),
-                        Text("TEACHER INFO",
+                        Text(AppLocalizations.of(context)!.teacherInfoLabel,
                             style: TextStyle(
                                 color: AppColors.textSecondary,
                                 fontSize: 12,
@@ -477,16 +478,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 letterSpacing: 1.5)),
                         const SizedBox(height: 15),
                         CustomTextField(
-                          label: "Specialty / Job Title",
+                          label: AppLocalizations.of(context)!.specialtyJobTitleLabel,
                           controller: _specialtyController,
-                          hintText: "e.g. Physics Teacher",
+                          hintText: AppLocalizations.of(context)!.specialtyHint,
                           prefixIcon: LucideIcons.briefcase,
                         ),
                         const SizedBox(height: 20),
                         CustomTextField(
-                          label: "WhatsApp Number (For Students)",
+                          label: AppLocalizations.of(context)!.whatsappNumberLabel,
                           controller: _whatsappController,
-                          hintText: "201xxxxxxxxx",
+                          hintText: AppLocalizations.of(context)!.whatsappNumberHint,
                           prefixIcon: LucideIcons.messageCircle,
                           keyboardType: TextInputType.phone,
                         ),
@@ -495,15 +496,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               top: 6, left: 8, bottom: 20),
                           // ✅ تم التعديل هنا: استخدام AppColors.textSecondary بدلاً من Colors.white38
                           child: Text(
-                              "Enter number with country code without '+' (e.g. 201xxxxxxxxx)",
+                              AppLocalizations.of(context)!.whatsappNumberNotice,
                               style: TextStyle(
                                   color: AppColors.textSecondary,
                                   fontSize: 11)),
                         ),
                         CustomTextField(
-                          label: "Bio / About Me",
+                          label: AppLocalizations.of(context)!.bioAboutMeLabel,
                           controller: _bioController,
-                          hintText: "Tell students about yourself...",
+                          hintText: AppLocalizations.of(context)!.bioHint,
                           prefixIcon: LucideIcons.fileText,
                           keyboardType: TextInputType.multiline,
                           maxLines: 3,
@@ -511,7 +512,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         const SizedBox(height: 30),
                         const Divider(color: Colors.white10),
                         const SizedBox(height: 10),
-                        Text("PAYMENT METHODS",
+                        Text(AppLocalizations.of(context)!.paymentMethodsLabel,
                             style: TextStyle(
                                 color: AppColors.accentYellow,
                                 fontSize: 12,
@@ -519,9 +520,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 letterSpacing: 1.5)),
                         const SizedBox(height: 20),
                         _buildDynamicList(
-                          title: "Cash Wallet Numbers",
+                          title: AppLocalizations.of(context)!.cashWalletNumbersTitle,
                           controllers: _cashNumberControllers,
-                          hint: "Enter Wallet Number",
+                          hint: AppLocalizations.of(context)!.enterWalletNumberHint,
                           onAdd: () => _addController(_cashNumberControllers),
                           onRemove: (idx) =>
                               _removeController(_cashNumberControllers, idx),
@@ -530,9 +531,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                         const SizedBox(height: 24),
                         _buildDynamicList(
-                          title: "InstaPay Numbers",
+                          title: AppLocalizations.of(context)!.instapayNumbersTitle,
                           controllers: _instapayNumberControllers,
-                          hint: "Enter InstaPay Phone Number",
+                          hint: AppLocalizations.of(context)!.enterInstapayPhoneHint,
                           onAdd: () =>
                               _addController(_instapayNumberControllers),
                           onRemove: (idx) => _removeController(
@@ -542,9 +543,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                         const SizedBox(height: 24),
                         _buildDynamicList(
-                          title: "InstaPay Links / Usernames",
+                          title: AppLocalizations.of(context)!.instapayLinksUsernamesTitle,
                           controllers: _instapayLinkControllers,
-                          hint: "username@instapay or Link",
+                          hint: AppLocalizations.of(context)!.instapayLinkHint,
                           onAdd: () => _addController(_instapayLinkControllers),
                           onRemove: (idx) =>
                               _removeController(_instapayLinkControllers, idx),
@@ -585,7 +586,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           children: const [
                             Icon(LucideIcons.save, size: 18),
                             SizedBox(width: 12),
-                            Text("SAVE CHANGES",
+                            Text(AppLocalizations.of(context)!.saveChangesButton,
                                 style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 12,
@@ -663,7 +664,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         if (controllers.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 5),
-            child: Text("Click + to add a number/link",
+            child: Text(AppLocalizations.of(context)!.clickPlusToAddHint,
                 style: TextStyle(
                     color: Colors.white.withOpacity(0.3),
                     fontSize: 12,

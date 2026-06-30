@@ -14,7 +14,8 @@ import 'youtube_player_screen.dart';
 import 'pdf_viewer_screen.dart';
 import 'teacher/manage_content_screen.dart';
 import '../../core/constants/api_constants.dart';
-import '../../data/models/player_settings_model.dart'; 
+import '../../data/models/player_settings_model.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class ChapterContentsScreen extends StatefulWidget {
   final Map<String, dynamic> chapter;
@@ -164,7 +165,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                "SELECT PLAYER",
+                AppLocalizations.of(context)!.selectPlayerTitle,
                 style: TextStyle(
                   color: AppColors.textPrimary,
                   fontSize: 16,
@@ -174,9 +175,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
               ),
               const SizedBox(height: 24),
               if (players.isEmpty)
-                 const Padding(
-                   padding: EdgeInsets.all(16.0),
-                   child: Text("No active players available.", style: TextStyle(color: Colors.white54)),
+                 Padding(
+                   padding: const EdgeInsets.all(16.0),
+                   child: Text(AppLocalizations.of(context)!.noActivePlayersAvailable, style: const TextStyle(color: Colors.white54)),
                  ),
               ...players.map((player) {
                 IconData icon = LucideIcons.playCircle;
@@ -471,7 +472,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                "SELECT DOWNLOAD QUALITY",
+                AppLocalizations.of(context)!.selectDownloadQualityTitle,
                 style: const TextStyle(
                   color: Colors.black, 
                   fontSize: 16,
@@ -522,7 +523,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
   void _startVideoDownload(String videoId, String videoTitle,
       String? downloadUrl, String? audioUrl, String quality, String duration) {
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text("Download Started...")));
+        .showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.downloadStartedMessage)));
     FirebaseCrashlytics.instance.log("⬇️ Starting download: $videoTitle ($quality)");
 
     DownloadManager().startDownload(
@@ -531,7 +532,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       subjectId: widget.subjectId,
       courseName: widget.courseTitle,
       subjectName: widget.subjectTitle,
-      chapterName: _currentChapter['title'] ?? "Chapter",
+      chapterName: _currentChapter['title'] ?? AppLocalizations.of(context)!.chapterFallbackTitle,
       downloadUrl: downloadUrl,
       audioUrl: audioUrl,
       quality: quality,
@@ -540,13 +541,13 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       onComplete: () {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text("Download Completed!"),
+              content: Text(AppLocalizations.of(context)!.downloadCompletedMessage),
               backgroundColor: AppColors.success));
       },
       onError: (e) {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text("Download Failed"),
+              content: Text(AppLocalizations.of(context)!.downloadFailedMessage),
               backgroundColor: AppColors.error));
       },
     );
@@ -554,7 +555,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
 
   void _startPdfDownload(String pdfId, String pdfTitle) {
     ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text("PDF Download Started...")));
+        .showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.pdfDownloadStartedMessage)));
     FirebaseCrashlytics.instance.log("⬇️ Starting PDF download: $pdfTitle");
 
     DownloadManager().startDownload(
@@ -563,20 +564,20 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       subjectId: widget.subjectId,
       courseName: widget.courseTitle,
       subjectName: widget.subjectTitle,
-      chapterName: _currentChapter['title'] ?? "Chapter",
+      chapterName: _currentChapter['title'] ?? AppLocalizations.of(context)!.chapterFallbackTitle,
       isPdf: true,
       quality: "PDF",
       onProgress: (p) {},
       onComplete: () {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text("PDF Download Completed!"),
+              content: Text(AppLocalizations.of(context)!.pdfDownloadCompletedMessage),
               backgroundColor: AppColors.success));
       },
       onError: (e) {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text("Download Failed"),
+              content: Text(AppLocalizations.of(context)!.downloadFailedMessage),
               backgroundColor: AppColors.error));
       },
     );
@@ -734,8 +735,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                         ),
                         child: Row(
                           children: [
-                            _buildTab("Videos", 'videos'),
-                            _buildTab("PDFs", 'pdfs'),
+                            _buildTab(AppLocalizations.of(context)!.videosTabLabel, 'videos'),
+                            _buildTab(AppLocalizations.of(context)!.pdfsTabLabel, 'pdfs'),
                           ],
                         ),
                       ),
@@ -794,7 +795,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
 
   Widget _buildVideosList(List<Map<String, dynamic>> videos) {
     if (videos.isEmpty)
-      return _buildEmptyState(LucideIcons.monitorPlay, "No video lessons");
+      return _buildEmptyState(LucideIcons.monitorPlay, AppLocalizations.of(context)!.noVideoLessonsMessage);
 
     return ListView.builder(
       padding: const EdgeInsets.all(24),
@@ -857,7 +858,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                           Row(
                             children: [
                               Text(
-                                "VIDEO",
+                                AppLocalizations.of(context)!.videoLabel,
                                 style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.bold,
@@ -923,7 +924,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   child: Center(
                     child: Text(
-                      "سيتاح التشغيل والتحميل بعد اكتمال معالجة الفيديو",
+                      AppLocalizations.of(context)!.videoProcessingNotice,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                           fontSize: 11,
@@ -937,7 +938,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                   children: [
                     Expanded(
                       child: _buildActionButton(
-                        "Watch Now",
+                        AppLocalizations.of(context)!.watchNowButton,
                         AppColors.accentYellow,
                         () => _showPlayerSelectionDialog(video),
                       ),
@@ -971,21 +972,21 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
 
                               if (isDownloaded) {
                                 return _buildStatusButton(
-                                    "SAVED ${sizeStr != null ? '($sizeStr)' : ''}",
+                                    "${AppLocalizations.of(context)!.savedLabel}${sizeStr != null ? ' ($sizeStr)' : ''}",
                                     AppColors.success,
                                     LucideIcons.checkCircle);
                               }
                               else if (isDownloading) {
-                                return _buildStatusButton("PROCESSING...",
+                                return _buildStatusButton(AppLocalizations.of(context)!.processingLabel,
                                     AppColors.accentYellow, LucideIcons.loader);
                               } else {
                                 // ✅ إخفاء زر التحميل بناءً على الإعدادات
                                 if (!_isVideoDownloadEnabled()) {
-                                  return _buildStatusButton("DOWNLOAD DISABLED",
+                                  return _buildStatusButton(AppLocalizations.of(context)!.downloadDisabledLabel,
                                       AppColors.textSecondary, LucideIcons.lock);
                                 }
                                 return _buildActionButton(
-                                    "Download",
+                                    AppLocalizations.of(context)!.downloadButton,
                                     AppColors.textSecondary,
                                     () => _prepareVideoDownload(
                                         videoId, video['title'], duration));
@@ -1031,7 +1032,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
         });
       }
     } catch (e) {
-      if (mounted) _showErrorSnackBar("تعذر تحديث حالة الفيديو");
+      if (mounted) _showErrorSnackBar(AppLocalizations.of(context)!.videoStatusRefreshFailed);
     } finally {
       if (mounted) setState(() => _refreshingVideoIds.remove(videoId));
     }
@@ -1044,12 +1045,12 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
 
     switch (encodingStatus) {
       case 'encoding':
-        label = "قيد المعالجة";
+        label = AppLocalizations.of(context)!.encodingStatusEncoding;
         color = AppColors.accentYellow;
         icon = LucideIcons.loader;
         break;
       case 'ready':
-        label = "جاهز";
+        label = AppLocalizations.of(context)!.encodingStatusReady;
         color = AppColors.success;
         icon = LucideIcons.checkCircle;
         break;
@@ -1057,7 +1058,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       default:
         // أي قيمة غير معروفة (أو null) تُعامل كـ "waiting" تماماً كما في
         // لوحة التحكم على الويب (STATUS_MAP[v.encoding_status] || waiting)
-        label = "في انتظار المعالجة";
+        label = AppLocalizations.of(context)!.encodingStatusWaiting;
         color = AppColors.textSecondary;
         icon = LucideIcons.clock;
         break;
@@ -1083,7 +1084,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
               child: CircularProgressIndicator(strokeWidth: 1.5, color: color),
             ),
             const SizedBox(width: 5),
-            Text("جاري التحديث",
+            Text(AppLocalizations.of(context)!.updatingLabel,
                 style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color)),
           ] else ...[
             Icon(icon, size: 11, color: color),
@@ -1109,7 +1110,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
 
   Widget _buildPdfsList(List<Map<String, dynamic>> pdfs) {
     if (pdfs.isEmpty)
-      return _buildEmptyState(LucideIcons.fileText, "No PDF files");
+      return _buildEmptyState(LucideIcons.fileText, AppLocalizations.of(context)!.noPdfFilesMessage);
 
     return ListView.builder(
       padding: const EdgeInsets.all(24),
@@ -1156,7 +1157,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.textPrimary)),
                           const SizedBox(height: 4),
-                          Text("STUDY MATERIAL",
+                          Text(AppLocalizations.of(context)!.studyMaterialLabel,
                               style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.bold,
@@ -1193,7 +1194,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                 children: [
                   Expanded(
                     child: _buildActionButton(
-                        "Open File", AppColors.accentYellow, () {
+                        AppLocalizations.of(context)!.openFileButton, AppColors.accentYellow, () {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -1219,21 +1220,21 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                             bool isDownloading = progresses.containsKey(pdfId);
 
                             if (isDownloaded) {
-                              return _buildStatusButton("SAVED",
+                              return _buildStatusButton(AppLocalizations.of(context)!.savedLabel,
                                   AppColors.success, LucideIcons.checkCircle);
                             }
                             else if (isDownloading) {
-                              return _buildStatusButton("PROCESSING...",
+                              return _buildStatusButton(AppLocalizations.of(context)!.processingLabel,
                                   AppColors.accentYellow, LucideIcons.loader);
                             }
                             else {
                               // ✅ التحقق من إعدادات زر تحميل الـ PDF
                               if (!_isPdfDownloadEnabled()) {
-                                return _buildStatusButton("DOWNLOAD DISABLED",
+                                return _buildStatusButton(AppLocalizations.of(context)!.downloadDisabledLabel,
                                     AppColors.textSecondary, LucideIcons.lock);
                               }
                               return _buildActionButton(
-                                  "Download",
+                                  AppLocalizations.of(context)!.downloadButton,
                                   AppColors.textSecondary,
                                   () => _startPdfDownload(pdfId, pdf['title']));
                             }
