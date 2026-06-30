@@ -9,6 +9,7 @@ import '../../core/services/api_client.dart';
 import 'subject_materials_screen.dart';
 import 'teacher/manage_content_screen.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class CourseMaterialsScreen extends StatefulWidget {
   final String courseId;
@@ -93,7 +94,8 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final String displayInstructor = widget.instructorName ?? "Instructor";
+    final String displayInstructor = widget.instructorName ??
+        AppLocalizations.of(context)!.instructorFallback;
 
     // --- Responsive Logic ---
     final double screenWidth = MediaQuery.of(context).size.width;
@@ -171,7 +173,8 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  "CHOOSE SUBJECT",
+                                  AppLocalizations.of(context)!
+                                      .chooseSubjectLabel,
                                   style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.bold,
@@ -242,7 +245,8 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                                         .withOpacity(0.5)),
                                 const SizedBox(height: 16),
                                 Text(
-                                  "NO SUBJECTS FOUND",
+                                  AppLocalizations.of(context)!
+                                      .noSubjectsFound,
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,

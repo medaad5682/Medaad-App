@@ -15,6 +15,7 @@ import 'teacher/manage_content_screen.dart';
 import 'teacher/create_exam_screen.dart';
 import 'teacher/exam_stats_screen.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class SubjectMaterialsScreen extends StatefulWidget {
   final String subjectId;
@@ -76,7 +77,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
           .recordError(e, stack, reason: 'Fetching Subject Content Failed');
       if (mounted) {
         setState(() {
-          _error = "Failed to load content.";
+          _error = AppLocalizations.of(context)!.failedToLoadContent;
           _loading = false;
         });
       }
@@ -125,15 +126,14 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         return StatefulBuilder(builder: (context, setState) {
           return AlertDialog(
             backgroundColor: AppColors.backgroundSecondary,
-            title: Text('رأيك يهمنا',
+            title: Text(AppLocalizations.of(context)!.studentFeedbackDialogTitle,
                 style: TextStyle(color: AppColors.textPrimary)),
             content: TextField(
               controller: feedbackController,
               maxLines: 4,
               style: TextStyle(color: AppColors.textPrimary),
               decoration: InputDecoration(
-                hintText:
-                    'اكتب رأيك أو ملاحظاتك عن هذا الفصل (رأيك مجهول الهوية)',
+                hintText: AppLocalizations.of(context)!.studentFeedbackHint,
                 hintStyle:
                     TextStyle(color: AppColors.textSecondary.withOpacity(0.5)),
                 enabledBorder: OutlineInputBorder(
@@ -146,7 +146,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: Text('إلغاء',
+                child: Text(AppLocalizations.of(context)!.cancel,
                     style: TextStyle(color: AppColors.textSecondary)),
               ),
               ElevatedButton(
@@ -170,15 +170,16 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                           if (res.statusCode == 200) {
                             Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content:
-                                        Text("تم إرسال رأيك بنجاح، شكراً لك!"),
+                                SnackBar(
+                                    content: Text(AppLocalizations.of(context)!
+                                        .studentFeedbackSuccessMessage),
                                     backgroundColor: AppColors.success));
                           }
                         } catch (e) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text("حدث خطأ في الاتصال"),
+                              SnackBar(
+                                  content: Text(AppLocalizations.of(context)!
+                                      .studentFeedbackConnectionError),
                                   backgroundColor: AppColors.error));
                         } finally {
                           setState(() => isSubmitting = false);
@@ -190,7 +191,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                         height: 16,
                         child: CircularProgressIndicator(
                             color: Colors.black, strokeWidth: 2))
-                    : const Text('إرسال',
+                    : Text(AppLocalizations.of(context)!.submitLabel,
                         style: TextStyle(
                             color: Colors.black, fontWeight: FontWeight.bold)),
               ),
@@ -241,8 +242,9 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                   isInitialLoading = false;
                   isFetchingMore = false;
                 });
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text("فشل جلب الآراء"),
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(
+                        AppLocalizations.of(context)!.teacherFeedbackFetchFailed),
                     backgroundColor: AppColors.error));
               }
             }
@@ -267,7 +269,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
             return AlertDialog(
               backgroundColor: AppColors.backgroundSecondary,
-              title: Text('آراء الطلاب المجهولة',
+              title: Text(AppLocalizations.of(context)!.teacherFeedbackDialogTitle,
                   style: TextStyle(color: AppColors.textPrimary)),
               content: SizedBox(
                 width: double.maxFinite,
@@ -278,7 +280,9 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                             color: AppColors.accentYellow))
                     : feedbacks.isEmpty
                         ? Center(
-                            child: Text("لا توجد آراء مسجلة حتى الآن",
+                            child: Text(
+                                AppLocalizations.of(context)!
+                                    .teacherFeedbackEmptyState,
                                 style:
                                     TextStyle(color: AppColors.textSecondary)))
                         : ListView.builder(
@@ -328,7 +332,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: Text('إغلاق',
+                  child: Text(AppLocalizations.of(context)!.close,
                       style: TextStyle(color: AppColors.accentYellow)),
                 ),
               ],
@@ -419,7 +423,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    "SUBJECT CONTENTS",
+                                    AppLocalizations.of(context)!
+                                        .subjectContentsLabel,
                                     style: TextStyle(
                                       fontSize: 9,
                                       fontWeight: FontWeight.bold,
@@ -494,8 +499,13 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                     ),
                     child: Row(
                       children: [
-                        _buildTab("Chapters", 'chapters'),
-                        _buildTab("Exams (${exams.length})", 'exams'),
+                        _buildTab(
+                            AppLocalizations.of(context)!.chaptersTabLabel,
+                            'chapters'),
+                        _buildTab(
+                            AppLocalizations.of(context)!
+                                .examsTabLabel(exams.length),
+                            'exams'),
                       ],
                     ),
                   ),
@@ -530,7 +540,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
     }).toList();
 
     if (visibleExams.isEmpty) {
-      return _buildEmptyState(LucideIcons.fileCheck, "No exams available yet");
+      return _buildEmptyState(
+          LucideIcons.fileCheck, AppLocalizations.of(context)!.noExamsAvailable);
     }
 
     return ListView.builder(
@@ -547,28 +558,28 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         final bool allowRetake = exam['allow_retake'] == true || exam['allow_retake'] == 'true' || exam['allow_retake'] == 1;
 
         Color statusColor = AppColors.accentOrange;
-        String statusText = "UNSOLVED";
+        String statusText = AppLocalizations.of(context)!.examStatusUnsolved;
         IconData statusIcon = LucideIcons.fileX;
 
         if (isPendingGrading) {
           // الامتحان مُسلَّم ويحتوي على أسئلة مقالية بانتظار تصحيح المعلم
           statusColor = AppColors.accentYellow;
-          statusText = "PENDING";
+          statusText = AppLocalizations.of(context)!.examStatusPending;
           statusIcon = LucideIcons.clipboardPen;
         } else if (isCompleted) {
           // ✅ 2. التعديل هنا: إزالة شرط (!_isTeacher) لكي يرى المعلم زر التدريب
           if (allowRetake) {
             statusColor = AppColors.accentYellow;
-            statusText = "PRACTICE";
+            statusText = AppLocalizations.of(context)!.examStatusPractice;
             statusIcon = LucideIcons.refreshCcw;
           } else {
             statusColor = AppColors.success;
-            statusText = "COMPLETED";
+            statusText = AppLocalizations.of(context)!.examStatusCompleted;
             statusIcon = LucideIcons.checkCircle2;
           }
         } else if (isExpired) {
           statusColor = AppColors.error;
-          statusText = "EXPIRED";
+          statusText = AppLocalizations.of(context)!.examStatusExpired;
           statusIcon = LucideIcons.clock;
         }
 
@@ -606,7 +617,9 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        (exam['title'] ?? 'Untitled Exam')
+                        (exam['title'] ??
+                                AppLocalizations.of(context)!
+                                    .untitledExamFallback)
                             .toString()
                             .toUpperCase(),
                         style: TextStyle(
@@ -620,7 +633,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                       Row(
                         children: [
                           Text(
-                            "${exam['duration_minutes'] ?? 0} MINS",
+                            AppLocalizations.of(context)!.examDurationMinutes(
+                                (exam['duration_minutes'] ?? 0).toString()),
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.bold,
@@ -653,7 +667,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                     IconButton(
                       icon: Icon(LucideIcons.edit,
                           color: AppColors.accentOrange, size: 20),
-                      tooltip: "تعديل الامتحان",
+                      tooltip: AppLocalizations.of(context)!.editExamTooltip,
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -671,14 +685,16 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                     IconButton(
                       icon: Icon(LucideIcons.barChart2,
                           color: AppColors.accentYellow, size: 20),
-                      tooltip: "Statistics",
+                      tooltip: AppLocalizations.of(context)!.statisticsTooltip,
                       onPressed: () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) => ExamStatsScreen(
                               examId: exam['id'].toString(),
-                              examTitle: exam['title'] ?? "Exam",
+                              examTitle: exam['title'] ??
+                                  AppLocalizations.of(context)!
+                                      .examFallbackTitle,
                             ),
                           ),
                         );
@@ -716,18 +732,19 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
             children: [
               Icon(LucideIcons.clipboardPen, color: AppColors.accentYellow, size: 20),
               const SizedBox(width: 10),
-              Text('قيد المراجعة',
+              Text(AppLocalizations.of(context)!.examPendingReviewTitle,
                   style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
             ],
           ),
           content: Text(
-            'لقد سلّمت هذا الامتحان وهو الآن بانتظار مراجعة المعلم.\n\nسيتم إشعارك عند نشر النتيجة النهائية.',
+            AppLocalizations.of(context)!.examPendingReviewMessage,
             style: TextStyle(color: AppColors.textSecondary, height: 1.5),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: Text('حسناً', style: TextStyle(color: AppColors.accentYellow)),
+              child: Text(AppLocalizations.of(context)!.ok,
+                  style: TextStyle(color: AppColors.accentYellow)),
             ),
           ],
         ),
@@ -746,13 +763,14 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
           MaterialPageRoute(
             builder: (_) => ExamResultScreen(
               attemptId: attemptId.toString(),
-              examTitle: exam['title'] ?? 'Exam Result',
+              examTitle: exam['title'] ??
+                  AppLocalizations.of(context)!.examResultFallbackTitle,
             ),
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Error: Cannot load result."),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(AppLocalizations.of(context)!.examResultLoadError),
             backgroundColor: AppColors.error));
       }
     }
@@ -763,7 +781,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         MaterialPageRoute(
           builder: (_) => ExamViewScreen(
             examId: exam['id'].toString(),
-            examTitle: exam['title'] ?? 'Exam',
+            examTitle:
+                exam['title'] ?? AppLocalizations.of(context)!.examFallbackTitle,
             isCompleted: isCompleted,
           ),
         ),
@@ -777,10 +796,10 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: AppColors.backgroundSecondary,
-            title: Text('خيارات الامتحان',
+            title: Text(AppLocalizations.of(context)!.examOptionsDialogTitle,
                 style: TextStyle(color: AppColors.textPrimary)),
             content: Text(
-                'لقد أكملت هذا الامتحان من قبل. هل تود عرض نتيجتك السابقة أم إعادة الامتحان للتدريب؟',
+                AppLocalizations.of(context)!.examRetakeOptionsMessage,
                 style: TextStyle(color: AppColors.textSecondary, height: 1.5)),
             actions: [
               TextButton(
@@ -788,7 +807,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                   Navigator.pop(ctx);
                   navigateToResult();
                 },
-                child: Text('عرض النتيجة',
+                child: Text(AppLocalizations.of(context)!.viewResultButton,
                     style: TextStyle(color: AppColors.textSecondary)),
               ),
               ElevatedButton(
@@ -798,7 +817,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                   Navigator.pop(ctx);
                   navigateToExamView();
                 },
-                child: const Text('إعادة للتدريب',
+                child: Text(
+                    AppLocalizations.of(context)!.retakeForPracticeButton,
                     style: TextStyle(
                         color: Colors.black, fontWeight: FontWeight.bold)),
               ),
@@ -820,17 +840,17 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         builder: (ctx) => AlertDialog(
           backgroundColor: AppColors.backgroundSecondary,
           title: Text(
-            'تأكيد بدء الامتحان',
+            AppLocalizations.of(context)!.confirmStartExamTitle,
             style: TextStyle(color: AppColors.textPrimary),
           ),
           content: Text(
-            'هل أنت مستعد؟ سيتم بدء الامتحان واحتساب الوقت بمجرد تأكيدك.',
+            AppLocalizations.of(context)!.confirmStartExamMessage,
             style: TextStyle(color: AppColors.textSecondary, height: 1.5),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: Text('إلغاء',
+              child: Text(AppLocalizations.of(context)!.cancel,
                   style: TextStyle(color: AppColors.textSecondary)),
             ),
             ElevatedButton(
@@ -840,7 +860,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                 Navigator.pop(ctx); // إغلاق النافذة المنبثقة
                 navigateToExamView(); // الذهاب للامتحان وبدء الوقت
               },
-              child: const Text('بدء الامتحان',
+              child: Text(AppLocalizations.of(context)!.startExamButton,
                   style: TextStyle(
                       color: Colors.black, fontWeight: FontWeight.bold)),
             ),
@@ -852,7 +872,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
   Widget _buildChaptersList(List chapters) {
     if (chapters.isEmpty) {
-      return _buildEmptyState(LucideIcons.bookOpen, "No chapters found");
+      return _buildEmptyState(
+          LucideIcons.bookOpen, AppLocalizations.of(context)!.noChaptersFound);
     }
 
     return ListView.builder(
@@ -865,8 +886,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
         return GestureDetector(
           onTap: () {
-            final String courseTitle =
-                _content?['course_title'] ?? 'Unknown Course';
+            final String courseTitle = _content?['course_title'] ??
+                AppLocalizations.of(context)!.unknownCourseFallback;
 
             Navigator.push(
               context,
@@ -927,7 +948,9 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        (chapter['title'] ?? 'Chapter')
+                        (chapter['title'] ??
+                                AppLocalizations.of(context)!
+                                    .chapterFallbackTitle)
                             .toString()
                             .toUpperCase(),
                         style: TextStyle(
@@ -946,7 +969,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                               size: 10, color: AppColors.accentOrange),
                           const SizedBox(width: 4),
                           Text(
-                            "${videosCount + pdfsCount} CONTENTS",
+                            AppLocalizations.of(context)!
+                                .contentsCountLabel(videosCount + pdfsCount),
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.bold,

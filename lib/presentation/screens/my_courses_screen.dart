@@ -215,8 +215,8 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16)),
                       ),
-                      child: const Text(
-                        "LOGIN NOW",
+                      child: Text(
+                        AppLocalizations.of(context)!.loginNowButton,
                         style: TextStyle(
                             fontWeight: FontWeight.bold, letterSpacing: 1.0),
                       ),
@@ -265,7 +265,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "LIBRARY",
+                            AppLocalizations.of(context)!.libraryTitle,
                             style: TextStyle(
                               color: AppColors.textPrimary,
                               fontSize: 24,
@@ -276,7 +276,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            "MY LESSONS",
+                            AppLocalizations.of(context)!.myLessonsSubtitle,
                             style: TextStyle(
                               color: AppColors.textSecondary,
                               fontSize: 10,
@@ -360,7 +360,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                 child: libraryItems.isEmpty
                     ? Center(
                         child: Text(
-                          "NO ACTIVE COURSES",
+                          AppLocalizations.of(context)!.noActiveCourses,
                           style: TextStyle(
                             color: AppColors.textSecondary.withOpacity(0.5),
                             fontSize: 10,
@@ -619,7 +619,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                   ),
                   const SizedBox(width: 16),
                   Text(
-                    "MARKET",
+                    AppLocalizations.of(context)!.marketTitle,
                     style: TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 20,
@@ -650,7 +650,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                           ? AppColors.accentYellow
                           : AppColors.textSecondary,
                     ),
-                    hintText: "Find excellence...",
+                    hintText: AppLocalizations.of(context)!.searchCourseMarketHint,
                     hintStyle: TextStyle(
                         color: AppColors.textSecondary.withOpacity(0.6)),
                     border: InputBorder.none,
@@ -744,7 +744,8 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                               // ✅ هنا التعديل: إخفاء السعر فقط إذا كان الوضع المجاني مفعلاً
                               if (!_isFreeMode)
                                 Text(
-                                  "${course.fullPrice.toInt()} EGP",
+                                  AppLocalizations.of(context)!.priceEgp(
+                                      course.fullPrice.toInt().toString()),
                                   style: TextStyle(
                                     color: AppColors.accentYellow,
                                     fontSize: 16,

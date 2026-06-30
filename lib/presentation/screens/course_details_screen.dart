@@ -9,6 +9,7 @@ import 'login_screen.dart'; // ✅ استيراد صفحة الدخول
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class CourseDetailsScreen extends StatefulWidget {
   final String courseCode;
@@ -103,8 +104,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
       }
 
       if (selectedItems.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Please select items first")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(AppLocalizations.of(context)!.selectItemsFirstError)));
         setState(() => _enrolling = false);
         return;
       }
@@ -119,8 +121,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
       );
 
       if (res.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Activation Successful! ✅"),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(AppLocalizations.of(context)!.activationSuccessMessage),
             backgroundColor: AppColors.success));
         // إعادة تحميل الصفحة لتحديث الحالة إلى المملوكة
         _fetchDetails();
@@ -130,8 +132,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Failed to activate. Try again."),
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(AppLocalizations.of(context)!.activationFailedMessage),
           backgroundColor: AppColors.error));
     } finally {
       setState(() => _enrolling = false);
@@ -149,12 +151,13 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
       return Scaffold(
           backgroundColor: AppColors.backgroundPrimary,
           body: Center(
-              child: Text("Course not found",
+              child: Text(AppLocalizations.of(context)!.courseNotFound,
                   style: TextStyle(color: AppColors.textPrimary))));
 
     final course = _courseData!;
     final teacher = course['teacher'] ?? {};
-    final String teacherName = teacher['name'] ?? "Unknown Instructor";
+    final String teacherName =
+        teacher['name'] ?? AppLocalizations.of(context)!.unknownInstructor;
     final String? teacherIdString = teacher['id']?.toString();
 
     final subjects = List<Map<String, dynamic>>.from(course['subjects'] ?? []);
@@ -247,9 +250,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                             );
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content:
-                                      Text("Instructor profile not available")),
+                              SnackBar(
+                                  content: Text(AppLocalizations.of(context)!
+                                      .instructorProfileUnavailable)),
                             );
                           }
                         },
@@ -284,7 +287,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    "INSTRUCTOR",
+                                    AppLocalizations.of(context)!
+                                        .instructorLabel,
                                     style: TextStyle(
                                       color: AppColors.textSecondary,
                                       fontSize: 9,
@@ -313,7 +317,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
 
                       const SizedBox(height: 32),
                       Text(
-                        course['description'] ?? "No description available.",
+                        course['description'] ??
+                            AppLocalizations.of(context)!
+                                .noDescriptionAvailable,
                         style: TextStyle(
                             color: AppColors.textSecondary.withOpacity(0.8),
                             height: 1.6,
@@ -340,7 +346,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                   color: AppColors.textSecondary, size: 32),
                               const SizedBox(height: 12),
                               Text(
-                                "TEACHER ACCOUNT",
+                                AppLocalizations.of(context)!
+                                    .teacherAccountLabel,
                                 style: TextStyle(
                                     color: AppColors.textPrimary,
                                     fontWeight: FontWeight.bold,
@@ -348,7 +355,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                "Teachers cannot purchase courses.",
+                                AppLocalizations.of(context)!
+                                    .teachersCannotPurchaseMessage,
                                 style: TextStyle(
                                     color: AppColors.textSecondary,
                                     fontSize: 12),
@@ -360,7 +368,11 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                       else ...[
                         // ✅ تغيير النص ليكون عاماً
                         Text(
-                            _isFreeMode ? "COURSE CONTENT" : "PURCHASE OPTIONS",
+                            _isFreeMode
+                                ? AppLocalizations.of(context)!
+                                    .courseContentLabel
+                                : AppLocalizations.of(context)!
+                                    .purchaseOptionsLabel,
                             style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
@@ -407,14 +419,18 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                       // ✅ نصوص عامة
                                       Text(
                                           _isFreeMode
-                                              ? "FULL COURSE"
-                                              : "FULL COURSE ACCESS",
+                                              ? AppLocalizations.of(context)!
+                                                  .fullCourseLabel
+                                              : AppLocalizations.of(context)!
+                                                  .fullCourseAccessLabel,
                                           style: TextStyle(
                                               color: AppColors.textPrimary,
                                               fontWeight: FontWeight.bold,
                                               fontSize: 14)),
                                       const SizedBox(height: 4),
-                                      Text("Access all subjects & exams",
+                                      Text(
+                                          AppLocalizations.of(context)!
+                                              .accessAllSubjectsExams,
                                           style: TextStyle(
                                               color: AppColors.textSecondary,
                                               fontSize: 11)),
@@ -422,7 +438,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                   ),
                                   // ✅ إخفاء السعر
                                   if (!_isFreeMode)
-                                    Text("$fullPrice EGP",
+                                    Text(
+                                        AppLocalizations.of(context)!
+                                            .priceEgp(fullPrice.toString()),
                                         style: TextStyle(
                                             color: AppColors.accentYellow,
                                             fontWeight: FontWeight.w900,
@@ -446,7 +464,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                 Icon(LucideIcons.checkCircle,
                                     color: AppColors.success, size: 32),
                                 const SizedBox(height: 8),
-                                Text("COURSE OWNED",
+                                Text(
+                                    AppLocalizations.of(context)!
+                                        .courseOwnedLabel,
                                     style: TextStyle(
                                         color: AppColors.success,
                                         fontWeight: FontWeight.bold,
@@ -457,7 +477,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
 
                         if (subjects.isNotEmpty) ...[
                           const SizedBox(height: 32),
-                          Text("INDIVIDUAL SUBJECTS",
+                          Text(
+                              AppLocalizations.of(context)!
+                                  .individualSubjectsLabel,
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
@@ -538,13 +560,18 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                       ),
                                     ),
                                     if (isOwned || isCourseOwned)
-                                      Text("OWNED",
+                                      Text(
+                                          AppLocalizations.of(context)!
+                                              .ownedLabel,
                                           style: TextStyle(
                                               color: AppColors.success,
                                               fontSize: 10,
                                               fontWeight: FontWeight.bold))
                                     else if (!_isFreeMode) // ✅ إخفاء السعر هنا
-                                      Text("${sub['price']} EGP",
+                                      Text(
+                                          AppLocalizations.of(context)!
+                                              .priceEgp(
+                                                  sub['price'].toString()),
                                           style: TextStyle(
                                               color: AppColors.textSecondary,
                                               fontSize: 12,
@@ -599,20 +626,26 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           if (!_isFreeMode) ...[
-                            Text("TOTAL PAYABLE",
+                            Text(
+                                AppLocalizations.of(context)!
+                                    .totalPayableLabel,
                                 style: TextStyle(
                                     color: AppColors.textSecondary,
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
                                     letterSpacing: 1.5)),
                             const SizedBox(height: 4),
-                            Text("$currentPrice EGP",
+                            Text(
+                                AppLocalizations.of(context)!
+                                    .priceEgp(currentPrice.toString()),
                                 style: TextStyle(
                                     color: AppColors.accentYellow,
                                     fontSize: 24,
                                     fontWeight: FontWeight.w900)),
                           ] else
-                            Text("Free Activation",
+                            Text(
+                                AppLocalizations.of(context)!
+                                    .freeActivationLabel,
                                 style: TextStyle(
                                     color: AppColors.success,
                                     fontSize: 16,
@@ -686,7 +719,12 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                     color: Colors.white, strokeWidth: 2))
                             : Row(
                                 children: [
-                                  Text(_isFreeMode ? "ACTIVATE" : "CHECKOUT",
+                                  Text(
+                                      _isFreeMode
+                                          ? AppLocalizations.of(context)!
+                                              .activateButton
+                                          : AppLocalizations.of(context)!
+                                              .checkoutButton,
                                       style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 14,
