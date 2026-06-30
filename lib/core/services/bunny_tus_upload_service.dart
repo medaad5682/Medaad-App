@@ -315,18 +315,69 @@ class BunnyTusUploadService {
       );
     }
 
+    // ===================================================================
+    // 🔁 طبقة إعادة محاولة موحّدة — تطابق بالضبط جدول الإعادة الافتراضي
+    // المستخدم في لوحة تحكم الويب عبر tus-js-client (retryDelays):
+    //   [0, 3000, 6000, 12000, 24000] مللي ثانية — أي 5 محاولات بإجمالي
+    //   ~45 ثانية قبل اعتبار الانقطاع نهائياً.
+    // ✅ يُستخدم لكل من HEAD (معرفة الأوفست) و PATCH (رفع جزء)، حتى لا
+    //   يُفلت أي _RetryableUploadError (مثل 423 Locked) ليُسقط الرفع
+    //   بالكامل دون إعادة محاولة — وهو ما كان يحدث سابقاً عند أول HEAD
+    //   بعد استئناف الرفع (لم يكن محاطاً بإعادة محاولة على الإطلاق).
+    // ===================================================================
+    const retryDelays = [
+      Duration.zero,
+      Duration(milliseconds: 3000),
+      Duration(milliseconds: 6000),
+      Duration(milliseconds: 12000),
+      Duration(milliseconds: 24000),
+    ];
+
+    Future<T> withRetry<T>(Future<T> Function() action) async {
+      for (int attempt = 0; ; attempt++) {
+        try {
+          return await action();
+        } on _SessionExpiredError {
+          rethrow; // تُعالَج بشكل منفصل دائماً عبر regenerateAndResume
+        } on _RetryableUploadError catch (e) {
+          if (attempt >= retryDelays.length - 1 || _cancelRequested) rethrow;
+          // إذا فُقد الاتصال بالكامل، ننتظر عودته بدل استهلاك محاولات
+          // الجدول الزمني على عمليات ستفشل حتماً دون شبكة
+          if (!_isNetworkAvailable) {
+            _pauseWaiter = Completer<void>();
+            await _pauseWaiter!.future.timeout(
+              const Duration(days: 1),
+              onTimeout: () {},
+            );
+            if (_cancelRequested) rethrow;
+            continue;
+          }
+          await Future.delayed(retryDelays[attempt + 1]);
+          if (_cancelRequested) rethrow;
+          debugPrint(
+              '⏳ [BunnyUpload] إعادة محاولة بعد خطأ مؤقت (محاولة ${attempt + 2}/${retryDelays.length}): $e');
+        }
+      }
+    }
+
     // 1) إنشاء مورد TUS إن لم يكن منشأً بعد (أول مرة لهذه الجلسة)
     if (tusUploadUrl == null) {
       try {
-        tusUploadUrl = await _createTusResource(
-          tusEndpoint: tusEndpoint,
-          fileSize: fileSize,
-          fileName: file.uri.pathSegments.last,
-          title: session['title'] ?? file.uri.pathSegments.last,
-          authHeaders: authHeaders,
-        );
+        tusUploadUrl = await withRetry(() => _createTusResource(
+              tusEndpoint: tusEndpoint,
+              fileSize: fileSize,
+              fileName: file.uri.pathSegments.last,
+              title: session['title'] ?? file.uri.pathSegments.last,
+              authHeaders: authHeaders,
+            ));
       } on _SessionExpiredError {
         return regenerateAndResume();
+      } on _RetryableUploadError catch (e) {
+        status = BunnyUploadStatus.error;
+        errorMessage = e.toString();
+        _emit();
+        onError(errorMessage!);
+        return;
       }
       session['tusUploadUrl'] = tusUploadUrl;
       await _saveSession(fileKey, session);
@@ -334,11 +385,18 @@ class BunnyTusUploadService {
 
     // 2) معرفة آخر offset مستلم فعلياً على سيرفر Bunny (يدعم الاستئناف
     //    حتى لو تغيّر اتصال الشبكة أو أُعيد فتح التطبيق بالكامل)
+    // ✅ محاطة الآن بإعادة المحاولة (كانت سابقاً بلا حماية من 423/مؤقت)
     int offset;
     try {
-      offset = await _fetchCurrentOffset(tusUploadUrl, authHeaders);
+      offset = await withRetry(() => _fetchCurrentOffset(tusUploadUrl!, authHeaders));
     } on _SessionExpiredError {
       return regenerateAndResume();
+    } on _RetryableUploadError catch (e) {
+      status = BunnyUploadStatus.error;
+      errorMessage = 'انقطع الاتصال — اضغط "حفظ" للمتابعة من نقطة التوقف (${e.toString()})';
+      _emit();
+      onError(errorMessage!);
+      return;
     }
 
     final raf = await file.open();
@@ -368,10 +426,17 @@ class BunnyTusUploadService {
           _emit();
           // نعيد التحقق من الأوفست الحقيقي بعد عودة الاتصال (احتياطاً)
           try {
-            offset = await _fetchCurrentOffset(tusUploadUrl, authHeaders);
+            offset = await withRetry(() => _fetchCurrentOffset(tusUploadUrl!, authHeaders));
           } on _SessionExpiredError {
             await raf.close();
             return regenerateAndResume();
+          } on _RetryableUploadError catch (e) {
+            await raf.close();
+            status = BunnyUploadStatus.error;
+            errorMessage = 'انقطع الاتصال — اضغط "حفظ" للمتابعة من نقطة التوقف (${e.toString()})';
+            _emit();
+            onError(errorMessage!);
+            return;
           }
           continue;
         }
@@ -382,28 +447,28 @@ class BunnyTusUploadService {
         final bytes = await raf.read(thisChunk);
 
         try {
-          final newOffset = await _patchChunk(
-            tusUploadUrl: tusUploadUrl,
-            offset: offset,
-            bytes: bytes,
-            authHeaders: authHeaders,
-          );
+          final newOffset = await withRetry(() => _patchChunk(
+                tusUploadUrl: tusUploadUrl!,
+                offset: offset,
+                bytes: bytes,
+                authHeaders: authHeaders,
+              ));
           offset = newOffset;
           progress = (offset / fileSize).clamp(0.0, 0.99);
           _emit();
         } on _SessionExpiredError {
           await raf.close();
           return regenerateAndResume();
-        } on _RetryableUploadError {
-          // خطأ شبكة عابر — أعد محاولة نفس القطعة بعد تأخير بسيط بدل
-          // إفشال الرفع بالكامل (مقاومة لاهتزاز الشبكة كما في نسخة الويب)
-          await Future.delayed(const Duration(seconds: 3));
-          try {
-            offset = await _fetchCurrentOffset(tusUploadUrl, authHeaders);
-          } on _SessionExpiredError {
-            await raf.close();
-            return regenerateAndResume();
-          }
+        } on _RetryableUploadError catch (e) {
+          // استُنفدت كل محاولات إعادة الجدول الزمني (~45 ثانية) — هذا انقطاع
+          // حقيقي وليس اهتزازاً عابراً. نوقف برفق وندخل حالة "خطأ" قابلة
+          // للاستئناف عبر الزر الموجود فعلاً في الواجهة (لا نُسقط الـ Future).
+          await raf.close();
+          status = BunnyUploadStatus.error;
+          errorMessage = 'انقطع الاتصال — اضغط "حفظ" للمتابعة من نقطة التوقف (${e.toString()})';
+          _emit();
+          onError(errorMessage!);
+          return;
         }
       }
     } finally {
@@ -487,48 +552,34 @@ class BunnyTusUploadService {
     }
   }
 
-  // ⏳ Bunny يرد بـ 423 Locked لفترة قصيرة جداً بعد انقطاع الاتصال أثناء PATCH
-  // (المورد "مقفل" مؤقتاً ريثما يُنهي معالجة آخر جزء استلمه). هذا ليس خطأً
-  // نهائياً ولا يعني انتهاء الجلسة — فقط ننتظر قليلاً ونعيد المحاولة بدل
-  // إفشال الرفع بالكامل (تماماً كما يتصرف tus-js-client تلقائياً في الويب).
-  static const List<Duration> _lockRetryDelays = [
-    Duration(seconds: 1),
-    Duration(seconds: 2),
-    Duration(seconds: 4),
-    Duration(seconds: 8),
-  ];
-
   Future<int> _fetchCurrentOffset(
       String tusUploadUrl, Map<String, String> authHeaders) async {
-    for (int attempt = 0; ; attempt++) {
-      try {
-        final res = await _tusDio.head(
-          tusUploadUrl,
-          options: Options(headers: authHeaders),
-        );
-        if (res.statusCode == 200 || res.statusCode == 204) {
-          final offsetHeader = res.headers.value('upload-offset');
-          return int.tryParse(offsetHeader ?? '0') ?? 0;
-        }
-        if (res.statusCode == 404 || res.statusCode == 410) {
-          throw _SessionExpiredError('انتهت صلاحية الرفع المؤقت على السيرفر');
-        }
-        if (res.statusCode == 401 || res.statusCode == 403) {
-          throw _SessionExpiredError('انتهت صلاحية جلسة الرفع');
-        }
-        if (res.statusCode == 423) {
-          // المورد مقفل مؤقتاً على Bunny — ننتظر ونعيد المحاولة بدل الفشل
-          if (attempt < _lockRetryDelays.length) {
-            await Future.delayed(_lockRetryDelays[attempt]);
-            continue;
-          }
-          throw _RetryableUploadError('تعذر التحقق من حالة الرفع (423) — السيرفر لا يزال مشغولاً، أعد المحاولة بعد قليل');
-        }
-        throw _RetryableUploadError('تعذر التحقق من حالة الرفع (${res.statusCode})');
-      } on DioException {
-        // لا يوجد اتصال الآن — اعتبرها حالة قابلة لإعادة المحاولة لاحقاً
-        throw _RetryableUploadError('تعذر التحقق من حالة الرفع');
+    try {
+      final res = await _tusDio.head(
+        tusUploadUrl,
+        options: Options(headers: authHeaders),
+      );
+      if (res.statusCode == 200 || res.statusCode == 204) {
+        final offsetHeader = res.headers.value('upload-offset');
+        return int.tryParse(offsetHeader ?? '0') ?? 0;
       }
+      if (res.statusCode == 404 || res.statusCode == 410) {
+        throw _SessionExpiredError('انتهت صلاحية الرفع المؤقت على السيرفر');
+      }
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        throw _SessionExpiredError('انتهت صلاحية جلسة الرفع');
+      }
+      if (res.statusCode == 423) {
+        // المورد مقفل مؤقتاً على Bunny (عادة عقب انقطاع اتصال أثناء PATCH
+        // سابق) — هذا ليس خطأً نهائياً، تماماً كما يتصرف tus-js-client في
+        // الويب (يُعامل 423 كخطأ سيرفر عادي ويُعاد المحاولة وفق الجدول
+        // الزمني). يُعالَج هذا عبر withRetry في _runTusUpload وليس هنا.
+        throw _RetryableUploadError('تعذر التحقق من حالة الرفع (423) — السيرفر لا يزال مشغولاً');
+      }
+      throw _RetryableUploadError('تعذر التحقق من حالة الرفع (${res.statusCode})');
+    } on DioException {
+      // لا يوجد اتصال الآن — اعتبرها حالة قابلة لإعادة المحاولة لاحقاً
+      throw _RetryableUploadError('تعذر التحقق من حالة الرفع');
     }
   }
 
@@ -538,50 +589,45 @@ class BunnyTusUploadService {
     required List<int> bytes,
     required Map<String, String> authHeaders,
   }) async {
-    for (int attempt = 0; ; attempt++) {
-      try {
-        final res = await _tusDio.patch(
-          tusUploadUrl,
-          data: Stream.fromIterable([bytes]),
-          options: Options(
-            headers: {
-              ...authHeaders,
-              'Content-Type': 'application/offset+octet-stream',
-              'Upload-Offset': offset.toString(),
-              'Content-Length': bytes.length.toString(),
-            },
-          ),
-        );
+    try {
+      final res = await _tusDio.patch(
+        tusUploadUrl,
+        data: Stream.fromIterable([bytes]),
+        options: Options(
+          headers: {
+            ...authHeaders,
+            'Content-Type': 'application/offset+octet-stream',
+            'Upload-Offset': offset.toString(),
+            'Content-Length': bytes.length.toString(),
+          },
+        ),
+      );
 
-        if (res.statusCode == 204 || res.statusCode == 200) {
-          final newOffsetHeader = res.headers.value('upload-offset');
-          final newOffset = int.tryParse(newOffsetHeader ?? '');
-          return newOffset ?? (offset + bytes.length);
-        }
-
-        if (res.statusCode == 409) {
-          // تعارض في الأوفست (ربما رفعت قطعة سابقاً بالفعل) — أعد القراءة من السيرفر
-          throw _RetryableUploadError('تعارض في نقطة الاستئناف');
-        }
-
-        if (res.statusCode == 401 || res.statusCode == 403) {
-          throw _SessionExpiredError('انتهت صلاحية جلسة الرفع');
-        }
-
-        if (res.statusCode == 423) {
-          // المورد مقفل مؤقتاً (عادة عقب انقطاع اتصال أثناء PATCH سابق) —
-          // ننتظر قليلاً ونعيد محاولة نفس الجزء بدل إفشال الرفع بالكامل
-          if (attempt < _lockRetryDelays.length) {
-            await Future.delayed(_lockRetryDelays[attempt]);
-            continue;
-          }
-          throw _RetryableUploadError('تعذر إكمال الرفع (423) — السيرفر لا يزال مشغولاً، أعد المحاولة بعد قليل');
-        }
-
-        throw _RetryableUploadError('خطأ مؤقت أثناء رفع جزء من الملف (${res.statusCode})');
-      } on DioException {
-        throw _RetryableUploadError('انقطع الاتصال أثناء رفع جزء من الملف');
+      if (res.statusCode == 204 || res.statusCode == 200) {
+        final newOffsetHeader = res.headers.value('upload-offset');
+        final newOffset = int.tryParse(newOffsetHeader ?? '');
+        return newOffset ?? (offset + bytes.length);
       }
+
+      if (res.statusCode == 409) {
+        // تعارض في الأوفست (ربما رفعت قطعة سابقاً بالفعل) — أعد القراءة من السيرفر
+        throw _RetryableUploadError('تعارض في نقطة الاستئناف');
+      }
+
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        throw _SessionExpiredError('انتهت صلاحية جلسة الرفع');
+      }
+
+      if (res.statusCode == 423) {
+        // المورد مقفل مؤقتاً (عادة عقب انقطاع اتصال أثناء PATCH سابق) —
+        // تماماً كما يتصرف tus-js-client، يُعامل كخطأ سيرفر عادي ويُعاد
+        // عبر جدول withRetry في _runTusUpload (وليس بحلقة محلية هنا).
+        throw _RetryableUploadError('تعذر إكمال الرفع (423) — السيرفر لا يزال مشغولاً');
+      }
+
+      throw _RetryableUploadError('خطأ مؤقت أثناء رفع جزء من الملف (${res.statusCode})');
+    } on DioException {
+      throw _RetryableUploadError('انقطع الاتصال أثناء رفع جزء من الملف');
     }
   }
 
