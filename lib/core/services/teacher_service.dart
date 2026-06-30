@@ -139,6 +139,102 @@ class TeacherService {
   }
 
   // ==========================================================
+  // 2.b️⃣ رفع الفيديوهات مباشرة إلى Bunny Stream (TUS قابل للاستئناف)
+  // ==========================================================
+  // ✅ بدء/طلب جلسة رفع جديدة: ينشئ كائن فيديو فارغ على Bunny ويرجع توقيعاً
+  // موقّعاً يستخدمه التطبيق للرفع المباشر (بدون مرور الفيديو بسيرفرنا).
+  Future<Map<String, dynamic>> createVideoUploadSession({
+    required String chapterId,
+    required String title,
+    required int fileSize,
+    int expirationHours = 6,
+  }) async {
+    try {
+      final response = await ApiClient.instance.post(
+        '$baseUrl/teacher/create-upload-session',
+        data: {
+          'chapterId': chapterId,
+          'title': title,
+          'fileSize': fileSize,
+          'expirationHours': expirationHours,
+        },
+      );
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return Map<String, dynamic>.from(response.data);
+      }
+      throw Exception(response.data['error'] ?? 'فشل إنشاء جلسة الرفع');
+    } catch (e) {
+      if (e is DioException) {
+        throw Exception(e.response?.data['error'] ?? 'فشل الاتصال بالسيرفر');
+      }
+      throw Exception('فشل إنشاء جلسة الرفع: $e');
+    }
+  }
+
+  // ✅ تأكيد اكتمال الرفع المباشر على Bunny وحفظ سجل الفيديو في قاعدة البيانات
+  Future<Map<String, dynamic>> confirmVideoUpload({
+    required String bunnyVideoId,
+    required String chapterId,
+    required String title,
+    bool notifyStudents = false,
+    int sortOrder = 999,
+    int durationSeconds = 0,
+  }) async {
+    try {
+      final response = await ApiClient.instance.post(
+        '$baseUrl/teacher/confirm-upload',
+        data: {
+          'bunnyVideoId': bunnyVideoId,
+          'chapterId': chapterId,
+          'title': title,
+          'notifyStudents': notifyStudents,
+          'sortOrder': sortOrder,
+          'durationSeconds': durationSeconds,
+        },
+      );
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return Map<String, dynamic>.from(response.data);
+      }
+      throw Exception(response.data['error'] ?? 'فشل حفظ بيانات الفيديو');
+    } catch (e) {
+      if (e is DioException) {
+        throw Exception(e.response?.data['error'] ?? 'فشل الاتصال بالسيرفر');
+      }
+      throw Exception('فشل تأكيد الرفع: $e');
+    }
+  }
+
+  // ✅ إلغاء/تنظيف جلسة رفع لم تكتمل (يحذف الفيديو الفارغ من Bunny)
+  Future<void> cancelVideoUpload({required String bunnyVideoId}) async {
+    try {
+      await ApiClient.instance.post(
+        '$baseUrl/teacher/cancel-upload',
+        data: {'bunnyVideoId': bunnyVideoId},
+      );
+    } catch (_) {
+      // غير حرج — لا داعي لإفشال تجربة المستخدم بسبب فشل التنظيف
+    }
+  }
+
+  // ✅ الاستعلام عن حالة معالجة فيديو تم رفعه (waiting/encoding/ready/failed)
+  Future<Map<String, dynamic>> getVideoStatus(String videoId) async {
+    try {
+      final response = await ApiClient.instance.get(
+        '$baseUrl/teacher/video-status',
+        queryParameters: {'videoId': videoId},
+      );
+      return Map<String, dynamic>.from(response.data);
+    } catch (e) {
+      if (e is DioException) {
+        throw Exception(e.response?.data['error'] ?? 'فشل جلب حالة الفيديو');
+      }
+      throw Exception('فشل جلب حالة الفيديو: $e');
+    }
+  }
+
+  // ==========================================================
   // 3️⃣ إدارة الطلبات والطلاب
   // ==========================================================
 
