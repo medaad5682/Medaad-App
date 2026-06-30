@@ -89,5 +89,210 @@
   "languageChangeRestartNotice": "The app will restart to apply the new language.",
   "@languageChangeRestartNotice": {
     "description": "Notice shown to the user when changing language, explaining the app will restart"
+  },
+
+  "splashTagline": "EMPOWERING YOUR GROWTH",
+  "@splashTagline": {
+    "description": "Tagline shown under the logo on the splash screen"
+  },
+
+  "splashLoadingSystem": "LOADING SYSTEM",
+  "@splashLoadingSystem": {
+    "description": "Loading label shown under the progress bar on the splash screen"
+  },
+
+  "termsWelcomeTitle": "Welcome",
+  "@termsWelcomeTitle": {
+    "description": "Title of the first-launch terms & privacy acceptance dialog"
+  },
+
+  "termsDialogBody": "Please accept our Terms & Privacy Policy to continue.",
+  "@termsDialogBody": {
+    "description": "Body text of the first-launch terms & privacy acceptance dialog"
+  },
+
+  "termsAndConditions": "Terms & Conditions",
+  "@termsAndConditions": {
+    "description": "Label/title for Terms & Conditions, used as a list item and screen title"
+  },
+
+  "privacyPolicy": "Privacy Policy",
+  "@privacyPolicy": {
+    "description": "Label/title for Privacy Policy, used as a list item and screen title"
+  },
+
+  "decline": "DECLINE",
+  "@decline": {
+    "description": "Button label to decline the terms & privacy policy"
+  },
+
+  "accept": "ACCEPT",
+  "@accept": {
+    "description": "Button label to accept the terms & privacy policy"
+  },
+
+  "appUpdateTitle": "App Update",
+  "@appUpdateTitle": {
+    "description": "Title of the app update dialog"
+  },
+
+  "updateLater": "Later",
+  "@updateLater": {
+    "description": "Button label to dismiss an optional app update dialog"
+  },
+
+  "updateNow": "Update Now",
+  "@updateNow": {
+    "description": "Button label to open the store and update the app"
+  },
+
+  "offlineModeEnteredMessage": "No Internet. Entering Offline Mode.",
+  "@offlineModeEnteredMessage": {
+    "description": "Snackbar message shown when the app falls back to offline mode with cached data"
+  },
+
+  "offlineModeLimitedMessage": "Offline Mode (Limited Access)",
+  "@offlineModeLimitedMessage": {
+    "description": "Snackbar message shown when the app falls back to offline mode with no cached data"
+  },
+
+  "connectionError": "Connection Error",
+  "@connectionError": {
+    "description": "Generic error message shown when a network request fails"
+  },
+
+  "signIn": "SIGN IN",
+  "@signIn": {
+    "description": "Sign in button label / link text"
+  },
+
+  "createAccount": "CREATE ACCOUNT",
+  "@createAccount": {
+    "description": "Create account header, button label, and link text"
+  },
+
+  "passwordLabel": "Password",
+  "@passwordLabel": {
+    "description": "Input field label for password, used on login and register screens"
+  },
+
+  "alreadyHaveAccount": "Already have an account? ",
+  "@alreadyHaveAccount": {
+    "description": "Prompt on the register screen linking back to login"
+  },
+
+  "newStudentQuestion": "New student? ",
+  "@newStudentQuestion": {
+    "description": "Prompt on the login screen linking to registration"
+  },
+
+  "loginEmptyFieldsError": "Please enter username/phone and password",
+  "@loginEmptyFieldsError": {
+    "description": "Validation error when login fields are left empty"
+  },
+
+  "loginFailedDefault": "Login failed",
+  "@loginFailedDefault": {
+    "description": "Fallback error message when login fails without a specific server message"
+  },
+
+  "loginTitle": "LOGIN",
+  "@loginTitle": {
+    "description": "Header title on the login screen"
+  },
+
+  "loginSubtitle": "PLEASE LOGIN TO CONTINUE.",
+  "@loginSubtitle": {
+    "description": "Subtitle under the login header"
+  },
+
+  "usernameOrPhoneLabel": "Username or Phone",
+  "@usernameOrPhoneLabel": {
+    "description": "Input field label for the login identifier field"
+  },
+
+  "usernameOrPhoneHint": "Enter username or 01xxxxxxxxx",
+  "@usernameOrPhoneHint": {
+    "description": "Hint text for the login identifier field"
+  },
+
+  "browseAsGuest": "BROWSE AS GUEST",
+  "@browseAsGuest": {
+    "description": "Button label to continue into the app as a guest"
+  },
+
+  "registerAllFieldsRequired": "All fields are required",
+  "@registerAllFieldsRequired": {
+    "description": "Validation error when required register fields are empty"
+  },
+
+  "registerUsernameInvalid": "Username must be English letters & numbers only",
+  "@registerUsernameInvalid": {
+    "description": "Validation error when the chosen username contains invalid characters"
+  },
+
+  "registerPhoneInvalid": "Invalid phone number (11 digits starting with 01)",
+  "@registerPhoneInvalid": {
+    "description": "Validation error for an invalid phone number format"
+  },
+
+  "registerPasswordTooShort": "Password must be at least 6 characters",
+  "@registerPasswordTooShort": {
+    "description": "Validation error when the password is too short"
+  },
+
+  "registerPasswordMismatch": "Passwords do not match",
+  "@registerPasswordMismatch": {
+    "description": "Validation error when password and confirm password differ"
+  },
+
+  "registerSuccessMessage": "Account created successfully. Please login.",
+  "@registerSuccessMessage": {
+    "description": "Snackbar message shown after successful registration"
+  },
+
+  "registerFailedDefault": "Registration failed",
+  "@registerFailedDefault": {
+    "description": "Fallback error message when registration fails without a specific server message"
+  },
+
+  "registerSubtitle": "FILL IN THE DETAILS TO JOIN US.",
+  "@registerSubtitle": {
+    "description": "Subtitle under the register header"
+  },
+
+  "fullNameLabel": "Full Name",
+  "@fullNameLabel": {
+    "description": "Input field label for full name"
+  },
+
+  "fullNameHint": "Your full name",
+  "@fullNameHint": {
+    "description": "Hint text for the full name field"
+  },
+
+  "phoneNumberOptionalLabel": "Phone Number (Optional)",
+  "@phoneNumberOptionalLabel": {
+    "description": "Input field label for the optional phone number field on register"
+  },
+
+  "phoneNumberHint": "01xxxxxxxxx",
+  "@phoneNumberHint": {
+    "description": "Hint text showing the expected phone number format"
+  },
+
+  "usernameEnglishOnlyLabel": "Username (English Only)",
+  "@usernameEnglishOnlyLabel": {
+    "description": "Input field label for username, clarifying English-only characters"
+  },
+
+  "usernameHint": "username",
+  "@usernameHint": {
+    "description": "Hint text for the username field on register"
+  },
+
+  "confirmPasswordLabel": "Confirm Password",
+  "@confirmPasswordLabel": {
+    "description": "Input field label for confirming the chosen password"
   }
 }
