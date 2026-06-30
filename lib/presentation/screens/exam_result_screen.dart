@@ -174,6 +174,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
         q['max_score'] != null ? (q['max_score'] as num).toInt() : null;
     final String? teacherFeedback = q['teacher_feedback']?.toString();
     final String? imageFileId = q['image_file_id']?.toString();
+    final String? modelAnswer = q['model_answer']?.toString();
 
     final bool isGraded = earnedScore != null;
 
@@ -329,6 +330,46 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
               ),
             ),
           ),
+
+          // Model answer (reference answer set by the teacher, if any)
+          if (modelAnswer != null && modelAnswer.isNotEmpty) ...[
+            const Divider(color: Colors.white10, height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: Row(
+                children: [
+                  Icon(LucideIcons.checkCircle,
+                      color: AppColors.success, size: 14),
+                  const SizedBox(width: 6),
+                  Text("MODEL ANSWER",
+                      style: TextStyle(
+                          color: AppColors.success,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0)),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.success.withOpacity(0.2)),
+                ),
+                child: Text(
+                  modelAnswer,
+                  style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 14,
+                      height: 1.5),
+                ),
+              ),
+            ),
+          ],
 
           // Teacher feedback (only visible when graded)
           if (teacherFeedback != null && teacherFeedback.isNotEmpty) ...[
@@ -492,6 +533,15 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
     final int? totalScore =
         rawTotalScore != null ? (rawTotalScore as num).toInt() : null;
 
+    // ── Final points display, e.g. "8/10" ──────────────────────────────────
+    // Real graded exams: backend sends total_points (mcq count + essay max scores).
+    // Practice mode: only MCQ is auto-graded, so score/total already represent points.
+    final dynamic rawTotalPoints = scoreDetails['total_points'];
+    final int displayPoints = isPractice ? mcqCorrect : (totalScore ?? mcqCorrect);
+    final int displayMaxPoints = isPractice
+        ? mcqTotal
+        : (rawTotalPoints != null ? (rawTotalPoints as num).toInt() : mcqTotal);
+
     Color statusColor = percentage >= 0.5 ? AppColors.success : AppColors.error;
     String statusMsg = percentage >= 0.5 ? "PASSED" : "FAILED";
 
@@ -570,27 +620,35 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                           fontWeight: FontWeight.bold,
                           fontSize: 18,
                           letterSpacing: 2.0)),
+                  const SizedBox(height: 10),
+
+                  // ── Final points "8/10" style ──────────────────────────────
+                  if (displayMaxPoints > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.backgroundPrimary,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Text(
+                        "$displayPoints / $displayMaxPoints",
+                        style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20),
+                      ),
+                    ),
                   const SizedBox(height: 8),
 
-                  // MCQ score row
-                  if (mcqTotal > 0)
+                  // MCQ score row (extra detail, only when mixed with essays)
+                  if (hasEssayQuestions && mcqTotal > 0)
                     Text(
                       "MCQ: $mcqCorrect / $mcqTotal correct",
                       style: TextStyle(
                           color: AppColors.textSecondary, fontSize: 12),
                     ),
-
-                  // Total score row (if essays present and graded)
-                  if (hasEssayQuestions && totalScore != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      "Total Score: $totalScore pts",
-                      style: TextStyle(
-                          color: AppColors.accentYellow,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600),
-                    ),
-                  ],
 
                   // Essay pending notice inside summary
                   if (hasEssayQuestions && totalScore == null) ...[
