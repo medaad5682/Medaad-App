@@ -110,7 +110,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       // في حال الفشل (أوفلاين)، نلجأ للكاش
       await _loadFromCacheFallback();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content:
                 Text(AppLocalizations.of(context)!.couldNotFetchLatestData),
             backgroundColor: Colors.orange));
@@ -292,7 +292,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         }
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(AppLocalizations.of(context)!.profileUpdatedSuccess),
               backgroundColor: AppColors.success));
           Navigator.pop(context);
@@ -416,7 +416,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        const Center(
+                        Center(
                             child: Text(AppLocalizations.of(context)!.tapToChangePhoto,
                                 style: TextStyle(
                                     color: Colors.grey, fontSize: 10))),
@@ -583,9 +583,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               color: AppColors.backgroundPrimary))
                       : Row(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            Icon(LucideIcons.save, size: 18),
-                            SizedBox(width: 12),
+                          children: [
+                            const Icon(LucideIcons.save, size: 18),
+                            const SizedBox(width: 12),
                             Text(AppLocalizations.of(context)!.saveChangesButton,
                                 style: TextStyle(
                                     fontWeight: FontWeight.bold,

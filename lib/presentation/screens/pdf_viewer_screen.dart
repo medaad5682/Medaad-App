@@ -73,7 +73,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   Map<String, String>? _onlineHeaders;
 
   bool _loading = true;
-  String _loadingMessage = AppLocalizations.of(context)!.verifyingFileMessage;
+  String _loadingMessage = '';
   String? _error;
   bool _isOffline = false;
   String _watermarkText = '';
@@ -122,6 +122,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   void initState() {
     super.initState();
+    _loadingMessage = AppLocalizations.of(context)!.verifyingFileMessage;
     _sessionToken = _generateSecureToken();
     _store = PdfAnnotationStore(widget.pdfId);
     _highlightController = PdfHighlightController(
