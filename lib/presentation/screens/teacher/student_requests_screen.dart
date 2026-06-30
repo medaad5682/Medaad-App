@@ -586,11 +586,11 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Row(
+                              Row(
                                 children: [
-                                  Icon(Icons.edit_note_rounded,
+                                  const Icon(Icons.edit_note_rounded,
                                       size: 16, color: Colors.amber),
-                                  SizedBox(width: 6),
+                                  const SizedBox(width: 6),
                                   Text(AppLocalizations.of(context)!.studentNoteLabel,
                                       style: TextStyle(
                                           color: Colors.amber,
