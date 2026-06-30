@@ -59,6 +59,35 @@ class AppState {
   }
 
   // ============================================================
+  // 🌐 إدارة اللغة (Locale Management) — نفس نمط إدارة الثيم تماماً
+  // ============================================================
+
+  // ✅ 1. متغير لمراقبة اللغة الحالية (ValueNotifier) لتحديث الواجهة فورياً
+  //    اللغة الافتراضية: العربية (اللغة الأساسية الفعلية للتطبيق حالياً)
+  final ValueNotifier<Locale> localeNotifier =
+      ValueNotifier(const Locale('ar'));
+
+  // ✅ 2. دالة ثابتة لمعرفة هل اللغة الحالية عربية (RTL)
+  static bool get isArabic => _instance.localeNotifier.value.languageCode == 'ar';
+
+  // ✅ 3. دالة تهيئة اللغة عند فتح التطبيق (تستدعى في main.dart)
+  Future<void> initLocale() async {
+    var box = await StorageService.openBox('settings_box');
+    // القيمة الافتراضية هي العربية
+    String storedLanguageCode = box.get('language_code', defaultValue: 'ar');
+    localeNotifier.value = Locale(storedLanguageCode);
+  }
+
+  // ✅ 4. دالة تغيير اللغة (تستدعى من شاشة الإعدادات/البروفايل)
+  Future<void> setLocale(Locale newLocale) async {
+    localeNotifier.value = newLocale;
+
+    // حفظ التفضيل الجديد في التخزين المحلي
+    var box = await StorageService.openBox('settings_box');
+    await box.put('language_code', newLocale.languageCode);
+  }
+
+  // ============================================================
   // 🟢 Getters مساعدة للتحقق من الصلاحيات بسرعة
   // ============================================================
 
