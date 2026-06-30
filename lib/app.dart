@@ -3,6 +3,7 @@ import 'package:Medaad/core/services/audio_protection_service.dart';
 import 'package:Medaad/core/services/screens/security_alert_screen.dart';
 import 'package:Medaad/core/services/security_manager.dart';
 import 'package:Medaad/core/theme/app_theme.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 import 'package:Medaad/main.dart';
 import 'package:Medaad/presentation/screens/splash_screen.dart';
 import 'package:flutter/material.dart';
@@ -46,49 +47,69 @@ class _EduVantageAppState extends State<EduVantageApp>
   @override
   Widget build(BuildContext context) {
     const MethodChannel _settingsChannel = MethodChannel("app.settings");
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: AppState().themeNotifier,
-      builder: (context, currentMode, child) {
-        return MaterialApp(
-          navigatorKey: navigatorKey,
-          scaffoldMessengerKey: snackbarKey,
-          debugShowCheckedModeBanner: false,
-          title: 'مــــداد',
-          theme: AppTheme.darkTheme.copyWith(
-            brightness: currentMode == ThemeMode.dark
-                ? Brightness.dark
-                : Brightness.light,
-          ),
-          themeMode: currentMode,
+    return ValueListenableBuilder<Locale>(
+      valueListenable: AppState().localeNotifier,
+      builder: (context, currentLocale, _) {
+        return ValueListenableBuilder<ThemeMode>(
+          valueListenable: AppState().themeNotifier,
+          builder: (context, currentMode, child) {
+            return MaterialApp(
+              navigatorKey: navigatorKey,
+              scaffoldMessengerKey: snackbarKey,
+              debugShowCheckedModeBanner: false,
+              title: 'مــــداد',
 
-          // ✅ هنا نطبق "الشاشة الحمراء" كطبقة فوق كل التطبيق (Global Overlay)
-          builder: (context, child) {
-            return Stack(
-              textDirection: TextDirection.ltr,
-              children: [
-                if (child != null) child, // التطبيق الطبيعي
+              // ✅ اللغة: تتحكم في الـ Directionality (RTL/LTR) تلقائياً عبر كامل التطبيق
+              locale: currentLocale,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
 
-                // ✅ التعديل: الاستماع لمتغير النص (String?) بدلاً من البوليان
-                ValueListenableBuilder<String?>(
-                  valueListenable:
-                      SecurityManager.instance.securityBreachReason,
-                  builder: (context, breachReason, _) {
-                    // إذا كان السبب null (لا يوجد اختراق)، نخفي الطبقة
-                    if (breachReason == null) return const SizedBox.shrink();
+              theme: AppTheme.darkTheme.copyWith(
+                brightness: currentMode == ThemeMode.dark
+                    ? Brightness.dark
+                    : Brightness.light,
+              ),
+              themeMode: currentMode,
 
-                    // 🛑 إذا وجد نص، نظهر الشاشة الحمراء مع السبب المحدد
-                    return Material(
-                      type: MaterialType.transparency,
-                      child: SecurityAlertScreen(
-                          settingsChannel: _settingsChannel,
-                          breachReason: breachReason),
-                    );
-                  },
-                ),
-              ],
+              // ✅ هنا نطبق "الشاشة الحمراء" كطبقة فوق كل التطبيق (Global Overlay)
+              builder: (context, child) {
+                // ⚠️ ملاحظة: لا نستخدم Directionality.of(context) هنا لأن
+                // الـ context الخاص بـ MaterialApp.builder قد يقع فوق
+                // الـ Directionality التي يبنيها MaterialApp داخلياً من اللغة،
+                // لذا نشتق الاتجاه مباشرة من currentLocale المتوفرة بالفعل.
+                final overlayDirection = currentLocale.languageCode == 'ar'
+                    ? TextDirection.rtl
+                    : TextDirection.ltr;
+                return Stack(
+                  textDirection: overlayDirection,
+                  children: [
+                    if (child != null) child, // التطبيق الطبيعي
+
+                    // ✅ التعديل: الاستماع لمتغير النص (String?) بدلاً من البوليان
+                    ValueListenableBuilder<String?>(
+                      valueListenable:
+                          SecurityManager.instance.securityBreachReason,
+                      builder: (context, breachReason, _) {
+                        // إذا كان السبب null (لا يوجد اختراق)، نخفي الطبقة
+                        if (breachReason == null) {
+                          return const SizedBox.shrink();
+                        }
+
+                        // 🛑 إذا وجد نص، نظهر الشاشة الحمراء مع السبب المحدد
+                        return Material(
+                          type: MaterialType.transparency,
+                          child: SecurityAlertScreen(
+                              settingsChannel: _settingsChannel,
+                              breachReason: breachReason),
+                        );
+                      },
+                    ),
+                  ],
+                );
+              },
+              home: const SplashScreen(),
             );
           },
-          home: const SplashScreen(),
         );
       },
     );

@@ -218,6 +218,9 @@ void main() async {
     // Theme
     await AppState().initTheme();
 
+    // Locale (EN/AR)
+    await AppState().initLocale();
+
     runApp(
       SecureScreenWidget(useBlur: true,
         child: const RestartWidget(
