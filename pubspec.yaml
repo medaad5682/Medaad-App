@@ -9,7 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  
+
+  # Localization (EN/AR + RTL)
+  flutter_localizations:
+    sdk: flutter
+
   # Firebase Core & Crashlytics
   firebase_core: ^4.3.0
   firebase_crashlytics: ^5.0.6
@@ -104,6 +108,7 @@ flutter_icons:
 
 flutter:
   uses-material-design: true
+  generate: true
   # مسار الصور
   assets:
     - assets/images/
