@@ -4,6 +4,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
 import '../../core/constants/app_colors.dart';
 import '../../data/models/course_model.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class CourseCard extends StatelessWidget {
   final CourseModel course;
@@ -219,8 +220,8 @@ class CourseCard extends StatelessWidget {
                           color: AppColors.accentYellow,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(LucideIcons.arrowRight,
-                            size: 16, color: Colors.black),
+                        child: DirectionalFlip(child: Icon(LucideIcons.arrowRight,
+                            size: 16, color: Colors.black)),
                       ),
                     ],
                   ),
