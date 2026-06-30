@@ -16,6 +16,7 @@ import 'register_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -85,7 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (identifier.isEmpty || password.isEmpty) {
       setState(
-          () => _errorMessage = "Please enter username/phone and password");
+          () => _errorMessage = AppLocalizations.of(context)!.loginEmptyFieldsError);
       return;
     }
 
@@ -156,11 +157,12 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         }
       } else {
-        setState(() => _errorMessage = data['message'] ?? 'Login failed');
+        setState(() => _errorMessage =
+            data['message'] ?? AppLocalizations.of(context)!.loginFailedDefault);
       }
     } catch (e, stack) {
       FirebaseCrashlytics.instance.recordError(e, stack);
-      setState(() => _errorMessage = "Connection Error");
+      setState(() => _errorMessage = AppLocalizations.of(context)!.connectionError);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -293,7 +295,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               Center(
                 child: Text(
-                  "LOGIN",
+                  AppLocalizations.of(context)!.loginTitle,
                   style: TextStyle(
                     fontSize: 30,
                     fontWeight: FontWeight.bold,
@@ -305,7 +307,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 8),
               Center(
                 child: Text(
-                  "PLEASE LOGIN TO CONTINUE.",
+                  AppLocalizations.of(context)!.loginSubtitle,
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
@@ -332,17 +334,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
 
-              _buildInputLabel("Username or Phone"),
+              _buildInputLabel(AppLocalizations.of(context)!.usernameOrPhoneLabel),
               const SizedBox(height: 8),
               _buildTextField(
                 controller: _identifierController,
                 focusNode: _userFocus,
-                hint: "Enter username or 01xxxxxxxxx",
+                hint: AppLocalizations.of(context)!.usernameOrPhoneHint,
                 icon: LucideIcons.user,
               ),
               const SizedBox(height: 24),
 
-              _buildInputLabel("Password"),
+              _buildInputLabel(AppLocalizations.of(context)!.passwordLabel),
               const SizedBox(height: 8),
               _buildTextField(
                 controller: _passwordController,
@@ -374,17 +376,17 @@ class _LoginScreenState extends State<LoginScreen> {
                             strokeWidth: 2, color: AppColors.backgroundPrimary))
                     : Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
+                        children: [
                           Text(
-                            "SIGN IN",
+                            AppLocalizations.of(context)!.signIn,
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 12,
                               letterSpacing: 1.0,
                             ),
                           ),
-                          SizedBox(width: 12),
-                          Icon(LucideIcons.arrowRight, size: 18),
+                          const SizedBox(width: 12),
+                          const Icon(LucideIcons.arrowRight, size: 18),
                         ],
                       ),
               ),
@@ -404,7 +406,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   child: Text(
-                    "BROWSE AS GUEST",
+                    AppLocalizations.of(context)!.browseAsGuest,
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
@@ -421,7 +423,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    "New student? ",
+                    AppLocalizations.of(context)!.newStudentQuestion,
                     style:
                         TextStyle(color: AppColors.textSecondary, fontSize: 12),
                   ),
@@ -434,7 +436,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       );
                     },
                     child: Text(
-                      "CREATE ACCOUNT",
+                      AppLocalizations.of(context)!.createAccount,
                       style: TextStyle(
                         color: AppColors.accentYellow,
                         fontWeight: FontWeight.bold,

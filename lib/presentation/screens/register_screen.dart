@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import 'login_screen.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/services/api_client.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -75,31 +76,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     // Validation
     if (name.isEmpty || username.isEmpty || password.isEmpty) {
-      setState(() => _errorMessage = "All fields are required");
+      setState(() => _errorMessage = AppLocalizations.of(context)!.registerAllFieldsRequired);
       return;
     }
 
     final usernameRegex = RegExp(r'^[a-zA-Z0-9]+$');
     if (!usernameRegex.hasMatch(username)) {
       setState(() =>
-          _errorMessage = "Username must be English letters & numbers only");
+          _errorMessage = AppLocalizations.of(context)!.registerUsernameInvalid);
       return;
     }
 
     final phoneRegex = RegExp(r'^01[0-9]{9}$');
     if (phone.isNotEmpty && !phoneRegex.hasMatch(phone)) {
       setState(() =>
-          _errorMessage = "Invalid phone number (11 digits starting with 01)");
+          _errorMessage = AppLocalizations.of(context)!.registerPhoneInvalid);
       return;
     }
 
     if (password.length < 6) {
-      setState(() => _errorMessage = "Password must be at least 6 characters");
+      setState(() => _errorMessage = AppLocalizations.of(context)!.registerPasswordTooShort);
       return;
     }
 
     if (password != confirmPassword) {
-      setState(() => _errorMessage = "Passwords do not match");
+      setState(() => _errorMessage = AppLocalizations.of(context)!.registerPasswordMismatch);
       return;
     }
 
@@ -128,7 +129,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content:
-                  const Text("Account created successfully. Please login."),
+                  Text(AppLocalizations.of(context)!.registerSuccessMessage),
               backgroundColor: AppColors.success,
             ),
           );
@@ -139,11 +140,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         }
       } else {
         setState(
-            () => _errorMessage = data['message'] ?? "Registration failed");
+            () => _errorMessage = data['message'] ?? AppLocalizations.of(context)!.registerFailedDefault);
       }
     } catch (e, stack) {
       FirebaseCrashlytics.instance.recordError(e, stack);
-      setState(() => _errorMessage = "Connection Error");
+      setState(() => _errorMessage = AppLocalizations.of(context)!.connectionError);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -180,7 +181,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
               // Header
               Text(
-                "CREATE ACCOUNT",
+                AppLocalizations.of(context)!.createAccount,
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -190,7 +191,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                "FILL IN THE DETAILS TO JOIN US.",
+                AppLocalizations.of(context)!.registerSubtitle,
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
@@ -228,38 +229,38 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
               // --- Form Fields ---
 
-              _buildInputLabel("Full Name"),
+              _buildInputLabel(AppLocalizations.of(context)!.fullNameLabel),
               const SizedBox(height: 4),
               _buildTextField(
                 controller: _nameController,
                 focusNode: _nameFocus,
-                hint: "Your full name",
+                hint: AppLocalizations.of(context)!.fullNameHint,
                 icon: LucideIcons.user,
               ),
               const SizedBox(height: 16),
 
-              _buildInputLabel("Phone Number (Optional)"),
+              _buildInputLabel(AppLocalizations.of(context)!.phoneNumberOptionalLabel),
               const SizedBox(height: 4),
               _buildTextField(
                 controller: _phoneController,
                 focusNode: _phoneFocus,
-                hint: "01xxxxxxxxx",
+                hint: AppLocalizations.of(context)!.phoneNumberHint,
                 icon: LucideIcons.phone,
                 inputType: TextInputType.phone,
               ),
               const SizedBox(height: 16),
 
-              _buildInputLabel("Username (English Only)"),
+              _buildInputLabel(AppLocalizations.of(context)!.usernameEnglishOnlyLabel),
               const SizedBox(height: 4),
               _buildTextField(
                 controller: _usernameController,
                 focusNode: _userFocus,
-                hint: "username",
+                hint: AppLocalizations.of(context)!.usernameHint,
                 icon: LucideIcons.atSign,
               ),
               const SizedBox(height: 16),
 
-              _buildInputLabel("Password"),
+              _buildInputLabel(AppLocalizations.of(context)!.passwordLabel),
               const SizedBox(height: 4),
               _buildTextField(
                 controller: _passwordController,
@@ -270,7 +271,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 16),
 
-              _buildInputLabel("Confirm Password"),
+              _buildInputLabel(AppLocalizations.of(context)!.confirmPasswordLabel),
               const SizedBox(height: 4),
               _buildTextField(
                 controller: _confirmPasswordController,
@@ -304,17 +305,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               color: AppColors.backgroundPrimary))
                       : Row(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
+                          children: [
                             Text(
-                              "CREATE ACCOUNT",
+                              AppLocalizations.of(context)!.createAccount,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,
                                 letterSpacing: 1.0,
                               ),
                             ),
-                            SizedBox(width: 12),
-                            Icon(LucideIcons.arrowRight, size: 18),
+                            const SizedBox(width: 12),
+                            const Icon(LucideIcons.arrowRight, size: 18),
                           ],
                         ),
                 ),
@@ -328,7 +329,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      "Already have an account? ",
+                      AppLocalizations.of(context)!.alreadyHaveAccount,
                       style: TextStyle(
                           color: AppColors.textSecondary, fontSize: 12),
                     ),
@@ -341,7 +342,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         );
                       },
                       child: Text(
-                        "SIGN IN",
+                        AppLocalizations.of(context)!.signIn,
                         style: TextStyle(
                           color: AppColors.accentYellow,
                           fontWeight: FontWeight.bold,

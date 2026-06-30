@@ -22,6 +22,7 @@ import 'main_wrapper.dart';
 import 'privacy_policy_screen.dart';
 import 'terms_conditions_screen.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -108,7 +109,7 @@ class _SplashScreenState extends State<SplashScreen>
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16)),
               title: Text(
-                "Welcome / مرحباً بك",
+                AppLocalizations.of(context)!.termsWelcomeTitle,
                 style: TextStyle(
                     color: AppColors.accentYellow, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
@@ -118,24 +119,17 @@ class _SplashScreenState extends State<SplashScreen>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      "يرجى الموافقة على الشروط والأحكام وسياسة الخصوصية للمتابعة.",
+                      AppLocalizations.of(context)!.termsDialogBody,
                       textAlign: TextAlign.center,
                       style:
                           TextStyle(color: AppColors.textPrimary, fontSize: 14),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "Please accept our Terms & Privacy Policy to continue.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: AppColors.textSecondary, fontSize: 12),
                     ),
                     const SizedBox(height: 16),
                     ListTile(
                       dense: true,
                       leading: Icon(LucideIcons.fileText,
                           color: AppColors.accentOrange, size: 20),
-                      title: Text("Terms & Conditions",
+                      title: Text(AppLocalizations.of(context)!.termsAndConditions,
                           style: TextStyle(color: AppColors.textPrimary)),
                       onTap: () => Navigator.push(
                           context,
@@ -146,7 +140,7 @@ class _SplashScreenState extends State<SplashScreen>
                       dense: true,
                       leading: Icon(LucideIcons.shield,
                           color: AppColors.accentOrange, size: 20),
-                      title: Text("Privacy Policy",
+                      title: Text(AppLocalizations.of(context)!.privacyPolicy,
                           style: TextStyle(color: AppColors.textPrimary)),
                       onTap: () => Navigator.push(
                           context,
@@ -161,14 +155,14 @@ class _SplashScreenState extends State<SplashScreen>
                   onPressed: () => Navigator.pop(context, false),
                   style: OutlinedButton.styleFrom(
                       side: BorderSide(color: AppColors.error)),
-                  child:
-                      Text("DECLINE", style: TextStyle(color: AppColors.error)),
+                  child: Text(AppLocalizations.of(context)!.decline,
+                      style: TextStyle(color: AppColors.error)),
                 ),
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context, true),
                   style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.success),
-                  child: const Text("ACCEPT",
+                  child: Text(AppLocalizations.of(context)!.accept,
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
@@ -261,7 +255,7 @@ class _SplashScreenState extends State<SplashScreen>
       context: context,
       barrierDismissible: result.status == UpdateStatus.optional,
       builder: (_) => AlertDialog(
-        title: const Text("تحديث التطبيق"),
+        title: Text(AppLocalizations.of(context)!.appUpdateTitle),
         content: Text(result.message),
         actions: [
           if (result.status == UpdateStatus.optional)
@@ -269,7 +263,7 @@ class _SplashScreenState extends State<SplashScreen>
               onPressed: () {
                 Navigator.pop(context); 
               },
-              child: const Text("لاحقًا"),
+              child: Text(AppLocalizations.of(context)!.updateLater),
             ),
           ElevatedButton(
             onPressed: () async {
@@ -278,7 +272,7 @@ class _SplashScreenState extends State<SplashScreen>
                 await launchUrl(uri);
               }
             },
-            child: const Text("تحديث الآن"),
+            child: Text(AppLocalizations.of(context)!.updateNow),
           ),
         ],
       ),
@@ -423,7 +417,7 @@ class _SplashScreenState extends State<SplashScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text("No Internet. Entering Offline Mode."),
+              content: Text(AppLocalizations.of(context)!.offlineModeEnteredMessage),
               backgroundColor: AppColors.accentOrange,
               duration: const Duration(seconds: 3),
             ),
@@ -438,8 +432,8 @@ class _SplashScreenState extends State<SplashScreen>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text("Offline Mode (Limited Access)"),
+            SnackBar(
+                content: Text(AppLocalizations.of(context)!.offlineModeLimitedMessage),
                 backgroundColor: Colors.grey),
           );
 
@@ -492,7 +486,7 @@ class _SplashScreenState extends State<SplashScreen>
               ),
               const SizedBox(height: 20),
               Text(
-                "EMPOWERING YOUR GROWTH",
+                AppLocalizations.of(context)!.splashTagline,
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
@@ -536,7 +530,7 @@ class _SplashScreenState extends State<SplashScreen>
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    "LOADING SYSTEM",
+                    AppLocalizations.of(context)!.splashLoadingSystem,
                     style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w900,
