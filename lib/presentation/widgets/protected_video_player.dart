@@ -8,6 +8,7 @@ import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:screen_protector/screen_protector.dart';
 import '../../core/services/audio_protection_service.dart';
 import 'dart:async';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 class ProtectedVideoPlayer extends StatefulWidget {
   final String videoUrl;
@@ -98,7 +99,7 @@ class _ProtectedVideoPlayerState extends State<ProtectedVideoPlayer> with Widget
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('تحذير: قد لا تعمل بعض مميزات الحماية'),
+            content: Text(AppLocalizations.of(context)!.protectionFeaturesWarning),
             backgroundColor: Colors.orange,
             duration: const Duration(seconds: 3),
           ),
@@ -129,25 +130,25 @@ class _ProtectedVideoPlayerState extends State<ProtectedVideoPlayer> with Widget
         child: AlertDialog(
           backgroundColor: Colors.red.shade900,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.white, size: 32),
-              SizedBox(width: 10),
-              Text('⚠️ تحذير أمني', style: TextStyle(color: Colors.white)),
+              const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 32),
+              const SizedBox(width: 10),
+              Text(AppLocalizations.of(context)!.securityWarningTitle, style: const TextStyle(color: Colors.white)),
             ],
           ),
-          content: const Column(
+          content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'تم اكتشاف محاولة تسجيل صوت!',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                AppLocalizations.of(context)!.audioRecordingDetectedMessage,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
               ),
-              SizedBox(height: 10),
+              const SizedBox(height: 10),
               Text(
-                '• تم إيقاف التشغيل تلقائياً\n• التسجيل مخالف لحقوق الملكية الفكرية\n• قد يتم إيقاف حسابك',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
+                AppLocalizations.of(context)!.recordingConsequencesMessage,
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
               ),
             ],
           ),
@@ -161,7 +162,7 @@ class _ProtectedVideoPlayerState extends State<ProtectedVideoPlayer> with Widget
                 backgroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               ),
-              child: Text('خروج', style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.bold)),
+              child: Text(AppLocalizations.of(context)!.exitAction, style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -201,21 +202,22 @@ class _ProtectedVideoPlayerState extends State<ProtectedVideoPlayer> with Widget
 
           // مؤشر الحماية النشطة
           if (_isProtectionActive)
-            Positioned(
+            Positioned.directional(
+              textDirection: Directionality.of(context),
               top: 10,
-              right: 10,
+              end: 10,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.green.withOpacity(0.9),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.shield, color: Colors.white, size: 16),
-                    SizedBox(width: 5),
-                    Text('محمي', style: TextStyle(color: Colors.white, fontSize: 12)),
+                    const Icon(Icons.shield, color: Colors.white, size: 16),
+                    const SizedBox(width: 5),
+                    Text(AppLocalizations.of(context)!.protectedBadge, style: const TextStyle(color: Colors.white, fontSize: 12)),
                   ],
                 ),
               ),
@@ -226,24 +228,24 @@ class _ProtectedVideoPlayerState extends State<ProtectedVideoPlayer> with Widget
             Positioned.fill(
               child: Container(
                 color: Colors.red.withOpacity(0.95),
-                child: const Center(
+                child: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.block, color: Colors.white, size: 80),
-                      SizedBox(height: 20),
+                      const Icon(Icons.block, color: Colors.white, size: 80),
+                      const SizedBox(height: 20),
                       Text(
-                        'تم اكتشاف تسجيل!',
-                        style: TextStyle(
+                        AppLocalizations.of(context)!.recordingDetectedTitle,
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      SizedBox(height: 10),
+                      const SizedBox(height: 10),
                       Text(
-                        'تم إيقاف التشغيل',
-                        style: TextStyle(color: Colors.white70, fontSize: 16),
+                        AppLocalizations.of(context)!.playbackStoppedMessage,
+                        style: const TextStyle(color: Colors.white70, fontSize: 16),
                       ),
                     ],
                   ),
