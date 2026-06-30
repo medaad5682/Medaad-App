@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart'; // ✅ إضافة مكتبة Hive
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 import '../../core/constants/app_colors.dart';
 import '../../data/models/course_model.dart';
 
@@ -195,8 +196,8 @@ class CourseCard extends StatelessWidget {
                     children: [
                       // ✅ منطق إخفاء السعر
                       isFreeMode
-                          ? const Text(
-                              "Free Access",
+                          ? Text(
+                              AppLocalizations.of(context)!.freeAccessLabel,
                               style: TextStyle(
                                 color: AppColors.success, // لون أخضر مميز
                                 fontWeight: FontWeight.bold,

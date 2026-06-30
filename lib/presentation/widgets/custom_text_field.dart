@@ -42,7 +42,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
       children: [
         // Label
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          padding: const EdgeInsetsDirectional.only(start: 4, bottom: 8),
           child: Text(
             widget.label.toUpperCase(),
             // 🔥 تم إزالة const هنا لأن AppColors.accentYellow متغير

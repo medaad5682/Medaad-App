@@ -63,7 +63,7 @@ class ChapterAccordion extends StatelessWidget {
                 color: Colors.black.withOpacity(0.2), // لون أغمق قليلاً للدروس
               ),
               child: ListTile(
-                contentPadding: const EdgeInsets.only(left: 64, right: 16),
+                contentPadding: const EdgeInsetsDirectional.only(start: 64, end: 16),
                 title: Text(
                   lesson.title,
                   style:  TextStyle(color: AppColors.textPrimary, fontSize: 13),
