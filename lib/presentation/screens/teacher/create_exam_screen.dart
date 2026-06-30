@@ -71,7 +71,8 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
           _questions = (data['questions'] as List).map((q) {
             int correctIndex = 0;
             List<String> options = [];
-            
+            final String qType = q['question_type'] == 'essay' ? 'essay' : 'mcq';
+
             if (q['options'] != null) {
               var sortedOptions = List.from(q['options']);
               sortedOptions.sort((a, b) => (a['sort_order'] ?? 0).compareTo(b['sort_order'] ?? 0));
@@ -90,6 +91,8 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
               options: options,
               correctOptionIndex: correctIndex,
               imageUrl: q['image_file_id'],
+              questionType: qType,
+              maxScore: (q['max_score'] is num) ? (q['max_score'] as num).toDouble() : 1,
             );
           }).toList();
         }
@@ -275,12 +278,22 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
 imageUrl = uploadResult['url']; // استخراج الرابط فقط
         }
 
-        processedQuestions.add({
-          'text': q.text,
-          'options': q.options,
-          'correctIndex': q.correctOptionIndex,
-          'image': imageUrl, 
-        });
+        if (q.isEssay) {
+          processedQuestions.add({
+            'text': q.text,
+            'questionType': 'essay',
+            'maxScore': q.maxScore,
+            'image': imageUrl,
+          });
+        } else {
+          processedQuestions.add({
+            'text': q.text,
+            'questionType': 'mcq',
+            'options': q.options,
+            'correctIndex': q.correctOptionIndex,
+            'image': imageUrl, 
+          });
+        }
       }
 
       // ✅ بناء كائن البيانات للإرسال
@@ -476,8 +489,30 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                                 backgroundColor: AppColors.accentYellow,
                                 child: Text("${index + 1}", style: TextStyle(color: AppColors.backgroundPrimary))
                             ),
-                            title: Text(q.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textPrimary)),
-                            subtitle: Text("${q.options.length} اختيارات • ${q.imageFile != null ? "صورة جديدة" : (q.imageUrl != null ? "صورة محفوظة" : "نص فقط")}", style: TextStyle(color: AppColors.textSecondary)),
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(q.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textPrimary)),
+                                ),
+                                if (q.isEssay)
+                                  Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.accentBlue.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: AppColors.accentBlue.withOpacity(0.4)),
+                                    ),
+                                    child: Text("مقالي", style: TextStyle(color: AppColors.accentBlue, fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ),
+                              ],
+                            ),
+                            subtitle: Text(
+                              q.isEssay
+                                  ? "تصحيح يدوي • الدرجة العظمى ${q.maxScore.toStringAsFixed(q.maxScore.truncateToDouble() == q.maxScore ? 0 : 1)} • ${q.imageFile != null ? "صورة جديدة" : (q.imageUrl != null ? "صورة محفوظة" : "نص فقط")}"
+                                  : "${q.options.length} اختيارات • ${q.imageFile != null ? "صورة جديدة" : (q.imageUrl != null ? "صورة محفوظة" : "نص فقط")}",
+                              style: TextStyle(color: AppColors.textSecondary),
+                            ),
                             trailing: IconButton(
                               icon: Icon(Icons.delete, color: AppColors.error),
                               onPressed: () => setState(() => _questions.removeAt(index)),
@@ -520,6 +555,8 @@ class QuestionModel {
   int correctOptionIndex;
   File? imageFile;
   String? imageUrl;
+  String questionType; // 'mcq' أو 'essay'
+  double maxScore; // الدرجة العظمى (تُستخدم فقط للأسئلة المقالية)
 
   QuestionModel({
     required this.text,
@@ -527,7 +564,11 @@ class QuestionModel {
     required this.correctOptionIndex,
     this.imageFile,
     this.imageUrl,
+    this.questionType = 'mcq',
+    this.maxScore = 1,
   });
+
+  bool get isEssay => questionType == 'essay';
 }
 
 // ==========================================================
@@ -546,18 +587,22 @@ class QuestionDialog extends StatefulWidget {
 class _QuestionDialogState extends State<QuestionDialog> {
   final _qFormKey = GlobalKey<FormState>();
   final TextEditingController _questionTextController = TextEditingController();
+  final TextEditingController _maxScoreController = TextEditingController(text: '1');
    
   List<TextEditingController> _optionControllers = [];
    
   int _correctIndex = 0;
   File? _selectedImage;
   String? _existingImageUrl;
+  String _questionType = 'mcq'; // 'mcq' أو 'essay'
 
   @override
   void initState() {
     super.initState();
     if (widget.initialQuestion != null) {
       _questionTextController.text = widget.initialQuestion!.text;
+      _questionType = widget.initialQuestion!.questionType;
+      _maxScoreController.text = _formatScore(widget.initialQuestion!.maxScore);
       
       for (var option in widget.initialQuestion!.options) {
         _optionControllers.add(TextEditingController(text: option));
@@ -566,14 +611,21 @@ class _QuestionDialogState extends State<QuestionDialog> {
       _correctIndex = widget.initialQuestion!.correctOptionIndex;
       _selectedImage = widget.initialQuestion!.imageFile;
       _existingImageUrl = widget.initialQuestion!.imageUrl;
-    } else {
+    }
+
+    if (_optionControllers.isEmpty) {
       _optionControllers = List.generate(4, (_) => TextEditingController());
     }
+  }
+
+  String _formatScore(double value) {
+    return value.truncateToDouble() == value ? value.toInt().toString() : value.toString();
   }
 
   @override
   void dispose() {
     _questionTextController.dispose();
+    _maxScoreController.dispose();
     for (var c in _optionControllers) {
       c.dispose();
     }
@@ -621,6 +673,30 @@ class _QuestionDialogState extends State<QuestionDialog> {
   void _save() {
     if (!_qFormKey.currentState!.validate()) return;
 
+    if (_questionType == 'essay') {
+      final maxScore = double.tryParse(_maxScoreController.text.trim());
+      if (maxScore == null || maxScore <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("يجب تحديد الدرجة العظمى للسؤال المقالي"), backgroundColor: AppColors.error)
+        );
+        return;
+      }
+
+      final newQuestion = QuestionModel(
+        text: _questionTextController.text,
+        options: const [],
+        correctOptionIndex: 0,
+        imageFile: _selectedImage,
+        imageUrl: _existingImageUrl,
+        questionType: 'essay',
+        maxScore: maxScore,
+      );
+
+      widget.onSave(newQuestion);
+      Navigator.pop(context);
+      return;
+    }
+
     List<String> options = _optionControllers.map((c) => c.text.trim()).toList();
     
     if (options.any((o) => o.isEmpty)) {
@@ -640,6 +716,8 @@ class _QuestionDialogState extends State<QuestionDialog> {
       correctOptionIndex: _correctIndex,
       imageFile: _selectedImage,
       imageUrl: _existingImageUrl, 
+      questionType: 'mcq',
+      maxScore: 1,
     );
 
     widget.onSave(newQuestion);
@@ -676,6 +754,27 @@ class _QuestionDialogState extends State<QuestionDialog> {
                 ),
                 const SizedBox(height: 10),
 
+                DropdownButtonFormField<String>(
+                  value: _questionType,
+                  dropdownColor: AppColors.backgroundSecondary,
+                  style: TextStyle(color: AppColors.textPrimary),
+                  decoration: InputDecoration(
+                    labelText: "نوع السؤال",
+                    labelStyle: TextStyle(color: AppColors.textSecondary),
+                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
+                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'mcq', child: Text("اختياري (متعدد الإجابات)")),
+                    DropdownMenuItem(value: 'essay', child: Text("مقالي (تصحيح يدوي)")),
+                  ],
+                  onChanged: (val) {
+                    if (val == null) return;
+                    setState(() => _questionType = val);
+                  },
+                ),
+                const SizedBox(height: 10),
+
                 Row(
                   children: [
                     Expanded(
@@ -707,55 +806,76 @@ class _QuestionDialogState extends State<QuestionDialog> {
                 ),
                 Divider(color: AppColors.textSecondary.withOpacity(0.1)),
 
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("الخيارات (حدد الصحيحة):", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                    TextButton.icon(
-                      onPressed: _addOption,
-                      icon: Icon(Icons.add_circle, size: 18, color: AppColors.accentYellow),
-                      label: Text("إضافة خيار", style: TextStyle(color: AppColors.accentYellow)),
-                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                if (_questionType == 'essay') ...[
+                  Text("الدرجة العظمى لهذا السؤال:", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _maxScoreController,
+                    style: TextStyle(color: AppColors.textPrimary),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: "الدرجة",
+                      labelStyle: TextStyle(color: AppColors.textSecondary),
+                      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
+                      focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 5),
-                
-                ...List.generate(_optionControllers.length, (index) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: Row(
-                      children: [
-                        Radio<int>(
-                          value: index,
-                          groupValue: _correctIndex,
-                          activeColor: AppColors.success,
-                          onChanged: (val) => setState(() => _correctIndex = val!),
-                        ),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _optionControllers[index],
-                            style: TextStyle(color: AppColors.textPrimary),
-                            decoration: InputDecoration(
-                              labelText: "الخيار ${index + 1}",
-                              labelStyle: TextStyle(color: AppColors.textSecondary),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                              enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
-                              focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    "سيكتب الطالب إجابته في مربع نصي، وستحتاج لتصحيحها يدوياً بعد التسليم.",
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                ] else ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("الخيارات (حدد الصحيحة):", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                      TextButton.icon(
+                        onPressed: _addOption,
+                        icon: Icon(Icons.add_circle, size: 18, color: AppColors.accentYellow),
+                        label: Text("إضافة خيار", style: TextStyle(color: AppColors.accentYellow)),
+                        style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  
+                  ...List.generate(_optionControllers.length, (index) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Row(
+                        children: [
+                          Radio<int>(
+                            value: index,
+                            groupValue: _correctIndex,
+                            activeColor: AppColors.success,
+                            onChanged: (val) => setState(() => _correctIndex = val!),
+                          ),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _optionControllers[index],
+                              style: TextStyle(color: AppColors.textPrimary),
+                              decoration: InputDecoration(
+                                labelText: "الخيار ${index + 1}",
+                                labelStyle: TextStyle(color: AppColors.textSecondary),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
+                                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
+                              ),
+                              validator: (val) => val!.isEmpty ? "مطلوب" : null,
                             ),
-                            validator: (val) => val!.isEmpty ? "مطلوب" : null,
                           ),
-                        ),
-                        if (_optionControllers.length > 2)
-                          IconButton(
-                            icon: Icon(Icons.remove_circle, color: AppColors.error),
-                            onPressed: () => _removeOption(index),
-                            tooltip: "حذف الخيار",
-                          ),
-                      ],
-                    ),
-                  );
-                }),
+                          if (_optionControllers.length > 2)
+                            IconButton(
+                              icon: Icon(Icons.remove_circle, color: AppColors.error),
+                              onPressed: () => _removeOption(index),
+                              tooltip: "حذف الخيار",
+                            ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
               ],
             ),
           ),
