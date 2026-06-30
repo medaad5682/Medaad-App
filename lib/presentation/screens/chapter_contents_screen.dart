@@ -803,6 +803,13 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
         final video = videos[index];
         final String videoId = video['id'].toString();
         final String duration = video['duration']?.toString() ?? "--:--";
+        // ✅ فيديوهات Bunny التي ما زالت "في انتظار المعالجة" أو "قيد المعالجة"
+        // لا يمكن مشاهدتها أو تحميلها بعد — نخفي الزرين للمعلم في هذه الحالة
+        // (فيديوهات يوتيوب جاهزة دائماً فور إضافتها، فلا تتأثر بهذا الشرط)
+        final String? encodingStatus = video['encoding_status']?.toString();
+        final bool isBunnyVideo = video['bunny_video_id'] != null;
+        final bool isVideoNotReadyYet =
+            _isTeacher && isBunnyVideo && encodingStatus != 'ready';
 
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
@@ -908,70 +915,88 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
               ),
               Divider(
                   height: 1, color: AppColors.textSecondary.withOpacity(0.1)),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildActionButton(
-                      "Watch Now",
-                      AppColors.accentYellow,
-                      () => _showPlayerSelectionDialog(video),
+              // ✅ بينما الفيديو "في انتظار المعالجة" أو "قيد المعالجة" على
+              // Bunny Stream لا يمكن مشاهدته أو تحميله بعد — نخفي الزرين
+              // ونعرض رسالة توضيحية بدلاً منهما (للمعلم فقط).
+              if (isVideoNotReadyYet)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Center(
+                    child: Text(
+                      "سيتاح التشغيل والتحميل بعد اكتمال معالجة الفيديو",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary),
                     ),
                   ),
-                  Container(
-                      width: 1,
-                      height: 48,
-                      color: AppColors.textSecondary.withOpacity(0.1)),
-                  Expanded(
-                    child: ValueListenableBuilder(
-                      valueListenable: DownloadManager.downloadingProgress,
-                      builder:
-                          (context, Map<String, double> progresses, child) {
-                        return ValueListenableBuilder(
-                          valueListenable:
-                              Hive.box('downloads_box').listenable(),
-                          builder: (context, Box box, _) {
-                            String storageKey = 'vid_$videoId';
-                            bool isDownloaded = box.containsKey(storageKey);
-                            bool isDownloading = progresses.containsKey(videoId);
-
-                            String? sizeStr;
-                            if (isDownloaded) {
-                              final item = box.get(storageKey);
-                              if (item != null) {
-                                int bytes = item['size'] ?? 0;
-                                sizeStr =
-                                    "${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB";
-                              }
-                            }
-
-                            if (isDownloaded) {
-                              return _buildStatusButton(
-                                  "SAVED ${sizeStr != null ? '($sizeStr)' : ''}",
-                                  AppColors.success,
-                                  LucideIcons.checkCircle);
-                            }
-                            else if (isDownloading) {
-                              return _buildStatusButton("PROCESSING...",
-                                  AppColors.accentYellow, LucideIcons.loader);
-                            } else {
-                              // ✅ إخفاء زر التحميل بناءً على الإعدادات
-                              if (!_isVideoDownloadEnabled()) {
-                                return _buildStatusButton("DOWNLOAD DISABLED",
-                                    AppColors.textSecondary, LucideIcons.lock);
-                              }
-                              return _buildActionButton(
-                                  "Download",
-                                  AppColors.textSecondary,
-                                  () => _prepareVideoDownload(
-                                      videoId, video['title'], duration));
-                            }
-                          },
-                        );
-                      },
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildActionButton(
+                        "Watch Now",
+                        AppColors.accentYellow,
+                        () => _showPlayerSelectionDialog(video),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                    Container(
+                        width: 1,
+                        height: 48,
+                        color: AppColors.textSecondary.withOpacity(0.1)),
+                    Expanded(
+                      child: ValueListenableBuilder(
+                        valueListenable: DownloadManager.downloadingProgress,
+                        builder:
+                            (context, Map<String, double> progresses, child) {
+                          return ValueListenableBuilder(
+                            valueListenable:
+                                Hive.box('downloads_box').listenable(),
+                            builder: (context, Box box, _) {
+                              String storageKey = 'vid_$videoId';
+                              bool isDownloaded = box.containsKey(storageKey);
+                              bool isDownloading = progresses.containsKey(videoId);
+
+                              String? sizeStr;
+                              if (isDownloaded) {
+                                final item = box.get(storageKey);
+                                if (item != null) {
+                                  int bytes = item['size'] ?? 0;
+                                  sizeStr =
+                                      "${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB";
+                                }
+                              }
+
+                              if (isDownloaded) {
+                                return _buildStatusButton(
+                                    "SAVED ${sizeStr != null ? '($sizeStr)' : ''}",
+                                    AppColors.success,
+                                    LucideIcons.checkCircle);
+                              }
+                              else if (isDownloading) {
+                                return _buildStatusButton("PROCESSING...",
+                                    AppColors.accentYellow, LucideIcons.loader);
+                              } else {
+                                // ✅ إخفاء زر التحميل بناءً على الإعدادات
+                                if (!_isVideoDownloadEnabled()) {
+                                  return _buildStatusButton("DOWNLOAD DISABLED",
+                                      AppColors.textSecondary, LucideIcons.lock);
+                                }
+                                return _buildActionButton(
+                                    "Download",
+                                    AppColors.textSecondary,
+                                    () => _prepareVideoDownload(
+                                        videoId, video['title'], duration));
+                              }
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
         );
