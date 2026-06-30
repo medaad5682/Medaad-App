@@ -2300,9 +2300,46 @@
   "@studentNoteLabel": {
     "description": "Label above a student's note in a subscription request card"
   },
-  "rejectionReasonLabel": "Rejection reason:",
+  "rejectionReasonLabel": "Rejection reason: {reason}",
   "@rejectionReasonLabel": {
-    "description": "Label above the rejection reason shown in a rejected request card"
+    "description": "Label and value shown for the rejection reason in a rejected request card",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "myRequestsTitle": "My Requests",
+  "@myRequestsTitle": {
+    "description": "Title of the screen listing a student's subscription requests"
+  },
+  "trackYourOrdersLabel": "TRACK YOUR ORDERS",
+  "@trackYourOrdersLabel": {
+    "description": "Subtitle under the My Requests screen title"
+  },
+  "noRequestsFound": "No requests found",
+  "@noRequestsFound": {
+    "description": "Empty state message shown when the student has no subscription requests"
+  },
+  "requestStatusApproved": "Approved",
+  "@requestStatusApproved": {
+    "description": "Status label shown when a subscription request was approved"
+  },
+  "requestStatusRejected": "Rejected",
+  "@requestStatusRejected": {
+    "description": "Status label shown when a subscription request was rejected"
+  },
+  "requestStatusPending": "Pending",
+  "@requestStatusPending": {
+    "description": "Status label shown when a subscription request is still pending"
+  },
+  "unknownItemFallback": "Unknown item",
+  "@unknownItemFallback": {
+    "description": "Fallback text shown when a request's course title is missing"
+  },
+  "yourNoteLabel": "Your note:",
+  "@yourNoteLabel": {
+    "description": "Label above the student's own note in a request card"
   },
   "totalLabel": "Total",
   "@totalLabel": {
