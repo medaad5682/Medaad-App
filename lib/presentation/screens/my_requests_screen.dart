@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class MyRequestsScreen extends StatefulWidget {
   const MyRequestsScreen({super.key});
@@ -74,7 +75,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "MY REQUESTS",
+                        AppLocalizations.of(context)!.myRequestsTitle,
                         style: TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 20,
@@ -84,7 +85,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        "TRACK YOUR ORDERS",
+                        AppLocalizations.of(context)!.trackYourOrdersLabel,
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 10,
@@ -115,7 +116,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                                       AppColors.textSecondary.withOpacity(0.2)),
                               const SizedBox(height: 16),
                               Text(
-                                "NO REQUESTS FOUND",
+                                AppLocalizations.of(context)!.noRequestsFound,
                                 style: TextStyle(
                                   color:
                                       AppColors.textSecondary.withOpacity(0.5),
@@ -146,18 +147,23 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
     Color statusColor;
     IconData statusIcon;
 
+    String statusLabel;
+
     switch (status) {
       case 'approved':
         statusColor = AppColors.success;
         statusIcon = LucideIcons.checkCircle;
+        statusLabel = AppLocalizations.of(context)!.requestStatusApproved;
         break;
       case 'rejected':
         statusColor = AppColors.error;
         statusIcon = LucideIcons.xCircle;
+        statusLabel = AppLocalizations.of(context)!.requestStatusRejected;
         break;
       default:
         statusColor = AppColors.accentYellow;
         statusIcon = LucideIcons.clock;
+        statusLabel = AppLocalizations.of(context)!.requestStatusPending;
     }
 
     // ✅ استخراج الملاحظة
@@ -200,7 +206,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                 children: [
                   Icon(statusIcon, color: statusColor, size: 14),
                   const SizedBox(width: 6),
-                  Text(status.toUpperCase(),
+                  Text(statusLabel,
                       style: TextStyle(
                           color: statusColor,
                           fontSize: 10,
@@ -212,7 +218,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            req['course_title'] ?? 'Unknown Item',
+            req['course_title'] ?? AppLocalizations.of(context)!.unknownItemFallback,
             style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 16,
@@ -225,7 +231,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
             Row(
               children: [
                 Text(
-                  "$originalPrice EGP",
+                  AppLocalizations.of(context)!.priceEgp(originalPrice.toString()),
                   style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 12,
@@ -236,7 +242,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  "$actualPaidPrice EGP",
+                  AppLocalizations.of(context)!.priceEgp(actualPaidPrice.toString()),
                   style: TextStyle(
                       color: AppColors.accentYellow,
                       fontSize: 14,
@@ -246,7 +252,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
             )
           else
             Text(
-              "$originalPrice EGP",
+              AppLocalizations.of(context)!.priceEgp(originalPrice.toString()),
               style: TextStyle(
                   color: AppColors.accentYellow,
                   fontSize: 14,
@@ -268,11 +274,11 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    children: const [
-                      Icon(LucideIcons.fileText, size: 12, color: Colors.amber),
-                      SizedBox(width: 4),
+                    children: [
+                      const Icon(LucideIcons.fileText, size: 12, color: Colors.amber),
+                      const SizedBox(width: 4),
                       Text(
-                        "YOUR NOTE",
+                        AppLocalizations.of(context)!.yourNoteLabel,
                         style: TextStyle(
                             color: Colors.amber,
                             fontSize: 10,
@@ -304,7 +310,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                 border: Border.all(color: AppColors.error.withOpacity(0.2)),
               ),
               child: Text(
-                "Reason: ${req['rejection_reason']}",
+                AppLocalizations.of(context)!.rejectionReasonLabel(req['rejection_reason'].toString()),
                 style: TextStyle(color: AppColors.error, fontSize: 11),
               ),
             ),
