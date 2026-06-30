@@ -97,10 +97,15 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
       if (widget.contentType == ContentType.video) {
         _urlController.text = widget.initialData!['youtube_video_id'] ?? '';
-        // ✅ تعديل فيديو موجود يبقى عبر رابط يوتيوب أو تعديل البيانات فقط —
-        // لا يمكن "استبدال" ملف فيديو مرفوع مسبقاً من هذه الشاشة لتفادي
-        // تعقيد إدارة نسخ Bunny القديمة؛ يمكن حذف الفيديو وإضافة آخر بدلاً من ذلك.
-        _videoSourceMode = VideoSourceMode.youtube;
+        // ✅ عند التعديل: نبدأ بنفس مصدر الفيديو الحالي (يوتيوب أو ملف مرفوع
+        // عبر Bunny) لكن نسمح للمعلم بالتبديل بينهما واستبدال الفيديو فعلياً
+        // (التبديل لرفع ملف يستخدم replaceVideoId لتحديث نفس السجل بدلاً من
+        // إنشاء فيديو جديد، فيبقى نفس الـ id الذي يستخدمه الطلاب بالفعل).
+        final bool hasExistingBunnyVideo =
+            widget.initialData!['bunny_video_id'] != null;
+        _videoSourceMode = hasExistingBunnyVideo
+            ? VideoSourceMode.upload
+            : VideoSourceMode.youtube;
         
         // ✅ توزيع الوقت الموجود مسبقاً على الحقول في حالة التعديل
         String? dur = widget.initialData!['duration'];
@@ -717,74 +722,96 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                   ],
 
                   if (widget.contentType == ContentType.video) ...[
-                    // ✅ مفتاح اختيار مصدر الفيديو: رابط يوتيوب أو رفع ملف
-                    // (غير متاح أثناء التعديل — تعديل الفيديوهات المرفوعة
-                    // كملف يتم عبر حذفه وإضافة فيديو جديد بدلاً منه)
-                    if (!isEditing) ...[
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: AppColors.backgroundSecondary,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() => _videoSourceMode = VideoSourceMode.youtube),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
+                    // ✅ مفتاح اختيار مصدر الفيديو: رابط يوتيوب أو رفع ملف —
+                    // متاح أيضاً أثناء التعديل: التبديل لرفع ملف يستبدل
+                    // الفيديو الحالي فعلياً (نفس الـ id يبقى كما هو للطلاب).
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: AppColors.backgroundSecondary,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _videoSourceMode = VideoSourceMode.youtube),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: _videoSourceMode == VideoSourceMode.youtube
+                                      ? AppColors.accentYellow
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  "رابط يوتيوب",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
                                     color: _videoSourceMode == VideoSourceMode.youtube
-                                        ? AppColors.accentYellow
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    "رابط يوتيوب",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: _videoSourceMode == VideoSourceMode.youtube
-                                          ? AppColors.backgroundPrimary
-                                          : AppColors.textSecondary,
-                                    ),
+                                        ? AppColors.backgroundPrimary
+                                        : AppColors.textSecondary,
                                   ),
                                 ),
                               ),
                             ),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() => _videoSourceMode = VideoSourceMode.upload),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _videoSourceMode = VideoSourceMode.upload),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: _videoSourceMode == VideoSourceMode.upload
+                                      ? AppColors.accentYellow
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  "رفع ملف فيديو",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
                                     color: _videoSourceMode == VideoSourceMode.upload
-                                        ? AppColors.accentYellow
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    "رفع ملف فيديو",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: _videoSourceMode == VideoSourceMode.upload
-                                          ? AppColors.backgroundPrimary
-                                          : AppColors.textSecondary,
-                                    ),
+                                        ? AppColors.backgroundPrimary
+                                        : AppColors.textSecondary,
                                   ),
                                 ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    if (isEditing && _videoSourceMode == VideoSourceMode.upload) ...[
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.accentYellow.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.accentYellow.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, color: AppColors.accentYellow, size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                "اختيار ملف جديد هنا سيستبدل الفيديو الحالي بالكامل بعد اكتمال الرفع.",
+                                style: TextStyle(color: AppColors.accentYellow, fontSize: 11),
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
                     ],
 
-                    if (isEditing || _videoSourceMode == VideoSourceMode.youtube) ...[
+                    if (_videoSourceMode == VideoSourceMode.youtube) ...[
                       CustomTextField(
                         label: "رابط فيديو يوتيوب",
                         controller: _urlController,
