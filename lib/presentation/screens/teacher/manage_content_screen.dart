@@ -1,13 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:media_kit/media_kit.dart';
 import '../../../core/services/teacher_service.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/services/app_state.dart'; // ✅ ضروري لتحديث الحالة العامة
+import '../../../core/services/bunny_tus_upload_service.dart';
 import '../../widgets/custom_text_field.dart';
 import '../../../core/constants/app_colors.dart';
 
 enum ContentType { course, subject, chapter, video, pdf }
+
+// ✅ مصدر الفيديو: رابط يوتيوب، أو رفع ملف مباشرةً من الجهاز (قابل للاستئناف)
+enum VideoSourceMode { youtube, upload }
 
 class ManageContentScreen extends StatefulWidget {
   final ContentType contentType;
@@ -49,11 +54,39 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
   // ✅ إضافة متغير التحكم في الإشعارات
   bool _notifyStudents = false;
 
+  // ============================================================
+  // 🎬 حالة رفع الفيديو المباشر (Bunny TUS) — قابل للاستئناف
+  // ============================================================
+  VideoSourceMode _videoSourceMode = VideoSourceMode.youtube;
+  File? _videoFile;
+  String? _videoFileName;
+  int _videoFileSize = 0;
+  int _extractedDurationSeconds = 0;
+  bool _isExtractingDuration = false;
+  bool _hasResumableSession = false;
+
+  final BunnyTusUploadService _bunnyUploadService = BunnyTusUploadService();
+  BunnyUploadStatus _bunnyStatus = BunnyUploadStatus.idle;
+  double _bunnyProgress = 0.0;
+  String? _bunnyError;
+
   bool get isEditing => widget.initialData != null;
 
   @override
   void initState() {
     super.initState();
+
+    // ✅ الاستماع لتحديثات خدمة الرفع المباشر (تعمل حتى لو الشاشة لم تكن
+    // هي من بدأت الرفع، مفيد لو رجع المستخدم لاحقاً لنفس الشاشة)
+    _bunnyUploadService.onUpdate = (status, progress, error) {
+      if (!mounted) return;
+      setState(() {
+        _bunnyStatus = status;
+        _bunnyProgress = progress;
+        _bunnyError = error;
+      });
+    };
+
     if (isEditing) {
       _titleController.text = widget.initialData!['title'] ?? '';
       _descController.text = widget.initialData!['description'] ?? '';
@@ -64,6 +97,10 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
       if (widget.contentType == ContentType.video) {
         _urlController.text = widget.initialData!['youtube_video_id'] ?? '';
+        // ✅ تعديل فيديو موجود يبقى عبر رابط يوتيوب أو تعديل البيانات فقط —
+        // لا يمكن "استبدال" ملف فيديو مرفوع مسبقاً من هذه الشاشة لتفادي
+        // تعقيد إدارة نسخ Bunny القديمة؛ يمكن حذف الفيديو وإضافة آخر بدلاً من ذلك.
+        _videoSourceMode = VideoSourceMode.youtube;
         
         // ✅ توزيع الوقت الموجود مسبقاً على الحقول في حالة التعديل
         String? dur = widget.initialData!['duration'];
@@ -130,6 +167,98 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
     }
   }
 
+  // ============================================================
+  // 🎬 اختيار ملف فيديو من الجهاز + استخراج مدته تلقائياً
+  // ============================================================
+  Future<void> _pickVideoFile() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+    );
+
+    if (result == null || result.files.single.path == null) return;
+
+    final file = File(result.files.single.path!);
+    final fileSize = await file.length();
+
+    setState(() {
+      _videoFile = file;
+      _videoFileName = result.files.single.name;
+      _videoFileSize = fileSize;
+      _extractedDurationSeconds = 0;
+      _hasResumableSession = false;
+    });
+
+    // ✅ التحقق إن كان هناك رفع سابق متوقف لنفس الملف بالضبط (نفس المسار
+    // والحجم وتاريخ التعديل) — يظهر للمعلم خيار "استئناف الرفع السابق"
+    final hasSession = await _bunnyUploadService.hasResumableSession(file);
+    if (mounted) {
+      setState(() => _hasResumableSession = hasSession);
+    }
+
+    await _extractLocalVideoDuration(file);
+  }
+
+  // يستخرج مدة الفيديو محلياً عبر مشغّل media_kit بدون عرضه (Headless)
+  Future<void> _extractLocalVideoDuration(File file) async {
+    setState(() => _isExtractingDuration = true);
+    Player? player;
+    try {
+      player = Player();
+      final completer = Future<int>(() async {
+        await player!.open(Media(file.path), play: false);
+        // ننتظر حتى تتوفر مدة حقيقية (> 0) أو تنتهي مهلة الانتظار
+        for (int i = 0; i < 50; i++) {
+          final d = player.state.duration;
+          if (d.inMilliseconds > 0) return d.inSeconds;
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        return 0;
+      });
+
+      final seconds = await completer.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => 0,
+      );
+
+      if (mounted) {
+        setState(() {
+          _extractedDurationSeconds = seconds;
+          if (seconds > 0) {
+            final d = Duration(seconds: seconds);
+            _hoursController.text = d.inHours.toString().padLeft(2, '0');
+            _minutesController.text = (d.inMinutes % 60).toString().padLeft(2, '0');
+            _secondsController.text = (d.inSeconds % 60).toString().padLeft(2, '0');
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to extract local video duration: $e');
+    } finally {
+      try {
+        await player?.dispose();
+      } catch (_) {}
+      if (mounted) setState(() => _isExtractingDuration = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    // ✅ مهم: لا نُلغي الرفع الجاري هنا — يبقى يعمل في الخلفية عبر الـ
+    // Singleton حتى لو غادر المعلم الشاشة، لكن نوقف فقط الاستماع لتحديثاته
+    // من هذه الشاشة تحديداً لتفادي استدعاء setState على ودجت تم التخلص منه.
+    if (_bunnyUploadService.onUpdate != null) {
+      _bunnyUploadService.onUpdate = null;
+    }
+    _titleController.dispose();
+    _descController.dispose();
+    _priceController.dispose();
+    _urlController.dispose();
+    _hoursController.dispose();
+    _minutesController.dispose();
+    _secondsController.dispose();
+    super.dispose();
+  }
+
   String? _extractYoutubeId(String url) {
     if (url.length == 11 && !url.contains('.')) return url;
     RegExp regExp = RegExp(
@@ -154,6 +283,18 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // ============================================================
+    // 🎬 فيديو مرفوع كملف من الجهاز: مسار منفصل بالكامل عبر TUS القابل
+    // للاستئناف — لا يستخدم _isLoading/_uploadProgress العاديين لأن هذا
+    // الرفع قد يستغرق وقتاً طويلاً ويحتاج عناصر تحكم خاصة (إيقاف/استئناف).
+    // ============================================================
+    if (widget.contentType == ContentType.video &&
+        _videoSourceMode == VideoSourceMode.upload &&
+        !isEditing) {
+      await _submitVideoUpload();
+      return;
+    }
 
     if (widget.contentType == ContentType.video) {
       int hVal = int.tryParse(_hoursController.text) ?? 0;
@@ -296,6 +437,69 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
     }
   }
 
+  // ============================================================
+  // 🎬 رفع فيديو كملف مباشرة إلى Bunny Stream (قابل للاستئناف)
+  // ============================================================
+  Future<void> _submitVideoUpload() async {
+    if (_videoFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: const Text("⚠️ يرجى اختيار ملف فيديو أولاً"), backgroundColor: AppColors.error),
+      );
+      return;
+    }
+
+    // إن كانت هناك حالة خطأ سابقة لنفس الملف، الاستئناف يكمل من نفس النقطة
+    // تلقائياً داخل الخدمة (لا حاجة لإعادة الرفع من الصفر) — لذا نُتابع بنفس
+    // الاستدعاء العادي لـ startUpload في كل الحالات.
+    await _bunnyUploadService.startUpload(
+      file: _videoFile!,
+      chapterId: widget.parentId!,
+      title: _titleController.text.isNotEmpty ? _titleController.text : _videoFileName!,
+      notifyStudents: _notifyStudents,
+      durationSeconds: _extractedDurationSeconds,
+      onComplete: (result) async {
+        await _updateLocalCache();
+        await Future.delayed(const Duration(seconds: 1));
+        await AppState().reloadAppInit();
+
+        if (mounted) {
+          final durationPending = result['durationPending'] == true;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(durationPending
+                  ? "✅ تم رفع الفيديو بنجاح، وسيتم استخراج مدته تلقائياً بعد اكتمال المعالجة"
+                  : "✅ تم رفع الفيديو بنجاح وسيكون متاحاً بعد اكتمال المعالجة"),
+              backgroundColor: AppColors.success,
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+      },
+      onError: (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error), backgroundColor: AppColors.error),
+          );
+        }
+      },
+    );
+  }
+
+  // يستأنف رفعاً متوقفاً بسبب خطأ (مثل انقطاع الاتصال) لنفس الملف الحالي
+  Future<void> _resumeVideoUpload() async {
+    if (_videoFile == null) return;
+    await _submitVideoUpload();
+  }
+
+  Future<void> _cancelVideoUpload() async {
+    await _bunnyUploadService.cancel(file: _videoFile);
+    if (mounted) {
+      setState(() {
+        _hasResumableSession = false;
+      });
+    }
+  }
+
   Future<void> _deleteItem() async {
     bool? confirm = await showDialog(
       context: context,
@@ -352,6 +556,31 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
     }
   }
 
+  bool get _isVideoUploadBusy => widget.contentType == ContentType.video &&
+      _videoSourceMode == VideoSourceMode.upload &&
+      !isEditing &&
+      [
+        BunnyUploadStatus.requesting,
+        BunnyUploadStatus.uploading,
+        BunnyUploadStatus.paused,
+        BunnyUploadStatus.confirming,
+      ].contains(_bunnyStatus);
+
+  String _bunnyStatusLabel() {
+    switch (_bunnyStatus) {
+      case BunnyUploadStatus.requesting:
+        return "جاري تجهيز جلسة الرفع...";
+      case BunnyUploadStatus.uploading:
+        return "جاري رفع الفيديو... ${(_bunnyProgress * 100).toInt()}%";
+      case BunnyUploadStatus.paused:
+        return "⏸️ انقطع الاتصال بالإنترنت — في انتظار عودة الاتصال للمتابعة تلقائياً";
+      case BunnyUploadStatus.confirming:
+        return "جاري حفظ بيانات الفيديو...";
+      default:
+        return "";
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     String titleText = '';
@@ -375,16 +604,54 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
             IconButton(
               icon: Icon(Icons.delete_outline, color: AppColors.error),
               tooltip: "Delete",
-              onPressed: _isLoading ? null : _deleteItem,
+              onPressed: (_isLoading || _isVideoUploadBusy) ? null : _deleteItem,
             ),
         ],
       ),
-      body: _isLoading
+      body: (_isLoading || _isVideoUploadBusy)
         ? Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (_uploadProgress > 0 && _uploadProgress < 1.0) ...[
+                if (_isVideoUploadBusy) ...[
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        value: _bunnyStatus == BunnyUploadStatus.uploading
+                            ? _bunnyProgress
+                            : null,
+                        color: _bunnyStatus == BunnyUploadStatus.paused
+                            ? AppColors.error
+                            : AppColors.accentYellow,
+                        strokeWidth: 6,
+                        backgroundColor: AppColors.textSecondary.withOpacity(0.1),
+                      ),
+                      if (_bunnyStatus == BunnyUploadStatus.uploading)
+                        Text(
+                          "${(_bunnyProgress * 100).toInt()}%",
+                          style: TextStyle(color: AppColors.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      if (_bunnyStatus == BunnyUploadStatus.paused)
+                        Icon(Icons.wifi_off, color: AppColors.error),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      _bunnyStatusLabel(),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton.icon(
+                    onPressed: _cancelVideoUpload,
+                    icon: Icon(Icons.close, color: AppColors.error),
+                    label: Text("إلغاء الرفع", style: TextStyle(color: AppColors.error)),
+                  ),
+                ] else if (_uploadProgress > 0 && _uploadProgress < 1.0) ...[
                   Stack(
                     alignment: Alignment.center,
                     children: [
@@ -450,48 +717,244 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                   ],
 
                   if (widget.contentType == ContentType.video) ...[
-                    CustomTextField(
-                      label: "رابط فيديو يوتيوب",
-                      controller: _urlController,
-                      hintText: "https://youtu.be/...",
-                      prefixIcon: Icons.video_library,
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // ✅ واجهة الوقت (ساعات : دقائق : ثواني) الأنيقة
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text("مدة الفيديو الفعلية ⏱️", style: TextStyle(color: AppColors.accentYellow, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
-                      decoration: BoxDecoration(
-                        color: AppColors.backgroundSecondary,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
+                    // ✅ مفتاح اختيار مصدر الفيديو: رابط يوتيوب أو رفع ملف
+                    // (غير متاح أثناء التعديل — تعديل الفيديوهات المرفوعة
+                    // كملف يتم عبر حذفه وإضافة فيديو جديد بدلاً منه)
+                    if (!isEditing) ...[
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: AppColors.backgroundSecondary,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => setState(() => _videoSourceMode = VideoSourceMode.youtube),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: _videoSourceMode == VideoSourceMode.youtube
+                                        ? AppColors.accentYellow
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    "رابط يوتيوب",
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: _videoSourceMode == VideoSourceMode.youtube
+                                          ? AppColors.backgroundPrimary
+                                          : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => setState(() => _videoSourceMode = VideoSourceMode.upload),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: _videoSourceMode == VideoSourceMode.upload
+                                        ? AppColors.accentYellow
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    "رفع ملف فيديو",
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: _videoSourceMode == VideoSourceMode.upload
+                                          ? AppColors.backgroundPrimary
+                                          : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          _buildTimeField("ساعات", _hoursController),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 10),
-                            child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
-                          _buildTimeField("دقائق", _minutesController),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 10),
-                            child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
-                          _buildTimeField("ثواني", _secondsController),
-                        ],
+                      const SizedBox(height: 16),
+                    ],
+
+                    if (isEditing || _videoSourceMode == VideoSourceMode.youtube) ...[
+                      CustomTextField(
+                        label: "رابط فيديو يوتيوب",
+                        controller: _urlController,
+                        hintText: "https://youtu.be/...",
+                        prefixIcon: Icons.video_library,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text("الصق رابط يوتيوب كاملاً وحدد مدته لتظهر للطلاب",
-                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary.withOpacity(0.6))),
+                      const SizedBox(height: 16),
+
+                      // ✅ واجهة الوقت (ساعات : دقائق : ثواني) الأنيقة
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text("مدة الفيديو الفعلية ⏱️", style: TextStyle(color: AppColors.accentYellow, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.backgroundSecondary,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _buildTimeField("ساعات", _hoursController),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 10),
+                              child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
+                            ),
+                            _buildTimeField("دقائق", _minutesController),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 10),
+                              child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
+                            ),
+                            _buildTimeField("ثواني", _secondsController),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text("الصق رابط يوتيوب كاملاً وحدد مدته لتظهر للطلاب",
+                        style: TextStyle(fontSize: 11, color: AppColors.textSecondary.withOpacity(0.6))),
+                    ] else ...[
+                      // ============================================================
+                      // 🎬 رفع ملف فيديو مباشرةً (قابل للاستئناف بعد انقطاع الاتصال)
+                      // ============================================================
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.backgroundSecondary,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
+                        ),
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.video_file, color: AppColors.accentOrange, size: 30),
+                          title: Text(
+                            _videoFileName ?? "لم يتم اختيار ملف",
+                            style: TextStyle(
+                              color: _videoFileName == null ? AppColors.textSecondary : AppColors.textPrimary,
+                              fontWeight: _videoFileName == null ? FontWeight.normal : FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          subtitle: Text(
+                            _videoFileName == null
+                                ? "اضغط لاختيار ملف فيديو من الجهاز"
+                                : _isExtractingDuration
+                                    ? "جاري استخراج مدة الفيديو..."
+                                    : "${(_videoFileSize / (1024 * 1024)).toStringAsFixed(1)} MB",
+                            style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                          ),
+                          trailing: Icon(Icons.upload_file, color: AppColors.accentYellow),
+                          onTap: _pickVideoFile,
+                        ),
+                      ),
+
+                      if (_hasResumableSession) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.accentYellow.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.accentYellow.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.history, color: AppColors.accentYellow, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  "تم العثور على رفع سابق متوقف لهذا الملف — سيتم استكمال الرفع من حيث توقف",
+                                  style: TextStyle(color: AppColors.accentYellow, fontSize: 11),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      if (_bunnyStatus == BunnyUploadStatus.error && _bunnyError != null) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.error.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.error.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(_bunnyError!, style: TextStyle(color: AppColors.error, fontSize: 12)),
+                              const SizedBox(height: 8),
+                              ElevatedButton.icon(
+                                onPressed: _resumeVideoUpload,
+                                icon: const Icon(Icons.refresh, size: 18),
+                                label: const Text("استئناف الرفع"),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.accentYellow,
+                                  foregroundColor: AppColors.backgroundPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 8),
+                      Text(
+                        "يمكن إيقاف رفع الفيديو والمتابعة لاحقاً، كما يستأنف الرفع تلقائياً عند انقطاع الاتصال بدلاً من البدء من جديد.",
+                        style: TextStyle(fontSize: 11, color: AppColors.textSecondary.withOpacity(0.6)),
+                      ),
+
+                      if (_videoFileName != null) ...[
+                        const SizedBox(height: 16),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text("مدة الفيديو (تُستخرج تلقائياً، يمكن تعديلها) ⏱️",
+                              style: TextStyle(color: AppColors.accentYellow, fontWeight: FontWeight.bold)),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: AppColors.backgroundSecondary,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildTimeField("ساعات", _hoursController),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 10),
+                                child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
+                              ),
+                              _buildTimeField("دقائق", _minutesController),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 10),
+                                child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
+                              ),
+                              _buildTimeField("ثواني", _secondsController),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ],
+
 
                   if (widget.contentType == ContentType.pdf) ...[
                     const SizedBox(height: 10),
@@ -552,7 +1015,12 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     ),
                     child: Text(
-                      isEditing ? "SAVE CHANGES" : "CREATE",
+                      isEditing
+                          ? "SAVE CHANGES"
+                          : (widget.contentType == ContentType.video &&
+                                  _videoSourceMode == VideoSourceMode.upload)
+                              ? (_hasResumableSession ? "استئناف ورفع الفيديو" : "رفع الفيديو")
+                              : "CREATE",
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.0),
                     ),
                   ),
