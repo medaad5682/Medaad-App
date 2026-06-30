@@ -294,5 +294,85 @@
   "confirmPasswordLabel": "Confirm Password",
   "@confirmPasswordLabel": {
     "description": "Input field label for confirming the chosen password"
+  },
+
+  "navHome": "Home",
+  "@navHome": {
+    "description": "Bottom navigation bar label for the Home tab"
+  },
+
+  "navCourses": "Courses",
+  "@navCourses": {
+    "description": "Bottom navigation bar label for the My Courses tab"
+  },
+
+  "navDownloads": "Downloads",
+  "@navDownloads": {
+    "description": "Bottom navigation bar label for the Downloads tab"
+  },
+
+  "navProfile": "Profile",
+  "@navProfile": {
+    "description": "Bottom navigation bar label for the Profile tab"
+  },
+
+  "homeWelcomeGreeting": "WELCOME",
+  "@homeWelcomeGreeting": {
+    "description": "Small greeting label above the user's name on the home screen"
+  },
+
+  "guestFallbackName": "GUEST",
+  "@guestFallbackName": {
+    "description": "Fallback display name on home screen when the user has no first name set (e.g. guest mode)"
+  },
+
+  "encouragement1": "Knowledge is the key to unlocking your true potential.",
+  "@encouragement1": {
+    "description": "First motivational quote shown in the home screen slider"
+  },
+
+  "encouragement2": "Every expert was once a beginner. Keep learning.",
+  "@encouragement2": {
+    "description": "Second motivational quote shown in the home screen slider"
+  },
+
+  "encouragement3": "Your future self will thank you for the effort you put in today.",
+  "@encouragement3": {
+    "description": "Third motivational quote shown in the home screen slider"
+  },
+
+  "encouragement4": "Invest in yourself; education pays the best interest.",
+  "@encouragement4": {
+    "description": "Fourth motivational quote shown in the home screen slider"
+  },
+
+  "encouragement5": "Learning never exhausts the mind. Stay curious!",
+  "@encouragement5": {
+    "description": "Fifth motivational quote shown in the home screen slider"
+  },
+
+  "suggestedForYou": "SUGGESTED FOR YOU",
+  "@suggestedForYou": {
+    "description": "Section title shown above the course list when there is no active search"
+  },
+
+  "searchResults": "SEARCH RESULTS",
+  "@searchResults": {
+    "description": "Section title shown above the course list when filtering by search"
+  },
+
+  "activeLabel": "ACTIVE",
+  "@activeLabel": {
+    "description": "Small status badge shown next to the course list section title"
+  },
+
+  "noCoursesFound": "No courses found",
+  "@noCoursesFound": {
+    "description": "Empty state message when no courses match the current search or list"
+  },
+
+  "searchCourseHint": "Search course name or code...",
+  "@searchCourseHint": {
+    "description": "Hint text for the course search field on the home screen"
   }
 }

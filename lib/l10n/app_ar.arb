@@ -60,5 +60,22 @@
   "phoneNumberHint": "01xxxxxxxxx",
   "usernameEnglishOnlyLabel": "اسم المستخدم (إنجليزي فقط)",
   "usernameHint": "اسم المستخدم",
-  "confirmPasswordLabel": "تأكيد كلمة المرور"
+  "confirmPasswordLabel": "تأكيد كلمة المرور",
+
+  "navHome": "الرئيسية",
+  "navCourses": "الكورسات",
+  "navDownloads": "التحميلات",
+  "navProfile": "الملف الشخصي",
+  "homeWelcomeGreeting": "مرحباً",
+  "guestFallbackName": "زائر",
+  "encouragement1": "المعرفة هي مفتاح إطلاق إمكاناتك الحقيقية.",
+  "encouragement2": "كل خبير كان يوماً مبتدئاً. استمر في التعلم.",
+  "encouragement3": "نسختك المستقبلية ستشكرك على الجهد الذي تبذله اليوم.",
+  "encouragement4": "استثمر في نفسك؛ فالتعليم يمنحك أفضل عائد.",
+  "encouragement5": "التعلّم لا يُتعب العقل أبداً. حافظ على فضولك!",
+  "suggestedForYou": "مقترح لك",
+  "searchResults": "نتائج البحث",
+  "activeLabel": "نشط",
+  "noCoursesFound": "لم يتم العثور على كورسات",
+  "searchCourseHint": "ابحث باسم الكورس أو الكود..."
 }
