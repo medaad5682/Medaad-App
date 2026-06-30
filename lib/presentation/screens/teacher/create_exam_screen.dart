@@ -93,6 +93,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
               imageUrl: q['image_file_id'],
               questionType: qType,
               maxScore: (q['max_score'] is num) ? (q['max_score'] as num).toDouble() : 1,
+              modelAnswer: q['model_answer']?.toString(),
             );
           }).toList();
         }
@@ -283,6 +284,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
             'text': q.text,
             'questionType': 'essay',
             'maxScore': q.maxScore,
+            'modelAnswer': q.modelAnswer,
             'image': imageUrl,
           });
         } else {
@@ -557,6 +559,7 @@ class QuestionModel {
   String? imageUrl;
   String questionType; // 'mcq' أو 'essay'
   double maxScore; // الدرجة العظمى (تُستخدم فقط للأسئلة المقالية)
+  String? modelAnswer; // الإجابة النموذجية (تُستخدم فقط للأسئلة المقالية)
 
   QuestionModel({
     required this.text,
@@ -566,6 +569,7 @@ class QuestionModel {
     this.imageUrl,
     this.questionType = 'mcq',
     this.maxScore = 1,
+    this.modelAnswer,
   });
 
   bool get isEssay => questionType == 'essay';
@@ -588,6 +592,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
   final _qFormKey = GlobalKey<FormState>();
   final TextEditingController _questionTextController = TextEditingController();
   final TextEditingController _maxScoreController = TextEditingController(text: '1');
+  final TextEditingController _modelAnswerController = TextEditingController();
    
   List<TextEditingController> _optionControllers = [];
    
@@ -603,6 +608,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
       _questionTextController.text = widget.initialQuestion!.text;
       _questionType = widget.initialQuestion!.questionType;
       _maxScoreController.text = _formatScore(widget.initialQuestion!.maxScore);
+      _modelAnswerController.text = widget.initialQuestion!.modelAnswer ?? '';
       
       for (var option in widget.initialQuestion!.options) {
         _optionControllers.add(TextEditingController(text: option));
@@ -626,6 +632,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
   void dispose() {
     _questionTextController.dispose();
     _maxScoreController.dispose();
+    _modelAnswerController.dispose();
     for (var c in _optionControllers) {
       c.dispose();
     }
@@ -690,6 +697,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
         imageUrl: _existingImageUrl,
         questionType: 'essay',
         maxScore: maxScore,
+        modelAnswer: _modelAnswerController.text.trim().isEmpty ? null : _modelAnswerController.text.trim(),
       );
 
       widget.onSave(newQuestion);
@@ -824,6 +832,26 @@ class _QuestionDialogState extends State<QuestionDialog> {
                   Text(
                     "سيكتب الطالب إجابته في مربع نصي، وستحتاج لتصحيحها يدوياً بعد التسليم.",
                     style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  Text("الإجابة النموذجية (اختياري):", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _modelAnswerController,
+                    style: TextStyle(color: AppColors.textPrimary),
+                    maxLines: 4,
+                    minLines: 3,
+                    decoration: InputDecoration(
+                      hintText: "اكتب الإجابة النموذجية هنا ليراها الطالب بعد ظهور النتيجة...",
+                      hintStyle: TextStyle(color: AppColors.textSecondary.withOpacity(0.5)),
+                      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
+                      focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "ستظهر هذه الإجابة للطالب في شاشة النتيجة والمراجعة بعد التصحيح، كمرجع لمقارنة إجابته.",
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                   ),
                 ] else ...[
                   Row(
