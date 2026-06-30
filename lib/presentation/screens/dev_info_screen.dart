@@ -148,9 +148,9 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                     
                     // Legal & Docs
                     Align(
-                      alignment: Alignment.centerLeft,
+                      alignment: AlignmentDirectional.centerStart,
                       child: Padding(
-                        padding: const EdgeInsets.only(left: 8, bottom: 12),
+                        padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
                         child: Text(AppLocalizations.of(context)!.legalAndDocs.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 2.0)),
                       ),
                     ),

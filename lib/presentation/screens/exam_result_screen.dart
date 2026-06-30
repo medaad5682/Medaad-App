@@ -678,7 +678,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
             // ── Detailed Analysis ──────────────────────────────────────────
             if (questions.isNotEmpty) ...[
               Align(
-                alignment: Alignment.centerLeft,
+                alignment: AlignmentDirectional.centerStart,
                 child: Text(AppLocalizations.of(context)!.detailedAnalysisLabel,
                     style: TextStyle(
                         color: AppColors.accentYellow,

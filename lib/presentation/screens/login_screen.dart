@@ -457,7 +457,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _buildInputLabel(String label) {
     return Padding(
-      padding: const EdgeInsets.only(left: 4),
+      padding: const EdgeInsetsDirectional.only(start: 4),
       child: Text(
         label.toUpperCase(),
         style: TextStyle(

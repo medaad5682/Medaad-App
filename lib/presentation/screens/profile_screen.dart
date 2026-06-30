@@ -214,10 +214,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final isGuest = AppState().isGuest;
     final user = AppState().userData;
 
-    final String name =
-        isGuest ? "GUEST USER" : (user?['first_name'] ?? "User").toUpperCase();
-    final String username =
-        isGuest ? "Not Logged In" : (user?['username'] ?? "@user");
+    final String name = isGuest
+        ? AppLocalizations.of(context)!.guestUserName
+        : (user?['first_name'] ?? AppLocalizations.of(context)!.defaultUserNameLabel)
+            .toUpperCase();
+    final String username = isGuest
+        ? AppLocalizations.of(context)!.notLoggedInLabel
+        : (user?['username'] ?? "@user");
     final String firstLetter =
         isGuest ? "?" : (name.isNotEmpty ? name[0] : "U");
 
@@ -230,7 +233,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "MY PROFILE",
+                AppLocalizations.of(context)!.myProfileTitle,
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -240,7 +243,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                _isTeacher ? "TEACHER DASHBOARD" : "MANAGE YOUR ACCOUNT",
+                _isTeacher
+                    ? AppLocalizations.of(context)!.teacherDashboardSubtitle
+                    : AppLocalizations.of(context)!.manageYourAccountSubtitle,
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
@@ -371,9 +376,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               // ========================================================
               if (_isTeacher && !isGuest) ...[
                 Padding(
-                  padding: const EdgeInsets.only(left: 8, bottom: 12),
+                  padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
                   child: Text(
-                    "TEACHER CONTROLS",
+                    AppLocalizations.of(context)!.teacherControlsSection,
                     style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
@@ -394,7 +399,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       // 1. طلبات الاشتراك
                       _buildMenuItem(context,
                           icon: LucideIcons.bellRing,
-                          title: "Incoming Requests",
+                          title: AppLocalizations.of(context)!.incomingRequestsMenu,
                           onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -407,7 +412,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       // 2. إدارة الطلاب
                       _buildMenuItem(context,
                           icon: LucideIcons.users,
-                          title: "My Students",
+                          title: AppLocalizations.of(context)!.myStudentsMenu,
                           onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -420,7 +425,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       // 3. فريق العمل
                       _buildMenuItem(context,
                           icon: LucideIcons.shieldCheck,
-                          title: "Manage Team",
+                          title: AppLocalizations.of(context)!.manageTeamMenu,
                           onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -432,7 +437,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       // 4. الإحصائيات المالية
                       _buildMenuItem(context,
                           icon: LucideIcons.barChart2,
-                          title: "Financial Stats",
+                          title: AppLocalizations.of(context)!.financialStatsMenu,
                           onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -447,9 +452,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               // --- Account Settings (للجميع ما عدا الضيف) ---
               if (!isGuest) ...[
                 Padding(
-                  padding: const EdgeInsets.only(left: 8, bottom: 12),
+                  padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
                   child: Text(
-                    "ACCOUNT SETTINGS",
+                    AppLocalizations.of(context)!.accountSettingsSection,
                     style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
@@ -469,7 +474,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     children: [
                       _buildMenuItem(context,
                           icon: LucideIcons.user,
-                          title: "Edit Profile",
+                          title: AppLocalizations.of(context)!.editProfileMenu,
                           onTap: () => Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -481,7 +486,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           color: AppColors.textSecondary.withOpacity(0.1)),
                       _buildMenuItem(context,
                           icon: LucideIcons.lock,
-                          title: "Change Password",
+                          title: AppLocalizations.of(context)!.changePasswordMenu,
                           onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -495,7 +500,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             color: AppColors.textSecondary.withOpacity(0.1)),
                         _buildMenuItem(context,
                             icon: LucideIcons.clipboardList,
-                            title: "My Requests",
+                            title: AppLocalizations.of(context)!.myRequestsMenu,
                             onTap: () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
@@ -509,9 +514,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               // --- General Settings ---
               Padding(
-                padding: const EdgeInsets.only(left: 8, bottom: 12),
+                padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
                 child: Text(
-                  "GENERAL",
+                  AppLocalizations.of(context)!.generalSection,
                   style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
@@ -531,11 +536,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     _buildMenuItem(context,
                         icon: LucideIcons.info,
-                        title: "App Information",
+                        title: AppLocalizations.of(context)!.appInformationMenu,
                         onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
                                 builder: (_) => const DevInfoScreen()))),
+                    Divider(
+                        height: 1,
+                        color: AppColors.textSecondary.withOpacity(0.1)),
+
+                    // ✅ زر تبديل لغة التطبيق (Language Switcher)
+                    _buildMenuItem(
+                      context,
+                      icon: LucideIcons.globe,
+                      title: AppLocalizations.of(context)!.languageMenu,
+                      onTap: () => _showLanguagePicker(context),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            AppState.isArabic
+                                ? AppLocalizations.of(context)!.arabicLanguageOption
+                                : AppLocalizations.of(context)!.englishLanguageOption,
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(LucideIcons.chevronRight,
+                              size: 18, color: AppColors.textSecondary),
+                        ],
+                      ),
+                    ),
                     Divider(
                         height: 1,
                         color: AppColors.textSecondary.withOpacity(0.1)),
@@ -575,9 +608,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               // ========================================================
               if (!isGuest) ...[
                 Padding(
-                  padding: const EdgeInsets.only(left: 8, bottom: 12),
+                  padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
                   child: Text(
-                    "DANGER ZONE",
+                    AppLocalizations.of(context)!.dangerZoneSection,
                     style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
@@ -598,7 +631,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _buildMenuItem(
                         context,
                         icon: LucideIcons.trash2,
-                        title: "Delete My Account",
+                        title: AppLocalizations.of(context)!.deleteMyAccountMenu,
                         // أيقونة حمراء لتمييز الخطر
                         trailing: Icon(LucideIcons.chevronRight,
                             size: 18, color: AppColors.error),
@@ -634,7 +667,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               : AppColors.error,
                           size: 18),
                       const SizedBox(width: 12),
-                      Text(isGuest ? "LOGIN / REGISTER" : "LOGOUT",
+                      Text(
+                          isGuest
+                              ? AppLocalizations.of(context)!.loginRegisterButton
+                              : AppLocalizations.of(context)!.logoutButton,
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
@@ -651,6 +687,75 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // ✅ دالة لاختيار لغة التطبيق (Language Picker)
+  void _showLanguagePicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.backgroundSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Text(
+                    AppLocalizations.of(context)!.selectLanguageTitle,
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _buildLanguageOption(
+                  context,
+                  label: AppLocalizations.of(context)!.englishLanguageOption,
+                  languageCode: 'en',
+                ),
+                _buildLanguageOption(
+                  context,
+                  label: AppLocalizations.of(context)!.arabicLanguageOption,
+                  languageCode: 'ar',
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLanguageOption(BuildContext context,
+      {required String label, required String languageCode}) {
+    final bool isSelected =
+        AppState().localeNotifier.value.languageCode == languageCode;
+    return ListTile(
+      title: Text(label,
+          style: TextStyle(
+              fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+      trailing: isSelected
+          ? Icon(LucideIcons.check, color: AppColors.accentYellow)
+          : null,
+      onTap: () async {
+        Navigator.pop(context);
+        if (!isSelected) {
+          await AppState().setLocale(Locale(languageCode));
+          // 🔄 إعادة تشغيل التطبيق لتطبيق اللغة الجديدة على كامل الواجهات
+          if (mounted) {
+            await Future.delayed(const Duration(milliseconds: 150));
+            if (mounted) RestartWidget.restartApp(context);
+          }
+        }
+      },
     );
   }
 
@@ -693,7 +798,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               else ...[
                 if (badge != null)
                   Container(
-                    margin: const EdgeInsets.only(right: 12),
+                    margin: const EdgeInsetsDirectional.only(end: 12),
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(

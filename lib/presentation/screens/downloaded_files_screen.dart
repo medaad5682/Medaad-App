@@ -169,7 +169,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                             // ✅ قسم التحميلات النشطة المعدل
                             if (progressMap.isNotEmpty) ...[
                               Padding(
-                                padding: const EdgeInsets.only(left: 4, bottom: 12),
+                                padding: const EdgeInsetsDirectional.only(start: 4, bottom: 12),
                                 child: Text(
                                   AppLocalizations.of(context)!.activeDownloadsLabel,
                                   style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 2.0),

@@ -365,7 +365,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Widget _buildInputLabel(String label) {
     return Padding(
-      padding: const EdgeInsets.only(left: 4),
+      padding: const EdgeInsetsDirectional.only(start: 4),
       child: Text(
         label.toUpperCase(),
         style: TextStyle(

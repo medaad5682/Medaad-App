@@ -271,22 +271,28 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
               // ✅ التعديل لحل مشكلة انهيار اللمس (Null Check Operator)
               child: IgnorePointer(
                 ignoring: _isDisposing,
-                child: YoutubePlayer(
-                  controller: _controller,
-                  showVideoProgressIndicator: true,
-                  progressIndicatorColor: AppColors.accentYellow,
-                  progressColors: ProgressBarColors(
-                    playedColor: AppColors.accentYellow,
-                    handleColor: AppColors.accentYellow,
+                // ✅ شريط التقدم وأوقات التشغيل تبقى دائماً باتجاه LTR بشكل
+                // متعمد، حتى داخل واجهة عربية RTL، حسب الاتفاقية المعتادة
+                // لمشغلات الفيديو.
+                child: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: YoutubePlayer(
+                    controller: _controller,
+                    showVideoProgressIndicator: true,
+                    progressIndicatorColor: AppColors.accentYellow,
+                    progressColors: ProgressBarColors(
+                      playedColor: AppColors.accentYellow,
+                      handleColor: AppColors.accentYellow,
+                    ),
+                    bottomActions: [
+                      const CurrentPosition(),
+                      const SizedBox(width: 10),
+                      const ProgressBar(isExpanded: true),
+                      const SizedBox(width: 10),
+                      const RemainingDuration(),
+                      const PlaybackSpeedButton(),
+                    ],
                   ),
-                  bottomActions: [
-                    const CurrentPosition(),
-                    const SizedBox(width: 10),
-                    const ProgressBar(isExpanded: true),
-                    const SizedBox(width: 10),
-                    const RemainingDuration(),
-                    const PlaybackSpeedButton(),
-                  ],
                 ),
               ),
             ),
@@ -364,8 +370,8 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
                   children: [
                     const Icon(Icons.block, color: Colors.white, size: 80),
                     const SizedBox(height: 24),
-                    const Text(
-                      "SECURITY ALERT",
+                    Text(
+                      AppLocalizations.of(context)!.securityAlertTitle,
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 28,
@@ -373,8 +379,8 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
                           letterSpacing: 2.0),
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      "Screen Recording Detected.\nPlayback has been disabled.",
+                    Text(
+                      AppLocalizations.of(context)!.screenRecordingDetectedMessage,
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white70, fontSize: 16),
                     ),

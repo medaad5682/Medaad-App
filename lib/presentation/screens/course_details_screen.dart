@@ -527,7 +527,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                     if (!isOwned && !isCourseOwned)
                                       Container(
                                         margin:
-                                            const EdgeInsets.only(right: 16),
+                                            const EdgeInsetsDirectional.only(end: 16),
                                         width: 20,
                                         height: 20,
                                         decoration: BoxDecoration(

@@ -1356,7 +1356,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           ),
                           const SizedBox(height: 16),
                           Align(
-                            alignment: Alignment.centerRight,
+                            alignment: AlignmentDirectional.centerEnd,
                             child: Text(AppLocalizations.of(context)!.iconSizeLabel((comment.scale).toStringAsFixed(1)),
                                 style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                           ),
@@ -1372,7 +1372,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                               }),
                           const SizedBox(height: 10),
                           Align(
-                            alignment: Alignment.centerRight,
+                            alignment: AlignmentDirectional.centerEnd,
                             child: Text(
                                 AppLocalizations.of(context)!.opacityLabel(((Color(comment.color).opacity * 100).toInt()).toString()),
                                 style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
@@ -1393,7 +1393,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           const SizedBox(height: 10),
                           // ✅ حفظ هذا الشكل كافتراضي للملاحظات القادمة (اللون + الشفافية + الحجم)
                           Align(
-                            alignment: Alignment.centerRight,
+                            alignment: AlignmentDirectional.centerEnd,
                             child: TextButton.icon(
                               onPressed: () {
                                 // نحفظ اللون كاملاً بما فيه الشفافية

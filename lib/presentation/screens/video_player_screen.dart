@@ -1057,10 +1057,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               Center(
                 child: IgnorePointer(
                   ignoring: _isDisposing || _isError,
-                  child: MaterialVideoControlsTheme(
-                    normal: controlsTheme,
-                    fullscreen: controlsTheme,
-                    child: Video(controller: _controller, fit: BoxFit.contain),
+                  // ✅ مشغل الفيديو وأدوات التحكم (شريط التقدم/الوقت) تبقى دائماً
+                  // باتجاه LTR بشكل متعمد، حتى داخل واجهة عربية RTL، لأن أشرطة
+                  // التقدم الزمني والأرقام تقرأ تقليدياً من اليسار لليمين.
+                  child: Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: MaterialVideoControlsTheme(
+                      normal: controlsTheme,
+                      fullscreen: controlsTheme,
+                      child: Video(controller: _controller, fit: BoxFit.contain),
+                    ),
                   ),
                 ),
               ),
@@ -1198,7 +1204,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                               color: AppColors.accentYellow, size: 18),
                           const SizedBox(width: 6),
                           Text(
-                            'speed×2',
+                            AppLocalizations.of(context)!.doubleSpeedLabel,
                             style: TextStyle(
                               color: AppColors.accentYellow,
                               fontWeight: FontWeight.bold,
