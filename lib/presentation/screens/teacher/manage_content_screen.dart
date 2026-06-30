@@ -195,7 +195,13 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
     // ✅ التحقق إن كان هناك رفع سابق متوقف لنفس الملف بالضبط (نفس المسار
     // والحجم وتاريخ التعديل) — يظهر للمعلم خيار "استئناف الرفع السابق"
-    final hasSession = await _bunnyUploadService.hasResumableSession(file);
+    // ✅ نمرر replaceVideoId هنا أيضاً (عند التعديل) حتى يتطابق المفتاح مع
+    // الذي سيُستخدم فعلياً عند بدء الرفع — وإلا لن يجد الجلسة المحفوظة
+    // لاستبدال فيديو حتى لو كانت موجودة فعلاً.
+    final hasSession = await _bunnyUploadService.hasResumableSession(
+      file,
+      isEditing ? widget.initialData!['id']?.toString() : null,
+    );
     if (mounted) {
       setState(() => _hasResumableSession = hasSession);
     }
@@ -294,9 +300,14 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
     // للاستئناف — لا يستخدم _isLoading/_uploadProgress العاديين لأن هذا
     // الرفع قد يستغرق وقتاً طويلاً ويحتاج عناصر تحكم خاصة (إيقاف/استئناف).
     // ============================================================
+    // ✅ نسلك مسار رفع/استبدال Bunny TUS سواء كان إنشاءً جديداً أو تعديلاً،
+    // بشرط أن المعلم اختار فعلاً ملفاً جديداً ليرفعه (_videoFile != null).
+    // إن كان في وضع "رفع ملف" أثناء التعديل لكن لم يختر ملفاً جديداً، فهذا
+    // يعني أنه يريد فقط تحديث العنوان/المدة دون استبدال الفيديو — في هذه
+    // الحالة نكمل للمسار العادي بالأسفل (بدون لمس bunny_video_id).
     if (widget.contentType == ContentType.video &&
         _videoSourceMode == VideoSourceMode.upload &&
-        !isEditing) {
+        _videoFile != null) {
       await _submitVideoUpload();
       return;
     }
@@ -377,9 +388,15 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
           break;
         case ContentType.video:
           data['chapter_id'] = widget.parentId;
-          String? videoId = _extractYoutubeId(_urlController.text);
-          if (videoId == null) throw Exception("رابط الفيديو غير صحيح");
-          data['youtube_video_id'] = videoId;
+          // ✅ نحدّث youtube_video_id فقط في وضع "رابط يوتيوب" — إن كان
+          // المعلم يعدّل فيديو Bunny موجوداً (عنوان/مدة فقط بدون استبدال
+          // الملف) فلا داعي لمسّ حقل اليوتيوب أصلاً، ولا لمحاولة استخراج
+          // معرف من حقل رابط فارغ (كان سيُسبب خطأ "رابط الفيديو غير صحيح").
+          if (_videoSourceMode == VideoSourceMode.youtube) {
+            String? videoId = _extractYoutubeId(_urlController.text);
+            if (videoId == null) throw Exception("رابط الفيديو غير صحيح");
+            data['youtube_video_id'] = videoId;
+          }
           if (!isEditing) data['notifyStudents'] = _notifyStudents;
 
           int hVal = int.tryParse(_hoursController.text) ?? 0;
@@ -456,12 +473,16 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
     // إن كانت هناك حالة خطأ سابقة لنفس الملف، الاستئناف يكمل من نفس النقطة
     // تلقائياً داخل الخدمة (لا حاجة لإعادة الرفع من الصفر) — لذا نُتابع بنفس
     // الاستدعاء العادي لـ startUpload في كل الحالات.
+    // ✅ عند التعديل: نمرر replaceVideoId (نفس id الفيديو الحالي) حتى يقوم
+    // السيرفر بتحديث نفس السجل بدلاً من إنشاء فيديو جديد — هذا ما يجعل
+    // استبدال فيديو Bunny يعمل فعلياً من شاشة التعديل (وليس فقط عند الإنشاء).
     await _bunnyUploadService.startUpload(
       file: _videoFile!,
       chapterId: widget.parentId!,
       title: _titleController.text.isNotEmpty ? _titleController.text : _videoFileName!,
       notifyStudents: _notifyStudents,
       durationSeconds: _extractedDurationSeconds,
+      replaceVideoId: isEditing ? widget.initialData!['id']?.toString() : null,
       onComplete: (result) async {
         await _updateLocalCache();
         await Future.delayed(const Duration(seconds: 1));
