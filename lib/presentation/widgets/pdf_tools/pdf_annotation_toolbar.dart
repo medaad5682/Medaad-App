@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/pdf_viewer/pdf_tool.dart';
 import '../../../core/models/shape_model.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 import 'color_palette_row.dart';
 import 'thickness_opacity_controls.dart';
 
@@ -126,7 +127,7 @@ class PdfAnnotationToolbar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildToolRow(),
+          _buildToolRow(context),
           const SizedBox(height: 4),
           _buildContextPanel(context),
         ],
@@ -134,52 +135,53 @@ class PdfAnnotationToolbar extends StatelessWidget {
     );
   }
 
-  Widget _buildToolRow() {
+  Widget _buildToolRow(BuildContext context) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _toolIcon(Icons.edit, PdfTool.pen),
+          _toolIcon(context, Icons.edit, PdfTool.pen),
           const SizedBox(width: 6),
-          _toolIcon(Icons.border_color, PdfTool.highlighter),
+          _toolIcon(context, Icons.border_color, PdfTool.highlighter),
           const SizedBox(width: 6),
           // هايلايتر حر (رسم يدوي)
-          _toolIcon(Icons.brush, PdfTool.freehandHighlighter),
+          _toolIcon(context, Icons.brush, PdfTool.freehandHighlighter),
           const SizedBox(width: 6),
-          _toolIcon(Icons.format_underlined, PdfTool.underline),
+          _toolIcon(context, Icons.format_underlined, PdfTool.underline),
           const SizedBox(width: 6),
-          _toolIcon(Icons.text_fields, PdfTool.text),
+          _toolIcon(context, Icons.text_fields, PdfTool.text),
           const SizedBox(width: 6),
-          _toolIcon(Icons.category_outlined, PdfTool.shape),
+          _toolIcon(context, Icons.category_outlined, PdfTool.shape),
           const SizedBox(width: 6),
-          _toolIcon(Icons.image_outlined, PdfTool.image, onTapOverride: onPickImage),
+          _toolIcon(context, Icons.image_outlined, PdfTool.image, onTapOverride: onPickImage),
           const SizedBox(width: 6),
           // أيقونة الممحاة الحقيقية
-          _toolIcon(LucideIcons.eraser, PdfTool.eraser),
+          _toolIcon(context, LucideIcons.eraser, PdfTool.eraser),
           const SizedBox(width: 6),
-          _toolIcon(Icons.comment_outlined, PdfTool.comment),
+          _toolIcon(context, Icons.comment_outlined, PdfTool.comment),
           const SizedBox(width: 10),
           Container(width: 1, height: 24, color: Colors.grey),
           const SizedBox(width: 10),
           IconButton(
             icon: const Icon(Icons.undo, color: Colors.white, size: 20),
             onPressed: onUndo,
-            tooltip: 'تراجع',
+            tooltip: AppLocalizations.of(context)!.undoTooltip,
           ),
           const SizedBox(width: 4),
-          _palmRejectionButton(),
+          _palmRejectionButton(context),
         ],
       ),
     );
   }
 
-  Widget _palmRejectionButton() {
+  Widget _palmRejectionButton(BuildContext context) {
     final bool on = palmRejectionEnabled;
+    final l10n = AppLocalizations.of(context)!;
     return GestureDetector(
       onTap: () => onPalmRejectionChanged(!on),
       child: Tooltip(
-        message: on ? 'رفض راحة اليد: مفعّل' : 'رفض راحة اليد: معطّل',
+        message: on ? l10n.palmRejectionOn : l10n.palmRejectionOff,
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -197,10 +199,10 @@ class PdfAnnotationToolbar extends StatelessWidget {
     );
   }
 
-  Widget _toolIcon(IconData icon, PdfTool tool, {VoidCallback? onTapOverride}) {
+  Widget _toolIcon(BuildContext context, IconData icon, PdfTool tool, {VoidCallback? onTapOverride}) {
     final bool selected = activeTool == tool;
     return Tooltip(
-      message: tool.label,
+      message: tool.label(context),
       child: Container(
         decoration: BoxDecoration(
           color: selected ? AppColors.accentYellow.withOpacity(0.2) : Colors.transparent,
@@ -349,7 +351,7 @@ class PdfAnnotationToolbar extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            Text("عريض", style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+            Text(AppLocalizations.of(context)!.boldLabel, style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
             Switch(
               value: textBold,
               activeColor: AppColors.accentYellow,
@@ -361,7 +363,7 @@ class PdfAnnotationToolbar extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            Text("تسطير", style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+            Text(AppLocalizations.of(context)!.underlineLabel, style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
             Switch(
               value: textUnderline,
               activeColor: AppColors.accentYellow,
@@ -451,7 +453,7 @@ class PdfAnnotationToolbar extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Row(children: [
-          Text("الحدود: ", style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+          Text(AppLocalizations.of(context)!.borderLabel, style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
           Expanded(
             child: ColorPaletteRow(selectedColor: shapeBorderColor, onColorSelected: onShapeBorderColorChanged),
           ),
@@ -460,7 +462,7 @@ class PdfAnnotationToolbar extends StatelessWidget {
         if (shapeType != ShapeType.arrow) ...[
           const SizedBox(height: 6),
           Row(children: [
-            Text("التعبئة: ", style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+            Text(AppLocalizations.of(context)!.fillLabel, style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
             Expanded(
               child: ColorPaletteRow(
                 selectedColor: shapeFillColor ?? Colors.transparent,
