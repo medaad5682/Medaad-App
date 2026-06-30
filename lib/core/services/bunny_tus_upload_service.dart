@@ -106,9 +106,10 @@ class BunnyTusUploadService {
   // ------------------------------------------------------------
   // مفتاح فريد للملف (يُستخدم لتخزين/استرجاع جلسة الرفع المحفوظة)
   // ------------------------------------------------------------
-  String _fingerprint(File file, int fileSize) {
+  String _fingerprint(File file, int fileSize, [String? replaceVideoId]) {
     final modified = file.lastModifiedSync().millisecondsSinceEpoch;
-    return 'bunny_upload:${file.path}:$fileSize:$modified';
+    final suffix = replaceVideoId != null ? ':replace_$replaceVideoId' : '';
+    return 'bunny_upload:${file.path}:$fileSize:$modified$suffix';
   }
 
   Future<Map<dynamic, dynamic>?> _loadSession(String key) async {
@@ -145,9 +146,9 @@ class BunnyTusUploadService {
 
   /// يتحقق هل يوجد رفع متوقف (غير مكتمل) محفوظ لهذا الملف بالتحديد.
   /// تُستخدم هذه الدالة لإظهار خيار "استئناف الرفع السابق" في الواجهة.
-  Future<bool> hasResumableSession(File file) async {
+  Future<bool> hasResumableSession(File file, [String? replaceVideoId]) async {
     final fileSize = await file.length();
-    final key = _fingerprint(file, fileSize);
+    final key = _fingerprint(file, fileSize, replaceVideoId);
     final session = await _loadSession(key);
     return session != null;
   }
@@ -162,6 +163,7 @@ class BunnyTusUploadService {
     bool notifyStudents = false,
     int sortOrder = 999,
     int durationSeconds = 0,
+    String? replaceVideoId, // ✅ إن أُرسل: استبدال فيديو موجود (Bunny أو يوتيوب) بدلاً من إضافة جديد
     required void Function(Map<String, dynamic> result) onComplete,
     required void Function(String error) onError,
   }) async {
@@ -172,7 +174,9 @@ class BunnyTusUploadService {
     _emit();
 
     final fileSize = await file.length();
-    final fileKey = _fingerprint(file, fileSize);
+    // ✅ يُضمَّن replaceVideoId في المفتاح حتى لا تُخلط جلسة استبدال محفوظة
+    // سابقاً مع رفع عادي لنفس الملف (أو العكس).
+    final fileKey = _fingerprint(file, fileSize, replaceVideoId);
     currentFileKey = fileKey;
 
     try {
@@ -187,6 +191,7 @@ class BunnyTusUploadService {
           notifyStudents: notifyStudents,
           sortOrder: sortOrder,
           durationSeconds: durationSeconds,
+          replaceVideoId: replaceVideoId,
         );
         await _saveSession(fileKey, Map<String, dynamic>.from(session));
       }
@@ -218,6 +223,7 @@ class BunnyTusUploadService {
     required bool notifyStudents,
     required int sortOrder,
     required int durationSeconds,
+    String? replaceVideoId,
   }) async {
     final result = await _teacherService.createVideoUploadSession(
       chapterId: chapterId,
@@ -233,6 +239,7 @@ class BunnyTusUploadService {
       'sortOrder': sortOrder,
       'durationSeconds': durationSeconds,
       'fileSize': fileSize,
+      'replaceVideoId': replaceVideoId,
       'tusUploadUrl': null, // يُملأ بعد POST الأول إلى Bunny
     };
   }
@@ -268,6 +275,7 @@ class BunnyTusUploadService {
         notifyStudents: session['notifyStudents'] ?? false,
         sortOrder: session['sortOrder'] ?? 999,
         durationSeconds: session['durationSeconds'] ?? 0,
+        replaceVideoId: session['replaceVideoId'] as String?,
       );
       await _saveSession(fileKey, fresh);
       return _runTusUpload(
@@ -303,6 +311,7 @@ class BunnyTusUploadService {
         notifyStudents: session['notifyStudents'] ?? false,
         sortOrder: session['sortOrder'] ?? 999,
         durationSeconds: session['durationSeconds'] ?? 0,
+        replaceVideoId: session['replaceVideoId'] as String?,
       );
       await _saveSession(fileKey, fresh);
       await _runTusUpload(
@@ -488,6 +497,7 @@ class BunnyTusUploadService {
         notifyStudents: session['notifyStudents'] ?? false,
         sortOrder: session['sortOrder'] ?? 999,
         durationSeconds: session['durationSeconds'] ?? 0,
+        replaceVideoId: session['replaceVideoId'] as String?,
       );
       await _clearSession(fileKey);
       status = BunnyUploadStatus.done;
@@ -640,9 +650,11 @@ class BunnyTusUploadService {
       _pauseWaiter!.complete();
     }
 
-    if (file != null) {
-      final fileSize = await file.length();
-      final key = _fingerprint(file, fileSize);
+    // ✅ نستخدم currentFileKey (مفتاح الجلسة الجارية فعلياً، بما في ذلك حالة
+    // الاستبدال) بدلاً من إعادة حساب البصمة من الملف فقط — لتفادي عدم
+    // العثور على الجلسة الصحيحة عند إلغاء رفع استبدال فيديو أثناء التعديل.
+    final key = currentFileKey;
+    if (key != null) {
       final session = await _loadSession(key);
       if (session != null && session['bunnyVideoId'] != null) {
         // تنظيف الفيديو الفارغ من Bunny (غير حرج لو فشل)
