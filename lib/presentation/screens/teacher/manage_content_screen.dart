@@ -584,7 +584,6 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
   bool get _isVideoUploadBusy => widget.contentType == ContentType.video &&
       _videoSourceMode == VideoSourceMode.upload &&
-      !isEditing &&
       [
         BunnyUploadStatus.requesting,
         BunnyUploadStatus.uploading,
