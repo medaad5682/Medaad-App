@@ -310,7 +310,9 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                 border: Border.all(color: AppColors.error.withOpacity(0.2)),
               ),
               child: Text(
-                AppLocalizations.of(context)!.rejectionReasonLabel(req['rejection_reason'].toString()),
+                AppLocalizations.of(context)!.rejectionReasonLabel +
+                    " " +
+                    req['rejection_reason'].toString(),
                 style: TextStyle(color: AppColors.error, fontSize: 11),
               ),
             ),
