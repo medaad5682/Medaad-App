@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/teacher_service.dart';
 import '../../../core/constants/app_colors.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 class ExamStatsScreen extends StatefulWidget {
   final String examId;
@@ -47,7 +48,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text("فشل جلب الإحصائيات: $e"), backgroundColor: AppColors.error),
+           SnackBar(content: Text(AppLocalizations.of(context)!.failedFetchStats(e.toString())), backgroundColor: AppColors.error),
         );
       }
     }
@@ -59,7 +60,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(
         title: Text(
-          "إحصائيات: ${widget.examTitle}", 
+          AppLocalizations.of(context)!.statisticsForTitle(widget.examTitle),
           style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)
         ),
         backgroundColor: AppColors.backgroundSecondary,
@@ -77,7 +78,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
                     children: [
                       Expanded(
                         child: _buildStatCard(
-                          title: "عدد المحاولات",
+                          title: AppLocalizations.of(context)!.numberOfAttemptsLabel,
                           value: _totalAttempts.toString(),
                           icon: Icons.people_alt,
                           color: Colors.blueAccent,
@@ -86,7 +87,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
                       const SizedBox(width: 15),
                       Expanded(
                         child: _buildStatCard(
-                          title: "متوسط النسب",
+                          title: AppLocalizations.of(context)!.averagePercentageLabel,
                           // عرض متوسط النسبة المئوية هنا لأنه الأهم للمعلم
                           value: "${_averagePercentage.toStringAsFixed(1)}%",
                           icon: Icons.analytics,
@@ -106,7 +107,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
                           Icon(Icons.emoji_events, color: AppColors.accentYellow),
                           const SizedBox(width: 8),
                           Text(
-                           "لوحة الشرف (Top 10)",
+                           AppLocalizations.of(context)!.honorRollTitle,
                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                          ),
                       ],
@@ -127,7 +128,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
                           Icon(Icons.hourglass_empty, size: 50, color: AppColors.textSecondary),
                           const SizedBox(height: 15),
                           Text(
-                            "لا توجد محاولات مكتملة حتى الآن", 
+                            AppLocalizations.of(context)!.noCompletedAttemptsYet,
                             style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
                           ),
                         ],
@@ -180,7 +181,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
                               ),
                             ),
                             title: Text(
-                              student['name'] ?? "طالب غير معروف",
+                              student['name'] ?? AppLocalizations.of(context)!.unknownStudentFallback,
                               style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary, fontSize: 16),
                             ),
                             subtitle: Column(
@@ -205,7 +206,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
                                     Icon(Icons.phone_android, size: 12, color: AppColors.accentBlue),
                                     const SizedBox(width: 4),
                                     Text(
-                                      student['phone'] ?? "غير متوفر",
+                                      student['phone'] ?? AppLocalizations.of(context)!.notAvailable,
                                       style: TextStyle(color: AppColors.accentBlue, fontSize: 12, fontWeight: FontWeight.bold),
                                     ),
                                   ],
@@ -230,7 +231,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
                                   ),
                                   // ✅ عرض الدرجة بخط أصغر
                                   Text(
-                                    "${student['score'] ?? 0} pts",
+                                    AppLocalizations.of(context)!.pointsSuffix((student['score'] ?? 0).toString()),
                                     style: TextStyle(color: AppColors.textSecondary.withOpacity(0.7), fontSize: 11),
                                   ),
                                 ],

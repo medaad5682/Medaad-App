@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../../core/constants/app_colors.dart'; 
 import '../../../core/services/teacher_service.dart';
 import '../../widgets/custom_text_field.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 class CreateExamScreen extends StatefulWidget {
   final String subjectId; // معرف المادة
@@ -101,7 +102,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
 
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("فشل تحميل بيانات الامتحان: $e"), backgroundColor: AppColors.error));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.failedLoadExamDetails(e.toString())), backgroundColor: AppColors.error));
         Navigator.pop(context);
       }
     } finally {
@@ -160,7 +161,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
       if (_endDate != null && dateTime.isAfter(_endDate!)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("تاريخ البدء لا يمكن أن يكون بعد تاريخ الانتهاء!"), backgroundColor: AppColors.error)
+            SnackBar(content: Text(AppLocalizations.of(context)!.startDateAfterEndError), backgroundColor: AppColors.error)
           );
         }
         return;
@@ -170,7 +171,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
       if (_startDate != null && dateTime.isBefore(_startDate!)) {
         if (mounted) {
            ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("تاريخ الانتهاء لا يمكن أن يكون قبل تاريخ البدء!"), backgroundColor: AppColors.error)
+            SnackBar(content: Text(AppLocalizations.of(context)!.endDateBeforeStartError), backgroundColor: AppColors.error)
           );
         }
         return;
@@ -205,21 +206,20 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.backgroundSecondary,
-        title: Text("حذف الامتحان", style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
+        title: Text(AppLocalizations.of(context)!.deleteExamTitle, style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
         content: Text(
-          "هل أنت متأكد من حذف هذا الامتحان؟\n\n"
-          "⚠️ تحذير: سيتم حذف جميع الأسئلة وجميع نتائج الطلاب المرتبطة بهذا الامتحان بشكل نهائي.",
+          AppLocalizations.of(context)!.deleteExamConfirmMessage,
           style: TextStyle(color: AppColors.textPrimary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text("إلغاء", style: TextStyle(color: AppColors.textSecondary)),
+            child: Text(AppLocalizations.of(context)!.cancel, style: TextStyle(color: AppColors.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: const Text("حذف نهائي", style: TextStyle(color: Colors.white)),
+            child: Text(AppLocalizations.of(context)!.permanentDeleteAction, style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -234,14 +234,14 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("تم حذف الامتحان بنجاح"), backgroundColor: AppColors.success),
+          SnackBar(content: Text(AppLocalizations.of(context)!.examDeletedSuccessfully), backgroundColor: AppColors.success),
         );
         Navigator.pop(context, true); 
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("فشل الحذف: $e"), backgroundColor: AppColors.error),
+          SnackBar(content: Text(AppLocalizations.of(context)!.deleteFailedMessage(e.toString())), backgroundColor: AppColors.error),
         );
       }
     } finally {
@@ -253,16 +253,16 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
   Future<void> _submitExam() async {
     if (!_formKey.currentState!.validate()) return;
     if (_questions.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("يجب إضافة سؤال واحد على الأقل"), backgroundColor: AppColors.error));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.atLeastOneQuestionRequired), backgroundColor: AppColors.error));
       return;
     }
     if (_startDate == null || _endDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("يرجى تحديد وقت بداية ونهاية الامتحان"), backgroundColor: AppColors.error));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.selectExamStartEndTime), backgroundColor: AppColors.error));
       return;
     }
     
     if (_startDate!.isAfter(_endDate!)) {
-       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ: وقت البداية بعد وقت النهاية!"), backgroundColor: AppColors.error));
+       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.startTimeAfterEndError), backgroundColor: AppColors.error));
        return;
     }
 
@@ -321,7 +321,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.examId != null ? "تم تحديث الامتحان بنجاح" : "تم إنشاء الامتحان بنجاح"), 
+            content: Text(widget.examId != null ? AppLocalizations.of(context)!.examUpdatedSuccessfully : AppLocalizations.of(context)!.examCreatedSuccessfully), 
             backgroundColor: AppColors.success
           )
         );
@@ -330,7 +330,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
 
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("حدث خطأ: $e"), backgroundColor: AppColors.error));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.genericErrorOccurred(e.toString())), backgroundColor: AppColors.error));
       }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -349,7 +349,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(
-        title: Text(widget.examId != null ? "تعديل الامتحان" : "إنشاء امتحان جديد", style: TextStyle(color: AppColors.textPrimary)),
+        title: Text(widget.examId != null ? AppLocalizations.of(context)!.editExamTitle : AppLocalizations.of(context)!.createNewExamTitle, style: TextStyle(color: AppColors.textPrimary)),
         backgroundColor: AppColors.backgroundSecondary,
         iconTheme: IconThemeData(color: AppColors.accentYellow),
         actions: [
@@ -357,7 +357,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
             IconButton(
               icon: Icon(Icons.delete_forever, color: AppColors.error),
               onPressed: _isSubmitting ? null : _deleteExam,
-              tooltip: "حذف الامتحان",
+              tooltip: AppLocalizations.of(context)!.deleteExamTitle,
             )
         ],
       ),
@@ -367,7 +367,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
               children: [
                 CircularProgressIndicator(color: AppColors.accentYellow),
                 const SizedBox(height: 20),
-                Text("جاري التنفيذ...", style: TextStyle(color: AppColors.textPrimary))
+                Text(AppLocalizations.of(context)!.processingMessage, style: TextStyle(color: AppColors.textPrimary))
               ],
             ))
           : Form(
@@ -376,21 +376,21 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                 padding: const EdgeInsets.all(16),
                 children: [
                   CustomTextField(
-                    label: "عنوان الامتحان",
+                    label: AppLocalizations.of(context)!.examTitleLabel,
                     controller: _titleController,
-                    hintText: "مثال: امتحان شامل الفصل الأول",
+                    hintText: AppLocalizations.of(context)!.examTitleHint,
                     prefixIcon: Icons.quiz,
-                    validator: (val) => val!.isEmpty ? "مطلوب" : null,
+                    validator: (val) => val!.isEmpty ? AppLocalizations.of(context)!.requiredField : null,
                   ),
                   const SizedBox(height: 15),
                   
                   CustomTextField(
-                    label: "المدة (دقائق)",
+                    label: AppLocalizations.of(context)!.durationMinutesLabel,
                     controller: _durationController,
-                    hintText: "أدخل مدة الامتحان",
+                    hintText: AppLocalizations.of(context)!.durationHint,
                     prefixIcon: Icons.timer,
                     keyboardType: TextInputType.number,
-                    validator: (val) => val!.isEmpty ? "مطلوب" : null,
+                    validator: (val) => val!.isEmpty ? AppLocalizations.of(context)!.requiredField : null,
                   ),
                   const SizedBox(height: 15),
 
@@ -399,16 +399,16 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                     child: Column(
                       children: [
                         SwitchListTile(
-                          title: Text("ترتيب أسئلة عشوائي", style: TextStyle(color: AppColors.textPrimary)),
-                          subtitle: Text("يظهر لكل طالب ترتيب أسئلة مختلف", style: TextStyle(color: AppColors.textSecondary)),
+                          title: Text(AppLocalizations.of(context)!.randomizeQuestionsTitle, style: TextStyle(color: AppColors.textPrimary)),
+                          subtitle: Text(AppLocalizations.of(context)!.randomizeQuestionsSubtitle, style: TextStyle(color: AppColors.textSecondary)),
                           value: _randomizeQuestions,
                           activeColor: AppColors.accentYellow,
                           onChanged: (val) => setState(() => _randomizeQuestions = val),
                         ),
                         Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.1)),
                         SwitchListTile(
-                          title: Text("ترتيب اختيارات عشوائي", style: TextStyle(color: AppColors.textPrimary)),
-                          subtitle: Text("تغيير أماكن الإجابات داخل كل سؤال", style: TextStyle(color: AppColors.textSecondary)),
+                          title: Text(AppLocalizations.of(context)!.randomizeOptionsTitle, style: TextStyle(color: AppColors.textPrimary)),
+                          subtitle: Text(AppLocalizations.of(context)!.randomizeOptionsSubtitle, style: TextStyle(color: AppColors.textSecondary)),
                           value: _randomizeOptions,
                           activeColor: AppColors.accentYellow,
                           onChanged: (val) => setState(() => _randomizeOptions = val),
@@ -417,8 +417,8 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                         // ✅ إضافة خيار السماح بإعادة الامتحان (التدريب)
                         Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.1)),
                         SwitchListTile(
-                          title: Text("السماح بإعادة الامتحان (تدريب)", style: TextStyle(color: AppColors.textPrimary)),
-                          subtitle: Text("يمكن للطالب إعادة الامتحان دون التأثير على درجته الأولى", style: TextStyle(color: AppColors.textSecondary)),
+                          title: Text(AppLocalizations.of(context)!.allowRetakeTitle, style: TextStyle(color: AppColors.textPrimary)),
+                          subtitle: Text(AppLocalizations.of(context)!.allowRetakeSubtitle, style: TextStyle(color: AppColors.textSecondary)),
                           value: _allowRetake,
                           activeColor: AppColors.accentYellow,
                           onChanged: (val) => setState(() => _allowRetake = val),
@@ -428,8 +428,8 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                         if (widget.examId == null) ...[
                           Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.1)),
                           SwitchListTile(
-                            title: Text("إرسال إشعار للطلاب", style: TextStyle(color: AppColors.accentYellow)),
-                            subtitle: Text("تنبيه الطلاب المشتركين بإضافة هذا الامتحان", style: TextStyle(color: AppColors.textSecondary)),
+                            title: Text(AppLocalizations.of(context)!.notifyStudentsTitle, style: TextStyle(color: AppColors.accentYellow)),
+                            subtitle: Text(AppLocalizations.of(context)!.notifyStudentsSubtitle, style: TextStyle(color: AppColors.textSecondary)),
                             value: _notifyStudents,
                             activeColor: AppColors.accentYellow,
                             onChanged: (val) => setState(() => _notifyStudents = val),
@@ -439,14 +439,14 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                         Divider(thickness: 2, color: AppColors.textSecondary.withOpacity(0.1)),
                         ListTile(
                           leading: const Icon(Icons.calendar_today, color: Colors.blue),
-                          title: Text(_startDate == null ? "تاريخ ووقت التفعيل (البداية)" : "يبدأ: ${_formatDate(_startDate!)}", style: TextStyle(color: AppColors.textPrimary)),
-                          subtitle: Text("اضغط لتحديد البداية", style: TextStyle(color: AppColors.textSecondary)),
+                          title: Text(_startDate == null ? AppLocalizations.of(context)!.activationDateTimeLabel : AppLocalizations.of(context)!.startsAtLabel(_formatDate(_startDate!)), style: TextStyle(color: AppColors.textPrimary)),
+                          subtitle: Text(AppLocalizations.of(context)!.tapToSetStart, style: TextStyle(color: AppColors.textSecondary)),
                           onTap: () => _pickDateTime(true),
                         ),
                         ListTile(
                           leading: Icon(Icons.event_busy, color: AppColors.error),
-                          title: Text(_endDate == null ? "تاريخ ووقت الإغلاق (النهاية)" : "ينتهي: ${_formatDate(_endDate!)}", style: TextStyle(color: AppColors.textPrimary)),
-                          subtitle: Text("اضغط لتحديد النهاية", style: TextStyle(color: AppColors.textSecondary)),
+                          title: Text(_endDate == null ? AppLocalizations.of(context)!.closingDateTimeLabel : AppLocalizations.of(context)!.endsAtLabel(_formatDate(_endDate!)), style: TextStyle(color: AppColors.textPrimary)),
+                          subtitle: Text(AppLocalizations.of(context)!.tapToSetEnd, style: TextStyle(color: AppColors.textSecondary)),
                           onTap: () => _pickDateTime(false),
                         ),
                       ],
@@ -457,11 +457,11 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text("الأسئلة (${_questions.length})", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                      Text(AppLocalizations.of(context)!.questionsCountLabel(_questions.length.toString()), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                       ElevatedButton.icon(
                         onPressed: () => _openQuestionDialog(),
                         icon: const Icon(Icons.add),
-                        label: const Text("إضافة سؤال"),
+                        label: Text(AppLocalizations.of(context)!.addQuestionAction),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.accentYellow,
                           foregroundColor: AppColors.backgroundPrimary,
@@ -474,7 +474,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                   if (_questions.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(20),
-                      child: Center(child: Text("لم تتم إضافة أسئلة بعد", style: TextStyle(color: AppColors.textSecondary))),
+                      child: Center(child: Text(AppLocalizations.of(context)!.noQuestionsAddedYet, style: TextStyle(color: AppColors.textSecondary))),
                     )
                   else
                     ListView.builder(
@@ -505,14 +505,18 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                                       borderRadius: BorderRadius.circular(20),
                                       border: Border.all(color: AppColors.accentBlue.withOpacity(0.4)),
                                     ),
-                                    child: Text("مقالي", style: TextStyle(color: AppColors.accentBlue, fontSize: 11, fontWeight: FontWeight.bold)),
+                                    child: Text(AppLocalizations.of(context)!.essayBadge, style: TextStyle(color: AppColors.accentBlue, fontSize: 11, fontWeight: FontWeight.bold)),
                                   ),
                               ],
                             ),
                             subtitle: Text(
                               q.isEssay
-                                  ? "تصحيح يدوي • الدرجة العظمى ${q.maxScore.toStringAsFixed(q.maxScore.truncateToDouble() == q.maxScore ? 0 : 1)} • ${q.imageFile != null ? "صورة جديدة" : (q.imageUrl != null ? "صورة محفوظة" : "نص فقط")}"
-                                  : "${q.options.length} اختيارات • ${q.imageFile != null ? "صورة جديدة" : (q.imageUrl != null ? "صورة محفوظة" : "نص فقط")}",
+                                  ? AppLocalizations.of(context)!.essayQuestionSubtitle(
+                                      q.maxScore.toStringAsFixed(q.maxScore.truncateToDouble() == q.maxScore ? 0 : 1),
+                                      q.imageFile != null ? AppLocalizations.of(context)!.newImageStatus : (q.imageUrl != null ? AppLocalizations.of(context)!.savedImageStatus : AppLocalizations.of(context)!.textOnlyStatus))
+                                  : AppLocalizations.of(context)!.mcqQuestionSubtitle(
+                                      q.options.length.toString(),
+                                      q.imageFile != null ? AppLocalizations.of(context)!.newImageStatus : (q.imageUrl != null ? AppLocalizations.of(context)!.savedImageStatus : AppLocalizations.of(context)!.textOnlyStatus)),
                               style: TextStyle(color: AppColors.textSecondary),
                             ),
                             trailing: IconButton(
@@ -533,7 +537,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                       backgroundColor: AppColors.accentYellow,
                     ),
                     child: Text(
-                      widget.examId != null ? "حفظ التعديلات" : "حفظ ونشر الامتحان", 
+                      widget.examId != null ? AppLocalizations.of(context)!.saveChangesAction : AppLocalizations.of(context)!.saveAndPublishExamAction, 
                       style: TextStyle(fontSize: 18, color: AppColors.backgroundPrimary, fontWeight: FontWeight.bold)
                     ),
                   ),
@@ -660,7 +664,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
   void _removeOption(int index) {
     if (_optionControllers.length <= 2) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("يجب أن يحتوي السؤال على خيارين على الأقل"), backgroundColor: AppColors.error)
+        SnackBar(content: Text(AppLocalizations.of(context)!.minTwoOptionsRequired), backgroundColor: AppColors.error)
       );
       return;
     }
@@ -684,7 +688,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
       final maxScore = double.tryParse(_maxScoreController.text.trim());
       if (maxScore == null || maxScore <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("يجب تحديد الدرجة العظمى للسؤال المقالي"), backgroundColor: AppColors.error)
+          SnackBar(content: Text(AppLocalizations.of(context)!.maxScoreRequiredForEssay), backgroundColor: AppColors.error)
         );
         return;
       }
@@ -709,7 +713,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
     
     if (options.any((o) => o.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("يرجى ملء جميع حقول الخيارات أو حذف الفارغ منها"), backgroundColor: AppColors.error)
+        SnackBar(content: Text(AppLocalizations.of(context)!.fillAllOptionsOrDelete), backgroundColor: AppColors.error)
       );
       return;
     }
@@ -737,7 +741,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
     return AlertDialog(
       backgroundColor: AppColors.backgroundSecondary,
       title: Text(
-          widget.initialQuestion == null ? "سؤال جديد" : "تعديل السؤال",
+          widget.initialQuestion == null ? AppLocalizations.of(context)!.newQuestionTitle : AppLocalizations.of(context)!.editQuestionTitle,
           style: TextStyle(color: AppColors.textPrimary)
       ),
       content: SizedBox(
@@ -752,13 +756,13 @@ class _QuestionDialogState extends State<QuestionDialog> {
                   controller: _questionTextController,
                   style: TextStyle(color: AppColors.textPrimary),
                   decoration: InputDecoration(
-                    labelText: "نص السؤال",
+                    labelText: AppLocalizations.of(context)!.questionTextLabel,
                     labelStyle: TextStyle(color: AppColors.textSecondary),
                     enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
                     focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
                   ),
                   maxLines: 2,
-                  validator: (val) => val!.isEmpty ? "مطلوب" : null,
+                  validator: (val) => val!.isEmpty ? AppLocalizations.of(context)!.requiredField : null,
                 ),
                 const SizedBox(height: 10),
 
@@ -767,14 +771,14 @@ class _QuestionDialogState extends State<QuestionDialog> {
                   dropdownColor: AppColors.backgroundSecondary,
                   style: TextStyle(color: AppColors.textPrimary),
                   decoration: InputDecoration(
-                    labelText: "نوع السؤال",
+                    labelText: AppLocalizations.of(context)!.questionTypeLabel,
                     labelStyle: TextStyle(color: AppColors.textSecondary),
                     enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
                     focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
                   ),
-                  items: const [
-                    DropdownMenuItem(value: 'mcq', child: Text("اختياري (متعدد الإجابات)")),
-                    DropdownMenuItem(value: 'essay', child: Text("مقالي (تصحيح يدوي)")),
+                  items: [
+                    DropdownMenuItem(value: 'mcq', child: Text(AppLocalizations.of(context)!.mcqTypeOption)),
+                    DropdownMenuItem(value: 'essay', child: Text(AppLocalizations.of(context)!.essayTypeOption)),
                   ],
                   onChanged: (val) {
                     if (val == null) return;
@@ -788,8 +792,8 @@ class _QuestionDialogState extends State<QuestionDialog> {
                     Expanded(
                       child: Text(
                         _selectedImage != null 
-                            ? "تم اختيار صورة جديدة" 
-                            : (_existingImageUrl != null ? "صورة محفوظة مسبقاً" : "لا توجد صورة"),
+                            ? AppLocalizations.of(context)!.newImageSelectedStatus 
+                            : (_existingImageUrl != null ? AppLocalizations.of(context)!.imageSavedPreviouslyStatus : AppLocalizations.of(context)!.noImageStatus),
                         style: TextStyle(
                           color: _selectedImage != null ? AppColors.success : AppColors.textSecondary,
                           fontWeight: _selectedImage != null ? FontWeight.bold : FontWeight.normal
@@ -799,12 +803,12 @@ class _QuestionDialogState extends State<QuestionDialog> {
                     IconButton(
                       onPressed: _pickImage,
                       icon: Icon(Icons.image, color: AppColors.accentYellow),
-                      tooltip: "رفع/تغيير صورة",
+                      tooltip: AppLocalizations.of(context)!.uploadChangeImageTooltip,
                     ),
                     if (_selectedImage != null || _existingImageUrl != null)
                       IconButton(
                         icon: Icon(Icons.close, color: AppColors.error),
-                        tooltip: "حذف الصورة",
+                        tooltip: AppLocalizations.of(context)!.deleteImageTooltip,
                         onPressed: () => setState(() {
                           _selectedImage = null;
                           _existingImageUrl = null;
@@ -815,14 +819,14 @@ class _QuestionDialogState extends State<QuestionDialog> {
                 Divider(color: AppColors.textSecondary.withOpacity(0.1)),
 
                 if (_questionType == 'essay') ...[
-                  Text("الدرجة العظمى لهذا السؤال:", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  Text(AppLocalizations.of(context)!.maxScoreForQuestionLabel, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _maxScoreController,
                     style: TextStyle(color: AppColors.textPrimary),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
-                      labelText: "الدرجة",
+                      labelText: AppLocalizations.of(context)!.scoreLabel,
                       labelStyle: TextStyle(color: AppColors.textSecondary),
                       enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
                       focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
@@ -830,11 +834,11 @@ class _QuestionDialogState extends State<QuestionDialog> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    "سيكتب الطالب إجابته في مربع نصي، وستحتاج لتصحيحها يدوياً بعد التسليم.",
+                    AppLocalizations.of(context)!.essayInfoMessage,
                     style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
                   ),
                   const SizedBox(height: 16),
-                  Text("الإجابة النموذجية (اختياري):", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  Text(AppLocalizations.of(context)!.modelAnswerOptionalLabel, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _modelAnswerController,
@@ -842,7 +846,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
                     maxLines: 4,
                     minLines: 3,
                     decoration: InputDecoration(
-                      hintText: "اكتب الإجابة النموذجية هنا ليراها الطالب بعد ظهور النتيجة...",
+                      hintText: AppLocalizations.of(context)!.modelAnswerHint,
                       hintStyle: TextStyle(color: AppColors.textSecondary.withOpacity(0.5)),
                       enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
                       focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
@@ -850,18 +854,18 @@ class _QuestionDialogState extends State<QuestionDialog> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    "ستظهر هذه الإجابة للطالب في شاشة النتيجة والمراجعة بعد التصحيح، كمرجع لمقارنة إجابته.",
+                    AppLocalizations.of(context)!.modelAnswerInfoMessage,
                     style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                   ),
                 ] else ...[
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text("الخيارات (حدد الصحيحة):", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                      Text(AppLocalizations.of(context)!.optionsSelectCorrectLabel, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                       TextButton.icon(
                         onPressed: _addOption,
                         icon: Icon(Icons.add_circle, size: 18, color: AppColors.accentYellow),
-                        label: Text("إضافة خيار", style: TextStyle(color: AppColors.accentYellow)),
+                        label: Text(AppLocalizations.of(context)!.addOptionAction, style: TextStyle(color: AppColors.accentYellow)),
                         style: TextButton.styleFrom(padding: EdgeInsets.zero),
                       ),
                     ],
@@ -884,20 +888,20 @@ class _QuestionDialogState extends State<QuestionDialog> {
                               controller: _optionControllers[index],
                               style: TextStyle(color: AppColors.textPrimary),
                               decoration: InputDecoration(
-                                labelText: "الخيار ${index + 1}",
+                                labelText: AppLocalizations.of(context)!.optionNumberLabel((index + 1).toString()),
                                 labelStyle: TextStyle(color: AppColors.textSecondary),
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 10),
                                 enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
                                 focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
                               ),
-                              validator: (val) => val!.isEmpty ? "مطلوب" : null,
+                              validator: (val) => val!.isEmpty ? AppLocalizations.of(context)!.requiredField : null,
                             ),
                           ),
                           if (_optionControllers.length > 2)
                             IconButton(
                               icon: Icon(Icons.remove_circle, color: AppColors.error),
                               onPressed: () => _removeOption(index),
-                              tooltip: "حذف الخيار",
+                              tooltip: AppLocalizations.of(context)!.deleteOptionTooltip,
                             ),
                         ],
                       ),
@@ -910,11 +914,11 @@ class _QuestionDialogState extends State<QuestionDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: Text("إلغاء", style: TextStyle(color: AppColors.textSecondary))),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context)!.cancel, style: TextStyle(color: AppColors.textSecondary))),
         ElevatedButton(
             onPressed: _save,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentYellow),
-            child: Text("حفظ السؤال", style: TextStyle(color: AppColors.backgroundPrimary, fontWeight: FontWeight.bold))
+            child: Text(AppLocalizations.of(context)!.saveQuestionAction, style: TextStyle(color: AppColors.backgroundPrimary, fontWeight: FontWeight.bold))
         ),
       ],
     );
