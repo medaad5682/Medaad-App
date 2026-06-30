@@ -173,6 +173,8 @@ class TeacherService {
   }
 
   // ✅ تأكيد اكتمال الرفع المباشر على Bunny وحفظ سجل الفيديو في قاعدة البيانات
+  // ✅ replaceVideoId: إن أُرسل، يُحدّث صف فيديو موجود (Bunny أو يوتيوب سابقاً)
+  // بدلاً من إنشاء صف جديد — يُستخدم عند "استبدال" فيديو أثناء التعديل.
   Future<Map<String, dynamic>> confirmVideoUpload({
     required String bunnyVideoId,
     required String chapterId,
@@ -180,6 +182,7 @@ class TeacherService {
     bool notifyStudents = false,
     int sortOrder = 999,
     int durationSeconds = 0,
+    String? replaceVideoId,
   }) async {
     try {
       final response = await ApiClient.instance.post(
@@ -191,6 +194,7 @@ class TeacherService {
           'notifyStudents': notifyStudents,
           'sortOrder': sortOrder,
           'durationSeconds': durationSeconds,
+          if (replaceVideoId != null) 'replaceVideoId': replaceVideoId,
         },
       );
 
