@@ -1,6 +1,3 @@
-import 'package:flutter/widgets.dart';
-import 'package:Medaad/l10n/generated/app_localizations.dart';
-
 /// كل الأدوات المتاحة في شريط أدوات القارئ بعد التحديث.
 enum PdfTool {
   none,
@@ -16,30 +13,29 @@ enum PdfTool {
 }
 
 extension PdfToolLabel on PdfTool {
-  /// نص مختصر لكل أداة (يُستخدم في تلميحات الأدوات Tooltips)، حسب اللغة الحالية.
-  String label(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
+  /// نص عربي مختصر لكل أداة (يُستخدم في تلميحات الأدوات Tooltips).
+  String get label {
     switch (this) {
       case PdfTool.none:
         return '';
       case PdfTool.pen:
-        return l10n.pdfToolPen;
+        return 'قلم';
       case PdfTool.highlighter:
-        return l10n.pdfToolHighlightText;
+        return 'تمييز نص';
       case PdfTool.freehandHighlighter:
-        return l10n.pdfToolFreehandHighlight;
+        return 'تمييز حر';
       case PdfTool.eraser:
-        return l10n.pdfToolEraser;
+        return 'ممحاة';
       case PdfTool.comment:
-        return l10n.pdfToolComment;
+        return 'ملاحظة';
       case PdfTool.underline:
-        return l10n.pdfToolUnderline;
+        return 'تسطير';
       case PdfTool.text:
-        return l10n.pdfToolText;
+        return 'نص';
       case PdfTool.shape:
-        return l10n.pdfToolShapes;
+        return 'أشكال';
       case PdfTool.image:
-        return l10n.pdfToolImage;
+        return 'صورة';
     }
   }
 }
