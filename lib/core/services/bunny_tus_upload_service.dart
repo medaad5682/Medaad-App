@@ -62,7 +62,7 @@ class BunnyTusUploadService {
   }
 
   static const String _sessionsBoxName = 'upload_sessions';
-  static const int _chunkSize = 8 * 1024 * 1024; // 8MB لكل قطعة
+  static const int _chunkSize = 2 * 1024 * 1024; // 2MB لكل قطعة — تحديث أكثر سلاسة للنسبة المئوية (1%، 2%...)
 
   final TeacherService _teacherService = TeacherService();
   final Dio _tusDio = Dio(BaseOptions(
@@ -487,27 +487,48 @@ class BunnyTusUploadService {
     }
   }
 
+  // ⏳ Bunny يرد بـ 423 Locked لفترة قصيرة جداً بعد انقطاع الاتصال أثناء PATCH
+  // (المورد "مقفل" مؤقتاً ريثما يُنهي معالجة آخر جزء استلمه). هذا ليس خطأً
+  // نهائياً ولا يعني انتهاء الجلسة — فقط ننتظر قليلاً ونعيد المحاولة بدل
+  // إفشال الرفع بالكامل (تماماً كما يتصرف tus-js-client تلقائياً في الويب).
+  static const List<Duration> _lockRetryDelays = [
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+  ];
+
   Future<int> _fetchCurrentOffset(
       String tusUploadUrl, Map<String, String> authHeaders) async {
-    try {
-      final res = await _tusDio.head(
-        tusUploadUrl,
-        options: Options(headers: authHeaders),
-      );
-      if (res.statusCode == 200 || res.statusCode == 204) {
-        final offsetHeader = res.headers.value('upload-offset');
-        return int.tryParse(offsetHeader ?? '0') ?? 0;
+    for (int attempt = 0; ; attempt++) {
+      try {
+        final res = await _tusDio.head(
+          tusUploadUrl,
+          options: Options(headers: authHeaders),
+        );
+        if (res.statusCode == 200 || res.statusCode == 204) {
+          final offsetHeader = res.headers.value('upload-offset');
+          return int.tryParse(offsetHeader ?? '0') ?? 0;
+        }
+        if (res.statusCode == 404 || res.statusCode == 410) {
+          throw _SessionExpiredError('انتهت صلاحية الرفع المؤقت على السيرفر');
+        }
+        if (res.statusCode == 401 || res.statusCode == 403) {
+          throw _SessionExpiredError('انتهت صلاحية جلسة الرفع');
+        }
+        if (res.statusCode == 423) {
+          // المورد مقفل مؤقتاً على Bunny — ننتظر ونعيد المحاولة بدل الفشل
+          if (attempt < _lockRetryDelays.length) {
+            await Future.delayed(_lockRetryDelays[attempt]);
+            continue;
+          }
+          throw _RetryableUploadError('تعذر التحقق من حالة الرفع (423) — السيرفر لا يزال مشغولاً، أعد المحاولة بعد قليل');
+        }
+        throw _RetryableUploadError('تعذر التحقق من حالة الرفع (${res.statusCode})');
+      } on DioException {
+        // لا يوجد اتصال الآن — اعتبرها حالة قابلة لإعادة المحاولة لاحقاً
+        throw _RetryableUploadError('تعذر التحقق من حالة الرفع');
       }
-      if (res.statusCode == 404 || res.statusCode == 410) {
-        throw _SessionExpiredError('انتهت صلاحية الرفع المؤقت على السيرفر');
-      }
-      if (res.statusCode == 401 || res.statusCode == 403) {
-        throw _SessionExpiredError('انتهت صلاحية جلسة الرفع');
-      }
-      throw _RetryableUploadError('تعذر التحقق من حالة الرفع (${res.statusCode})');
-    } on DioException {
-      // لا يوجد اتصال الآن — اعتبرها حالة قابلة لإعادة المحاولة لاحقاً
-      throw _RetryableUploadError('تعذر التحقق من حالة الرفع');
     }
   }
 
@@ -517,38 +538,50 @@ class BunnyTusUploadService {
     required List<int> bytes,
     required Map<String, String> authHeaders,
   }) async {
-    try {
-      final res = await _tusDio.patch(
-        tusUploadUrl,
-        data: Stream.fromIterable([bytes]),
-        options: Options(
-          headers: {
-            ...authHeaders,
-            'Content-Type': 'application/offset+octet-stream',
-            'Upload-Offset': offset.toString(),
-            'Content-Length': bytes.length.toString(),
-          },
-        ),
-      );
+    for (int attempt = 0; ; attempt++) {
+      try {
+        final res = await _tusDio.patch(
+          tusUploadUrl,
+          data: Stream.fromIterable([bytes]),
+          options: Options(
+            headers: {
+              ...authHeaders,
+              'Content-Type': 'application/offset+octet-stream',
+              'Upload-Offset': offset.toString(),
+              'Content-Length': bytes.length.toString(),
+            },
+          ),
+        );
 
-      if (res.statusCode == 204 || res.statusCode == 200) {
-        final newOffsetHeader = res.headers.value('upload-offset');
-        final newOffset = int.tryParse(newOffsetHeader ?? '');
-        return newOffset ?? (offset + bytes.length);
+        if (res.statusCode == 204 || res.statusCode == 200) {
+          final newOffsetHeader = res.headers.value('upload-offset');
+          final newOffset = int.tryParse(newOffsetHeader ?? '');
+          return newOffset ?? (offset + bytes.length);
+        }
+
+        if (res.statusCode == 409) {
+          // تعارض في الأوفست (ربما رفعت قطعة سابقاً بالفعل) — أعد القراءة من السيرفر
+          throw _RetryableUploadError('تعارض في نقطة الاستئناف');
+        }
+
+        if (res.statusCode == 401 || res.statusCode == 403) {
+          throw _SessionExpiredError('انتهت صلاحية جلسة الرفع');
+        }
+
+        if (res.statusCode == 423) {
+          // المورد مقفل مؤقتاً (عادة عقب انقطاع اتصال أثناء PATCH سابق) —
+          // ننتظر قليلاً ونعيد محاولة نفس الجزء بدل إفشال الرفع بالكامل
+          if (attempt < _lockRetryDelays.length) {
+            await Future.delayed(_lockRetryDelays[attempt]);
+            continue;
+          }
+          throw _RetryableUploadError('تعذر إكمال الرفع (423) — السيرفر لا يزال مشغولاً، أعد المحاولة بعد قليل');
+        }
+
+        throw _RetryableUploadError('خطأ مؤقت أثناء رفع جزء من الملف (${res.statusCode})');
+      } on DioException {
+        throw _RetryableUploadError('انقطع الاتصال أثناء رفع جزء من الملف');
       }
-
-      if (res.statusCode == 409) {
-        // تعارض في الأوفست (ربما رفعت قطعة سابقاً بالفعل) — أعد القراءة من السيرفر
-        throw _RetryableUploadError('تعارض في نقطة الاستئناف');
-      }
-
-      if (res.statusCode == 401 || res.statusCode == 403) {
-        throw _SessionExpiredError('انتهت صلاحية جلسة الرفع');
-      }
-
-      throw _RetryableUploadError('خطأ مؤقت أثناء رفع جزء من الملف (${res.statusCode})');
-    } on DioException {
-      throw _RetryableUploadError('انقطع الاتصال أثناء رفع جزء من الملف');
     }
   }
 
