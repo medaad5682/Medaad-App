@@ -374,5 +374,394 @@
   "searchCourseHint": "Search course name or code...",
   "@searchCourseHint": {
     "description": "Hint text for the course search field on the home screen"
+  },
+
+  "libraryTitle": "LIBRARY",
+  "@libraryTitle": {
+    "description": "Header title on the My Courses / Library screen, shown in both the guest and logged-in views"
+  },
+
+  "guestModeLabel": "GUEST MODE",
+  "@guestModeLabel": {
+    "description": "Small subtitle shown under the Library header when browsing as a guest"
+  },
+
+  "loginRequiredTitle": "LOGIN REQUIRED",
+  "@loginRequiredTitle": {
+    "description": "Title shown to guests on the Library screen explaining they must log in to see their courses"
+  },
+
+  "loginRequiredMessage": "Sign in to view and access your enrolled courses.",
+  "@loginRequiredMessage": {
+    "description": "Body message shown to guests on the Library screen below the login-required title"
+  },
+
+  "courseNotFound": "Course not found",
+  "@courseNotFound": {
+    "description": "Message shown on the Course Details screen when the course data could not be loaded"
+  },
+
+  "unknownInstructor": "Unknown Instructor",
+  "@unknownInstructor": {
+    "description": "Fallback instructor name on the Course Details screen when none is provided"
+  },
+
+  "instructorProfileUnavailable": "Instructor profile not available",
+  "@instructorProfileUnavailable": {
+    "description": "Snackbar shown when tapping the instructor card but no teacher profile id exists"
+  },
+
+  "instructorLabel": "INSTRUCTOR",
+  "@instructorLabel": {
+    "description": "Small label above the instructor's name on the Course Details screen"
+  },
+
+  "noDescriptionAvailable": "No description available.",
+  "@noDescriptionAvailable": {
+    "description": "Fallback text on the Course Details screen when a course has no description"
+  },
+
+  "teacherAccountLabel": "TEACHER ACCOUNT",
+  "@teacherAccountLabel": {
+    "description": "Heading shown to teacher accounts on the Course Details screen, replacing the purchase section"
+  },
+
+  "teachersCannotPurchaseMessage": "Teachers cannot purchase courses.",
+  "@teachersCannotPurchaseMessage": {
+    "description": "Explanatory message shown to teacher accounts in place of the purchase options"
+  },
+
+  "courseContentLabel": "COURSE CONTENT",
+  "@courseContentLabel": {
+    "description": "Section title on the Course Details screen when in free-activation mode"
+  },
+
+  "purchaseOptionsLabel": "PURCHASE OPTIONS",
+  "@purchaseOptionsLabel": {
+    "description": "Section title on the Course Details screen when not in free-activation mode"
+  },
+
+  "fullCourseLabel": "FULL COURSE",
+  "@fullCourseLabel": {
+    "description": "Label for the full-course option card in free-activation mode"
+  },
+
+  "fullCourseAccessLabel": "FULL COURSE ACCESS",
+  "@fullCourseAccessLabel": {
+    "description": "Label for the full-course option card in paid mode"
+  },
+
+  "accessAllSubjectsExams": "Access all subjects & exams",
+  "@accessAllSubjectsExams": {
+    "description": "Subtitle describing what the full-course option includes"
+  },
+
+  "courseOwnedLabel": "COURSE OWNED",
+  "@courseOwnedLabel": {
+    "description": "Badge shown when the student already owns the full course"
+  },
+
+  "individualSubjectsLabel": "INDIVIDUAL SUBJECTS",
+  "@individualSubjectsLabel": {
+    "description": "Section title above the list of individually-purchasable subjects"
+  },
+
+  "ownedLabel": "OWNED",
+  "@ownedLabel": {
+    "description": "Small badge shown next to a subject the student already owns"
+  },
+
+  "priceEgp": "{price} EGP",
+  "@priceEgp": {
+    "description": "Price displayed with the EGP currency suffix",
+    "placeholders": {
+      "price": {
+        "type": "String",
+        "example": "250"
+      }
+    }
+  },
+
+  "totalPayableLabel": "TOTAL PAYABLE",
+  "@totalPayableLabel": {
+    "description": "Label above the total price in the bottom checkout bar"
+  },
+
+  "freeActivationLabel": "Free Activation",
+  "@freeActivationLabel": {
+    "description": "Label shown in the bottom bar instead of a price when in free-activation mode"
+  },
+
+  "activateButton": "ACTIVATE",
+  "@activateButton": {
+    "description": "Button label to activate a free course/subject"
+  },
+
+  "checkoutButton": "CHECKOUT",
+  "@checkoutButton": {
+    "description": "Button label to proceed to checkout for a paid course/subject"
+  },
+
+  "selectItemsFirstError": "Please select items first",
+  "@selectItemsFirstError": {
+    "description": "Snackbar error when trying to activate without selecting any items"
+  },
+
+  "activationSuccessMessage": "Activation Successful! ✅",
+  "@activationSuccessMessage": {
+    "description": "Snackbar shown after a successful free activation"
+  },
+
+  "activationFailedMessage": "Failed to activate. Try again.",
+  "@activationFailedMessage": {
+    "description": "Snackbar shown when a free activation request fails"
+  },
+
+  "instructorFallback": "Instructor",
+  "@instructorFallback": {
+    "description": "Fallback instructor name on the Course Materials (subject list) screen when none is provided"
+  },
+
+  "chooseSubjectLabel": "CHOOSE SUBJECT",
+  "@chooseSubjectLabel": {
+    "description": "Subtitle under the course title on the Course Materials screen, prompting the student to pick a subject"
+  },
+
+  "noSubjectsFound": "NO SUBJECTS FOUND",
+  "@noSubjectsFound": {
+    "description": "Empty state message on the Course Materials screen when a course has no subjects"
+  },
+
+  "failedToLoadContent": "Failed to load content.",
+  "@failedToLoadContent": {
+    "description": "Error message on the Subject Materials screen when chapter/exam data fails to load"
+  },
+
+  "studentFeedbackDialogTitle": "We'd love your feedback",
+  "@studentFeedbackDialogTitle": {
+    "description": "Title of the dialog where a student writes anonymous feedback about a chapter"
+  },
+
+  "studentFeedbackHint": "Write your feedback or notes about this chapter (anonymous)",
+  "@studentFeedbackHint": {
+    "description": "Hint text inside the anonymous chapter feedback text field"
+  },
+
+  "studentFeedbackSuccessMessage": "Your feedback was submitted successfully, thank you!",
+  "@studentFeedbackSuccessMessage": {
+    "description": "Snackbar shown after a student successfully submits anonymous chapter feedback"
+  },
+
+  "studentFeedbackConnectionError": "A connection error occurred",
+  "@studentFeedbackConnectionError": {
+    "description": "Snackbar shown when submitting anonymous chapter feedback fails"
+  },
+
+  "submitLabel": "Submit",
+  "@submitLabel": {
+    "description": "Generic Submit button label"
+  },
+
+  "teacherFeedbackFetchFailed": "Failed to load feedback",
+  "@teacherFeedbackFetchFailed": {
+    "description": "Snackbar shown when a teacher fails to load anonymous student feedback for a chapter"
+  },
+
+  "teacherFeedbackDialogTitle": "Anonymous Student Feedback",
+  "@teacherFeedbackDialogTitle": {
+    "description": "Title of the dialog where a teacher reviews anonymous feedback submitted by students for a chapter"
+  },
+
+  "teacherFeedbackEmptyState": "No feedback submitted yet",
+  "@teacherFeedbackEmptyState": {
+    "description": "Empty state message in the teacher's anonymous feedback dialog when no feedback exists"
+  },
+
+  "subjectContentsLabel": "SUBJECT CONTENTS",
+  "@subjectContentsLabel": {
+    "description": "Subtitle under the subject title on the Subject Materials screen"
+  },
+
+  "chaptersTabLabel": "Chapters",
+  "@chaptersTabLabel": {
+    "description": "Tab label for the chapters list on the Subject Materials screen"
+  },
+
+  "examsTabLabel": "Exams ({count})",
+  "@examsTabLabel": {
+    "description": "Tab label for the exams list on the Subject Materials screen, showing the exam count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+
+  "noExamsAvailable": "No exams available yet",
+  "@noExamsAvailable": {
+    "description": "Empty state message when a subject has no exams yet"
+  },
+
+  "examStatusUnsolved": "UNSOLVED",
+  "@examStatusUnsolved": {
+    "description": "Exam status badge: the student hasn't attempted the exam yet"
+  },
+
+  "examStatusPending": "PENDING",
+  "@examStatusPending": {
+    "description": "Exam status badge: submitted and awaiting manual teacher grading"
+  },
+
+  "examStatusPractice": "PRACTICE",
+  "@examStatusPractice": {
+    "description": "Exam status badge: completed but retake is allowed for practice"
+  },
+
+  "examStatusCompleted": "COMPLETED",
+  "@examStatusCompleted": {
+    "description": "Exam status badge: completed and no retake allowed"
+  },
+
+  "examStatusExpired": "EXPIRED",
+  "@examStatusExpired": {
+    "description": "Exam status badge: the exam window has expired"
+  },
+
+  "untitledExamFallback": "Untitled Exam",
+  "@untitledExamFallback": {
+    "description": "Fallback exam title when none is set, shown in the exams list"
+  },
+
+  "examDurationMinutes": "{minutes} MINS",
+  "@examDurationMinutes": {
+    "description": "Exam duration shown in minutes on the exam list item",
+    "placeholders": {
+      "minutes": {
+        "type": "String",
+        "example": "30"
+      }
+    }
+  },
+
+  "editExamTooltip": "Edit Exam",
+  "@editExamTooltip": {
+    "description": "Tooltip on the teacher's edit-exam icon button"
+  },
+
+  "statisticsTooltip": "Statistics",
+  "@statisticsTooltip": {
+    "description": "Tooltip on the teacher's exam statistics icon button"
+  },
+
+  "examFallbackTitle": "Exam",
+  "@examFallbackTitle": {
+    "description": "Generic fallback exam title used in a few places (stats screen, exam view)"
+  },
+
+  "examPendingReviewTitle": "Under Review",
+  "@examPendingReviewTitle": {
+    "description": "Title of the dialog shown when a student opens an exam that's awaiting manual teacher grading"
+  },
+
+  "examPendingReviewMessage": "You've submitted this exam and it's now awaiting teacher review.\n\nYou'll be notified once the final result is published.",
+  "@examPendingReviewMessage": {
+    "description": "Body of the dialog shown when a student opens an exam that's awaiting manual teacher grading"
+  },
+
+  "examResultFallbackTitle": "Exam Result",
+  "@examResultFallbackTitle": {
+    "description": "Fallback title passed to the Exam Result screen when the exam has no title"
+  },
+
+  "examResultLoadError": "Error: Cannot load result.",
+  "@examResultLoadError": {
+    "description": "Snackbar shown when an exam result cannot be opened because no attempt id is available"
+  },
+
+  "examOptionsDialogTitle": "Exam Options",
+  "@examOptionsDialogTitle": {
+    "description": "Title of the dialog offering to view a previous result or retake a completed exam"
+  },
+
+  "examRetakeOptionsMessage": "You've already completed this exam. Would you like to view your previous result or retake the exam for practice?",
+  "@examRetakeOptionsMessage": {
+    "description": "Body of the dialog offering to view a previous result or retake a completed exam"
+  },
+
+  "viewResultButton": "View Result",
+  "@viewResultButton": {
+    "description": "Button label to view a previously completed exam's result"
+  },
+
+  "retakeForPracticeButton": "Retake for Practice",
+  "@retakeForPracticeButton": {
+    "description": "Button label to retake a completed exam for practice"
+  },
+
+  "confirmStartExamTitle": "Confirm Start Exam",
+  "@confirmStartExamTitle": {
+    "description": "Title of the dialog confirming the student wants to start an exam"
+  },
+
+  "confirmStartExamMessage": "Are you ready? The exam and timer will begin once you confirm.",
+  "@confirmStartExamMessage": {
+    "description": "Body of the dialog confirming the student wants to start an exam"
+  },
+
+  "startExamButton": "Start Exam",
+  "@startExamButton": {
+    "description": "Button label to begin an exam attempt"
+  },
+
+  "noChaptersFound": "No chapters found",
+  "@noChaptersFound": {
+    "description": "Empty state message when a subject has no chapters yet"
+  },
+
+  "unknownCourseFallback": "Unknown Course",
+  "@unknownCourseFallback": {
+    "description": "Fallback course title passed to the Chapter Contents screen when none is known"
+  },
+
+  "chapterFallbackTitle": "Chapter",
+  "@chapterFallbackTitle": {
+    "description": "Fallback chapter title when none is set"
+  },
+
+  "contentsCountLabel": "{count} CONTENTS",
+  "@contentsCountLabel": {
+    "description": "Count of videos + PDFs shown on a chapter list item",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+
+  "loginNowButton": "LOGIN NOW",
+  "@loginNowButton": {
+    "description": "Button label on the guest Library screen to go to the login screen"
+  },
+
+  "myLessonsSubtitle": "MY LESSONS",
+  "@myLessonsSubtitle": {
+    "description": "Small subtitle under the Library header on the logged-in Library/My Courses screen"
+  },
+
+  "noActiveCourses": "NO ACTIVE COURSES",
+  "@noActiveCourses": {
+    "description": "Empty state message when the student's library has no enrolled courses"
+  },
+
+  "marketTitle": "MARKET",
+  "@marketTitle": {
+    "description": "Header title on the course market/store screen"
+  },
+
+  "searchCourseMarketHint": "Find excellence...",
+  "@searchCourseMarketHint": {
+    "description": "Hint text for the search field on the course market screen"
   }
 }
