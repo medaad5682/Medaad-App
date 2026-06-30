@@ -10,6 +10,7 @@ import 'course_details_screen.dart';
 import 'course_materials_screen.dart';
 import 'login_screen.dart';
 import 'teacher/manage_content_screen.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class MyCoursesScreen extends StatefulWidget {
   const MyCoursesScreen({super.key});
@@ -125,7 +126,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "LIBRARY",
+                            AppLocalizations.of(context)!.libraryTitle,
                             style: TextStyle(
                               color: AppColors.textPrimary,
                               fontSize: 24,
@@ -136,7 +137,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            "GUEST MODE",
+                            AppLocalizations.of(context)!.guestModeLabel,
                             style: TextStyle(
                               color: AppColors.accentYellow,
                               fontSize: 10,
@@ -181,7 +182,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                         color: AppColors.textSecondary.withOpacity(0.2)),
                     const SizedBox(height: 24),
                     Text(
-                      "LOGIN REQUIRED",
+                      AppLocalizations.of(context)!.loginRequiredTitle,
                       style: TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 16,
@@ -191,7 +192,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      "Sign in to access your purchased lessons.",
+                      AppLocalizations.of(context)!.loginRequiredMessage,
                       style: TextStyle(
                           color: AppColors.textSecondary.withOpacity(0.7),
                           fontSize: 12),
