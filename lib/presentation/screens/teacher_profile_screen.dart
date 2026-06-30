@@ -9,6 +9,7 @@ import 'course_details_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 class TeacherProfileScreen extends StatefulWidget {
   final String teacherId;
@@ -71,8 +72,8 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text("Could not open WhatsApp"),
+          SnackBar(
+              content: Text(AppLocalizations.of(context)!.couldNotOpenWhatsapp),
               backgroundColor: Colors.red),
         );
       }
@@ -90,7 +91,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
       return Scaffold(
           backgroundColor: AppColors.backgroundPrimary,
           body: Center(
-              child: Text("Error loading profile",
+              child: Text(AppLocalizations.of(context)!.errorLoadingProfile,
                   style: TextStyle(color: AppColors.textPrimary))));
 
     final courses = List<Map<String, dynamic>>.from(_teacher!['courses'] ?? []);
@@ -106,7 +107,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
               Padding(
                 padding: const EdgeInsets.all(24),
                 child: Align(
-                  alignment: Alignment.topLeft,
+                  alignment: AlignmentDirectional.topStart,
                   child: GestureDetector(
                     onTap: () => Navigator.pop(context),
                     child: Container(
@@ -169,7 +170,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
               const SizedBox(height: 8),
 
               Text(
-                _teacher!['specialty'] ?? 'INSTRUCTOR',
+                _teacher!['specialty'] ?? AppLocalizations.of(context)!.instructorLabel,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: AppColors.accentOrange,
@@ -189,7 +190,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
                         _launchWhatsApp(_teacher!['whatsapp_number']),
                     icon: const Icon(LucideIcons.messageCircle,
                         color: Colors.white),
-                    label: const Text("Chat on WhatsApp",
+                    label: Text(AppLocalizations.of(context)!.chatOnWhatsapp,
                         style: TextStyle(fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
@@ -222,7 +223,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
                         size: 32),
                     const SizedBox(height: 12),
                     Text(
-                      _teacher!['bio'] ?? 'No bio available.',
+                      _teacher!['bio'] ?? AppLocalizations.of(context)!.noBioAvailable,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: AppColors.textSecondary.withOpacity(0.8),
@@ -237,7 +238,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
               // --- Courses Section ---
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text("AVAILABLE COURSES",
+                child: Text(AppLocalizations.of(context)!.availableCoursesLabel,
                     style: TextStyle(
                         color: AppColors.textSecondary,
                         fontWeight: FontWeight.bold,
@@ -250,7 +251,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
                 Center(
                     child: Padding(
                         padding: const EdgeInsets.all(20),
-                        child: Text("No courses found",
+                        child: Text(AppLocalizations.of(context)!.noCoursesFound,
                             style: TextStyle(
                                 color:
                                     AppColors.textSecondary.withOpacity(0.5)))))
@@ -287,7 +288,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(c['title'] ?? 'Untitled',
+                                  Text(c['title'] ?? AppLocalizations.of(context)!.untitledFallback,
                                       style: TextStyle(
                                           color: AppColors.textPrimary,
                                           fontWeight: FontWeight.bold,
@@ -296,7 +297,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
                                   // ✅ التعديل: إخفاء السعر إذا كان الوضع المجاني مفعلاً
                                   if (!_isFreeMode) ...[
                                     const SizedBox(height: 4),
-                                    Text("${c['price']} EGP",
+                                    Text(AppLocalizations.of(context)!.priceEgp(c['price'].toString()),
                                         style: TextStyle(
                                             color: AppColors.accentYellow,
                                             fontSize: 12,

@@ -13,6 +13,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 // ✅ مكتبات الحماية
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import '../../core/services/audio_protection_service.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
@@ -261,7 +262,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             setState(() {
               _isError = true;
               _errorPosition = currentPos;
-              _errorMessage = "حدثت مشكلة في الاتصال بالشبكة.\nيرجى التأكد من استقرار الإنترنت وإعادة المحاولة.";
+              _errorMessage = AppLocalizations.of(context)!.networkConnectionProblemMessage;
               _isVideoLoading = false;
             });
             _player.pause();
@@ -310,7 +311,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       if (mounted) {
         setState(() {
           _isError = true;
-          _errorMessage = "فشل في تهيئة المشغل: $e";
+          _errorMessage = AppLocalizations.of(context)!.playerInitFailedMessage(e.toString());
           _isVideoLoading = false;
         });
       }
@@ -442,7 +443,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       if (mounted && !_isDisposing) {
         setState(() {
           _isError = true;
-          _errorMessage = "فشل في تحميل الفيديو.";
+          _errorMessage = AppLocalizations.of(context)!.videoLoadFailedMessage;
           _isVideoLoading = false;
         });
       }
@@ -557,17 +558,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text("الإعدادات",
-                    style: TextStyle(
+            Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(AppLocalizations.of(context)!.settingsTitle,
+                    style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.bold))),
             const Divider(color: Colors.white24),
             ListTile(
               leading: const Icon(LucideIcons.monitor, color: Colors.white),
-              title: Text("الجودة: $_currentQuality",
+              title: Text(AppLocalizations.of(context)!.qualityLabel(_currentQuality),
                   style: const TextStyle(color: Colors.white)),
               onTap: () {
                 Navigator.pop(ctx);
@@ -576,7 +577,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             ),
             ListTile(
               leading: const Icon(LucideIcons.gauge, color: Colors.white),
-              title: Text("السرعة: ${_currentSpeed}x",
+              title: Text(AppLocalizations.of(context)!.speedLabel(_currentSpeed.toString()),
                   style: const TextStyle(color: Colors.white)),
               onTap: () {
                 Navigator.pop(ctx);
@@ -687,7 +688,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     if (widget.streams.isEmpty) {
       setState(() {
         _isError = true;
-        _errorMessage = "لا يوجد مصادر متاحة لهذا الفيديو.";
+        _errorMessage = AppLocalizations.of(context)!.noSourcesAvailableMessage;
         _isVideoLoading = false;
       });
       return;
@@ -1045,8 +1046,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.accentYellow,
                             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
-                        label: const Text("إعادة المحاولة",
-                            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+                        label: Text(AppLocalizations.of(context)!.retry,
+                            style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
                       )
                     ],
                   ),
@@ -1081,7 +1082,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                       if (_stabilizingCountdown > 0) ...[
                         const SizedBox(height: 24),
                         Text(
-                          "Starting in $_stabilizingCountdown",
+                          AppLocalizations.of(context)!.startingInCountdown(_stabilizingCountdown.toString()),
                           style: TextStyle(
                               color: AppColors.accentYellow,
                               fontWeight: FontWeight.bold,
@@ -1095,10 +1096,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                               ]),
                         ),
                         if (!_isVideoLoading)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 12.0),
-                            child: Text("Video Ready - Stabilizing Stream...",
-                                style: TextStyle(
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12.0),
+                            child: Text(AppLocalizations.of(context)!.videoReadyStabilizing,
+                                style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 14,
                                     fontWeight: FontWeight.bold)),
@@ -1244,17 +1245,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   children: [
                     const Icon(Icons.block, color: Colors.white, size: 80),
                     const SizedBox(height: 24),
-                    const Text("SECURITY ALERT",
-                        style: TextStyle(
+                    Text(AppLocalizations.of(context)!.securityAlertTitle,
+                        style: const TextStyle(
                             color: Colors.white,
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 2.0)),
                     const SizedBox(height: 16),
-                    const Text(
-                        "Screen Recording Detected.\nPlayback has been disabled.",
+                    Text(
+                        AppLocalizations.of(context)!.screenRecordingDetectedMessage,
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white70, fontSize: 16)),
+                        style: const TextStyle(color: Colors.white70, fontSize: 16)),
                     const SizedBox(height: 32),
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 32),
@@ -1264,20 +1265,19 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: Colors.yellow, width: 2),
                       ),
-                      child: const Column(
+                      child: Column(
                         children: [
-                          Text("⚠️ تحذير نهائي",
-                              style: TextStyle(
+                          Text(AppLocalizations.of(context)!.finalWarningTitle,
+                              style: const TextStyle(
                                   color: Colors.yellow,
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold)),
-                          SizedBox(height: 8),
+                          const SizedBox(height: 8),
                           Text(
-                              "تسجيل المحتوى مخالف لشروط الاستخدام.\nتكرار هذا الأمر سيؤدي إلى حظر حسابك نهائياً وحذف جميع بياناتك.",
+                              AppLocalizations.of(context)!.contentRecordingViolationMessage,
                               textAlign: TextAlign.center,
                               style:
-                                  TextStyle(color: Colors.white, fontSize: 14),
-                              textDirection: TextDirection.rtl),
+                                  const TextStyle(color: Colors.white, fontSize: 14)),
                         ],
                       ),
                     ),
@@ -1289,8 +1289,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                           foregroundColor: Colors.red.shade900,
                           padding: const EdgeInsets.symmetric(
                               horizontal: 32, vertical: 12)),
-                      child: const Text("CLOSE PLAYER",
-                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: Text(AppLocalizations.of(context)!.closePlayer,
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
                     )
                   ],
                 ),

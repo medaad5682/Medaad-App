@@ -13,6 +13,7 @@ import '../../core/services/audio_protection_service.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 class YoutubePlayerScreen extends StatefulWidget {
   final String videoId;
@@ -386,7 +387,7 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
                         padding: const EdgeInsets.symmetric(
                             horizontal: 32, vertical: 12),
                       ),
-                      child: const Text("CLOSE PLAYER",
+                      child: Text(AppLocalizations.of(context)!.closePlayer,
                           style: TextStyle(fontWeight: FontWeight.bold)),
                     )
                   ],

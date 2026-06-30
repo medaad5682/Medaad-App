@@ -28,6 +28,7 @@ import '../../core/models/pdf_tool_settings.dart';
 import '../../core/pdf_viewer/pdf_tool.dart';
 import '../../core/pdf_viewer/pdf_layout_engine.dart';
 import '../../core/pdf_viewer/pdf_page_text_cache.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 import '../../core/pdf_viewer/pdf_highlight_controller.dart';
 import '../../core/pdf_viewer/pdf_shape_controller.dart';
 import '../../core/pdf_viewer/pdf_text_note_controller.dart';
@@ -72,7 +73,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   Map<String, String>? _onlineHeaders;
 
   bool _loading = true;
-  String _loadingMessage = "جار التحقق من الملف...";
+  String _loadingMessage = AppLocalizations.of(context)!.verifyingFileMessage;
   String? _error;
   bool _isOffline = false;
   String _watermarkText = '';
@@ -267,7 +268,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   Future<void> _preparePdf() async {
     setState(() {
       _loading = true;
-      _loadingMessage = "جار تهيئة الحماية...";
+      _loadingMessage = AppLocalizations.of(context)!.initializingProtectionMessage;
     });
 
     try {
@@ -304,7 +305,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
       setState(() {
         _isOffline = false;
-        _loadingMessage = "جار التحميل المباشر...";
+        _loadingMessage = AppLocalizations.of(context)!.directDownloadMessage;
       });
 
       var box = await StorageService.openBox('auth_box');
@@ -348,7 +349,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       FirebaseCrashlytics.instance.recordError(e, stack, reason: "PDF Secure Load Failed");
       if (mounted) {
         setState(() {
-          _error = "فشل فتح الملف المحمي.";
+          _error = AppLocalizations.of(context)!.failedOpenProtectedFile;
           _loading = false;
         });
       }
@@ -532,7 +533,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 40, 16, 16),
-            child: Text("فهرس الصفحات",
+            child: Text(AppLocalizations.of(context)!.pageIndexTitle,
                 style: TextStyle(
                     color: AppColors.accentYellow, fontWeight: FontWeight.bold, fontSize: 16)),
           ),
@@ -546,7 +547,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                       final pageNum = index + 1;
                       final isCurrent = _pdfController?.pageNumber == pageNum;
                       return ListTile(
-                        title: Text("صفحة $pageNum",
+                        title: Text(AppLocalizations.of(context)!.pageNumberLabel(pageNum.toString()),
                             style: TextStyle(
                                 color: isCurrent ? AppColors.accentYellow : AppColors.textPrimary,
                                 fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal)),
@@ -599,7 +600,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       buildContextMenu: (context, params) {
         if (!_isDrawingMode) return null;
         if (_activeTool != PdfTool.highlighter && _activeTool != PdfTool.underline) return null;
-        final label = _activeTool == PdfTool.highlighter ? 'تمييز' : 'تسطير';
+        final label = _activeTool == PdfTool.highlighter ? AppLocalizations.of(context)!.highlightLabel : AppLocalizations.of(context)!.underlineActionLabel;
         return Material(
           color: Colors.transparent,
           child: Container(
@@ -660,7 +661,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            'لا يوجد تمييز أو تسطير في هذا التحديد',
+                            AppLocalizations.of(context)!.noMarkupInSelectionMessage,
                             style: TextStyle(color: AppColors.textPrimary),
                           ),
                           backgroundColor: AppColors.backgroundSecondary,
@@ -670,7 +671,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     }
                   },
                   icon: Icon(Icons.edit_outlined, color: AppColors.accentYellow, size: 18),
-                  label: Text('تعديل',
+                  label: Text(AppLocalizations.of(context)!.editAction,
                       style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
                 ),
               ],
@@ -1027,7 +1028,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(isHighlight ? "تعديل التمييز" : "تعديل التسطير",
+            Text(isHighlight ? AppLocalizations.of(context)!.editHighlightTitle : AppLocalizations.of(context)!.editUnderlineTitle,
                 style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             ColorPaletteRow(
@@ -1054,7 +1055,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   Navigator.pop(ctx);
                 },
                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                label: Text(isHighlight ? "حذف التمييز" : "حذف التسطير",
+                label: Text(isHighlight ? AppLocalizations.of(context)!.deleteHighlightLabel : AppLocalizations.of(context)!.deleteUnderlineLabel,
                     style: const TextStyle(color: Colors.redAccent)),
               ),
             ),
@@ -1085,7 +1086,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text("تعديل الشكل", style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
+              Text(AppLocalizations.of(context)!.editShapeTitle, style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               // ── شريط تغيير الحجم ──
               Row(
@@ -1118,7 +1119,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   ),
                 ],
               ),
-              Text("الحدود", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+              Text(AppLocalizations.of(context)!.borderLabel.trim(), style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
               ColorPaletteRow(
                 selectedColor: Color(shape.borderColor),
                 onColorSelected: (c) {
@@ -1158,7 +1159,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               // خيار التعبئة (مخفي للسهم)
               if (shape.type != ShapeType.arrow) ...[
                 const SizedBox(height: 8),
-                Text("التعبئة", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                Text(AppLocalizations.of(context)!.fillLabel.trim(), style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                 ColorPaletteRow(
                   selectedColor: shape.fillColor != null ? Color(shape.fillColor!) : Colors.transparent,
                   isTransparentSelected: shape.fillColor == null,
@@ -1182,7 +1183,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     Navigator.pop(ctx);
                   },
                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                  label: const Text("حذف الشكل", style: TextStyle(color: Colors.redAccent)),
+                  label: Text(AppLocalizations.of(context)!.deleteShapeLabel, style: const TextStyle(color: Colors.redAccent)),
                 ),
               ),
             ],
@@ -1314,7 +1315,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     children: [
                       Icon(Icons.comment_rounded, color: Color(comment.color).withOpacity(1.0)),
                       const SizedBox(width: 8),
-                      Text(isNew ? "إضافة تعليق" : "التعليق",
+                      Text(isNew ? AppLocalizations.of(context)!.addCommentTitle : AppLocalizations.of(context)!.commentTitle,
                           style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
                     ],
                   ),
@@ -1333,7 +1334,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           style: TextStyle(color: AppColors.textPrimary),
                           onChanged: (_) => setDialogState(() {}),
                           decoration: InputDecoration(
-                            hintText: _isDrawingMode ? "اكتب ملاحظاتك هنا..." : "لا يوجد نص...",
+                            hintText: _isDrawingMode ? AppLocalizations.of(context)!.writeNotesHint : AppLocalizations.of(context)!.noTextHint,
                             hintStyle: TextStyle(color: AppColors.textSecondary),
                             filled: true,
                             fillColor: AppColors.backgroundPrimary,
@@ -1356,7 +1357,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           const SizedBox(height: 16),
                           Align(
                             alignment: Alignment.centerRight,
-                            child: Text("حجم الأيقونة: ${(comment.scale).toStringAsFixed(1)}",
+                            child: Text(AppLocalizations.of(context)!.iconSizeLabel((comment.scale).toStringAsFixed(1)),
                                 style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                           ),
                           Slider(
@@ -1373,7 +1374,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           Align(
                             alignment: Alignment.centerRight,
                             child: Text(
-                                "الشفافية: ${(Color(comment.color).opacity * 100).toInt()}%",
+                                AppLocalizations.of(context)!.opacityLabel(((Color(comment.color).opacity * 100).toInt()).toString()),
                                 style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                           ),
                           Slider(
@@ -1402,12 +1403,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                                 );
                                 PdfAnnotationStore.saveCommentDefaults(_commentDefaults);
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("تم حفظ الإعدادات الافتراضية")),
+                                  SnackBar(content: Text(AppLocalizations.of(context)!.defaultSettingsSaved)),
                                 );
                               },
                               icon:
                                   Icon(Icons.bookmark_outline, size: 16, color: AppColors.accentYellow),
-                              label: Text("حفظ كافتراضي",
+                              label: Text(AppLocalizations.of(context)!.saveAsDefaultLabel,
                                   style: TextStyle(color: AppColors.accentYellow, fontSize: 12)),
                             ),
                           ),
@@ -1425,12 +1426,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           });
                           Navigator.pop(ctx);
                         },
-                        child: const Text("حذف",
-                            style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                        child: Text(AppLocalizations.of(context)!.delete,
+                            style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
                       ),
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
-                      child: Text(_isDrawingMode ? "إلغاء" : "إغلاق",
+                      child: Text(_isDrawingMode ? AppLocalizations.of(context)!.cancel : AppLocalizations.of(context)!.close,
                           style: const TextStyle(color: Colors.grey)),
                     ),
                     if (_isDrawingMode)
@@ -1447,7 +1448,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           });
                           Navigator.pop(ctx);
                         },
-                        child: const Text("حفظ", style: TextStyle(fontWeight: FontWeight.bold)),
+                        child: Text(AppLocalizations.of(context)!.save, style: const TextStyle(fontWeight: FontWeight.bold)),
                       ),
                   ]);
             }));
@@ -1501,7 +1502,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     border: Border.all(color: Color(previewColor).withOpacity(0.5)),
                   ),
                   child: Text(
-                    controller.text.isNotEmpty ? controller.text : "معاينة النص...",
+                    controller.text.isNotEmpty ? controller.text : AppLocalizations.of(context)!.textPreviewPlaceholder,
                     style: TextStyle(
                       color: Color(previewColor),
                       fontSize: previewFontSize * 400, // عرض نسبي للمعاينة
@@ -1522,7 +1523,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   textDirection: _autoDirection(controller.text),
                   style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
                   decoration: InputDecoration(
-                    hintText: "اكتب النص هنا...",
+                    hintText: AppLocalizations.of(context)!.writeTextHint,
                     hintStyle: TextStyle(color: AppColors.textSecondary),
                     filled: true,
                     fillColor: AppColors.backgroundPrimary,
@@ -1575,7 +1576,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Text("عريض", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    Text(AppLocalizations.of(context)!.boldLabel, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     Switch(
                       value: previewBold,
                       activeColor: AppColors.accentYellow,
@@ -1590,7 +1591,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Text("تسطير", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    Text(AppLocalizations.of(context)!.underlineLabel, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                     Switch(
                       value: previewUnderline,
                       activeColor: AppColors.accentYellow,
@@ -1613,7 +1614,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                             Navigator.pop(ctx);
                           },
                           icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                          label: const Text("حذف", style: TextStyle(color: Colors.redAccent)),
+                          label: Text(AppLocalizations.of(context)!.delete, style: const TextStyle(color: Colors.redAccent)),
                         ),
                       ),
                     Expanded(
@@ -1624,7 +1625,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           Navigator.pop(ctx);
                         },
                         icon: Icon(Icons.check, color: AppColors.accentYellow),
-                        label: Text("حفظ", style: TextStyle(color: AppColors.accentYellow)),
+                        label: Text(AppLocalizations.of(context)!.save, style: TextStyle(color: AppColors.accentYellow)),
                       ),
                     ),
                   ],

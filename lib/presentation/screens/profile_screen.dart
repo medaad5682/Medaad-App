@@ -8,6 +8,7 @@ import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 // ✅ استيراد main.dart للوصول لخاصية إعادة التشغيل
 import '../../main.dart';
@@ -67,22 +68,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.backgroundSecondary,
         title: Text(
-          "Delete Account",
+          AppLocalizations.of(context)!.deleteAccountTitle,
           style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold),
         ),
         content: Text(
-          "Are you sure you want to delete your account? This action cannot be undone and you will lose all your subscriptions.",
+          AppLocalizations.of(context)!.deleteAccountConfirmMessage,
           style: TextStyle(color: AppColors.textPrimary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text("Cancel",
+            child: Text(AppLocalizations.of(context)!.cancel,
                 style: TextStyle(color: AppColors.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text("Delete",
+            child: Text(AppLocalizations.of(context)!.delete,
                 style: TextStyle(
                     color: AppColors.error, fontWeight: FontWeight.bold)),
           ),
@@ -132,7 +133,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text("Account deleted successfully."),
+            content: Text(AppLocalizations.of(context)!.accountDeletedSuccessfully),
             backgroundColor: AppColors.success,
           ),
         );
@@ -142,7 +143,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Navigator.pop(context); // إغلاق مؤشر التحميل
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Error deleting account: $e"),
+            content: Text(AppLocalizations.of(context)!.errorDeletingAccount(e.toString())),
             backgroundColor: AppColors.error,
           ),
         );
@@ -545,8 +546,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon:
                           AppState.isDark ? LucideIcons.moon : LucideIcons.sun,
                       title: AppState.isDark
-                          ? "Dark Mode / الوضع الليلي"
-                          : "Light Mode / الوضع النهاري",
+                          ? AppLocalizations.of(context)!.darkModeLabel
+                          : AppLocalizations.of(context)!.lightModeLabel,
                       onTap: _toggleThemeAndRestart,
                       trailing: Switch(
                         value: AppState.isDark,
