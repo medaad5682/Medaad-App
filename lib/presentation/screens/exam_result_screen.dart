@@ -642,13 +642,6 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                     ),
                   const SizedBox(height: 8),
 
-                  // MCQ score row (extra detail, only when mixed with essays)
-                  if (hasEssayQuestions && mcqTotal > 0)
-                    Text(
-                      "MCQ: $mcqCorrect / $mcqTotal correct",
-                      style: TextStyle(
-                          color: AppColors.textSecondary, fontSize: 12),
-                    ),
 
                   // Essay pending notice inside summary
                   if (hasEssayQuestions && totalScore == null) ...[
