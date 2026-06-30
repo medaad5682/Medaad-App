@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/services/api_client.dart';
 import 'package:dio/dio.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -34,7 +35,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (token == null) {
         if (mounted) {
           setState(() {
-            _errorMessage = "الرجاء تسجيل الدخول لعرض الإشعارات.";
+            _errorMessage = AppLocalizations.of(context)!.pleaseLoginToViewNotifications;
             _isLoading = false;
           });
         }
@@ -60,7 +61,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       } else {
         if (mounted) {
           setState(() {
-            _errorMessage = "فشل في تحميل الإشعارات.";
+            _errorMessage = AppLocalizations.of(context)!.failedToLoadNotifications;
             _isLoading = false;
           });
         }
@@ -68,7 +69,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = "خطأ في الاتصال. يرجى المحاولة لاحقاً.";
+          _errorMessage = AppLocalizations.of(context)!.connectionErrorTryAgainLater;
           _isLoading = false;
         });
       }
@@ -82,9 +83,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       final difference = now.difference(date);
 
       if (difference.inDays == 0 && now.day == date.day) {
-        return "اليوم، ${DateFormat.jm().format(date)}";
+        return AppLocalizations.of(context)!.todayAtLabel(DateFormat.jm().format(date));
       } else if (difference.inDays == 1 || (difference.inDays == 0 && now.day != date.day)) {
-        return "أمس، ${DateFormat.jm().format(date)}";
+        return AppLocalizations.of(context)!.yesterdayAtLabel(DateFormat.jm().format(date));
       } else {
         return DateFormat('yyyy/MM/dd - h:mm a').format(date);
       }
@@ -114,7 +115,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         shadowColor: Colors.black.withOpacity(0.1),
         centerTitle: true,
         title: Text(
-          "الإشعارات",
+          AppLocalizations.of(context)!.notificationsTitle,
           style: TextStyle(
             color: textColor,
             fontWeight: FontWeight.bold,
@@ -146,7 +147,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           backgroundColor: AppColors.accentYellow,
                           foregroundColor: Colors.black,
                         ),
-                        child: const Text("إعادة المحاولة", style: TextStyle(fontWeight: FontWeight.bold)),
+                        child: Text(AppLocalizations.of(context)!.retry, style: TextStyle(fontWeight: FontWeight.bold)),
                       )
                     ],
                   ),
@@ -158,7 +159,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         children: [
                           Icon(LucideIcons.bellOff, size: 80, color: subTextColor.withOpacity(0.3)),
                           const SizedBox(height: 16),
-                          Text("لا توجد إشعارات حتى الآن", 
+                          Text(AppLocalizations.of(context)!.noNotificationsYet, 
                             style: TextStyle(color: subTextColor, fontSize: 16, fontWeight: FontWeight.w500)),
                         ],
                       ),
@@ -205,7 +206,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        notif['title'] ?? 'إشعار جديد',
+                                        notif['title'] ?? AppLocalizations.of(context)!.newNotificationFallback,
                                         style: TextStyle(
                                           color: textColor, 
                                           fontWeight: FontWeight.bold, 

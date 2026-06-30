@@ -8,6 +8,7 @@ import '../../core/services/local_proxy.dart';
 import '../../core/services/download_manager.dart'; 
 import 'downloaded_subjects_screen.dart';
 import '../../core/services/storage_service.dart';
+import '../../l10n/generated/app_localizations.dart';
 // أو المسار المناسب حسب مكان الملف
 
 class DownloadedFilesScreen extends StatefulWidget {
@@ -84,7 +85,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "DOWNLOADS",
+                            AppLocalizations.of(context)!.downloadsTitle,
                             style: TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
@@ -95,7 +96,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            "LOCAL COURSES",
+                            AppLocalizations.of(context)!.localCoursesLabel,
                             style: TextStyle(
                               fontSize: 12,
                               color: AppColors.textSecondary,
@@ -120,7 +121,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                           boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
                         ),
                         child: Text(
-                          "${progressMap.length} ACTIVE",
+                          AppLocalizations.of(context)!.activeCountLabel(progressMap.length),
                           style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.accentYellow),
                         ),
                       );
@@ -139,7 +140,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                   try {
                     for (var key in box.keys) {
                       final item = box.get(key);
-                      final courseName = item['course'] ?? 'Unknown Course';
+                      final courseName = item['course'] ?? AppLocalizations.of(context)!.unknownCourseFallback;
                       groupedCourses[courseName] = (groupedCourses[courseName] ?? 0) + 1;
                     }
                   } catch (e) {}
@@ -153,7 +154,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 80),
                             child: Text(
-                              "NO STORED FILES",
+                              AppLocalizations.of(context)!.noStoredFiles,
                               style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary.withOpacity(0.5), letterSpacing: 2.0),
                             ),
                           ),
@@ -170,7 +171,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                               Padding(
                                 padding: const EdgeInsets.only(left: 4, bottom: 12),
                                 child: Text(
-                                  "ACTIVE DOWNLOADS",
+                                  AppLocalizations.of(context)!.activeDownloadsLabel,
                                   style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 2.0),
                                 ),
                               ),
@@ -180,7 +181,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                                 
                                 // محاولة جلب الاسم (يتطلب إضافة خريطة titles في DownloadManager)
                                 // أو سيظهر المعرف مؤقتاً
-                                String title = "Downloading Item...";
+                                String title = AppLocalizations.of(context)!.downloadingItemPlaceholder;
                                 if (DownloadManager().activeTitles.containsKey(id)) {
                                    title = DownloadManager().activeTitles[id]!;
                                 }
@@ -212,7 +213,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                                           // النسبة وزر الإلغاء
                                           Row(
                                             children: [
-                                              Text("$percent%", style: TextStyle(color: AppColors.accentYellow, fontSize: 12, fontWeight: FontWeight.bold)),
+                                              Text(AppLocalizations.of(context)!.downloadPercentLabel(percent), style: TextStyle(color: AppColors.accentYellow, fontSize: 12, fontWeight: FontWeight.bold)),
                                               const SizedBox(width: 12),
                                               
                                               // ✅ زر الإلغاء (X)
@@ -298,7 +299,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
-                                              "${entry.value} FILES DOWNLOADED",
+                                              AppLocalizations.of(context)!.filesDownloadedCountLabel(entry.value),
                                               style: TextStyle(
                                                 fontSize: 9, 
                                                 fontWeight: FontWeight.bold, 

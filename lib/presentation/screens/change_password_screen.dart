@@ -7,6 +7,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 // أو المسار المناسب حسب مكان الملف
 import '../../core/constants/api_constants.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -26,14 +27,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     // 1. التحقق من تطابق كلمة السر الجديدة قبل الإرسال
     if (_newPassController.text != _confirmPassController.text) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text("Passwords do not match"),
+          content: Text(AppLocalizations.of(context)!.registerPasswordMismatch),
           backgroundColor: AppColors.error));
       return;
     }
 
     if (_oldPassController.text.isEmpty || _newPassController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text("Please fill all fields"),
+          content: Text(AppLocalizations.of(context)!.pleaseFillAllFields),
           backgroundColor: AppColors.error));
       return;
     }
@@ -66,21 +67,21 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         // التحقق من نجاح العملية بناءً على رد السيرفر
         if (res.statusCode == 200 && res.data['success'] == true) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text("Password Updated Successfully"),
+              content: Text(AppLocalizations.of(context)!.passwordUpdatedSuccessfully),
               backgroundColor: AppColors.success));
           Navigator.pop(context);
         } else {
           // عرض رسالة الخطأ القادمة من السيرفر (مثل: Incorrect old password)
           String errorMsg = res.data['message'] ??
               res.data['error'] ??
-              "Failed to update password";
+              AppLocalizations.of(context)!.failedToUpdatePassword;
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(errorMsg), backgroundColor: AppColors.error));
         }
       }
     } catch (e) {
       if (mounted) {
-        String msg = "Connection error. Please try again.";
+        String msg = AppLocalizations.of(context)!.connectionErrorTryAgain;
         if (e is DioException && e.response != null) {
           msg = e.response?.data['error'] ?? e.response?.data['message'] ?? msg;
         }
@@ -123,7 +124,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   ),
                   const SizedBox(width: 16),
                   Text(
-                    "CHANGE PASSWORD",
+                    AppLocalizations.of(context)!.changePasswordTitle,
                     style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -141,13 +142,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 child: Column(
                   children: [
                     _buildPasswordField(
-                        "Current Password", "••••••••", _oldPassController),
+                        AppLocalizations.of(context)!.currentPasswordLabel, "••••••••", _oldPassController),
                     const SizedBox(height: 20),
-                    _buildPasswordField("New Password", "Create new password",
+                    _buildPasswordField(AppLocalizations.of(context)!.newPasswordLabel,
+                        AppLocalizations.of(context)!.createNewPasswordHint,
                         _newPassController),
                     const SizedBox(height: 20),
-                    _buildPasswordField("Confirm New Password",
-                        "Confirm new password", _confirmPassController),
+                    _buildPasswordField(AppLocalizations.of(context)!.confirmNewPasswordLabel,
+                        AppLocalizations.of(context)!.confirmNewPasswordHint, _confirmPassController),
                   ],
                 ),
               ),
@@ -176,13 +178,13 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                           child: CircularProgressIndicator(
                               color: AppColors.backgroundPrimary,
                               strokeWidth: 2))
-                      : const Row(
+                      : Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(LucideIcons.save, size: 18),
-                            SizedBox(width: 12),
-                            Text("UPDATE PASSWORD",
-                                style: TextStyle(
+                            const Icon(LucideIcons.save, size: 18),
+                            const SizedBox(width: 12),
+                            Text(AppLocalizations.of(context)!.updatePasswordButton,
+                                style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 12,
                                     letterSpacing: 1.0)),

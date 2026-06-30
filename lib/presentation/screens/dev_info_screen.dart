@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/storage_service.dart'; // ✅ استيراد خدمة التخزين
 import 'privacy_policy_screen.dart';
 import 'terms_conditions_screen.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class DevInfoScreen extends StatefulWidget {
   const DevInfoScreen({super.key});
@@ -63,7 +64,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                   ),
                   const SizedBox(width: 16),
                   Text(
-                    "APP INFORMATION",
+                    AppLocalizations.of(context)!.appInformation.toUpperCase(),
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -110,7 +111,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            "Crafted with passion for learners everywhere.",
+                            AppLocalizations.of(context)!.craftedWithPassion,
                             style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                           ),
                           const SizedBox(height: 32),
@@ -150,7 +151,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                       alignment: Alignment.centerLeft,
                       child: Padding(
                         padding: const EdgeInsets.only(left: 8, bottom: 12),
-                        child: Text("LEGAL & DOCS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 2.0)),
+                        child: Text(AppLocalizations.of(context)!.legalAndDocs.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 2.0)),
                       ),
                     ),
                     Container(
@@ -166,7 +167,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                           _buildDocItem(
                             context: context,
                             icon: LucideIcons.shield, 
-                            title: "Privacy Policy",
+                            title: AppLocalizations.of(context)!.privacyPolicy,
                             onTap: () {
                               Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen()));
                             }
@@ -175,7 +176,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                           _buildDocItem(
                             context: context,
                             icon: LucideIcons.fileText, 
-                            title: "Terms & Conditions",
+                            title: AppLocalizations.of(context)!.termsAndConditions,
                             onTap: () {
                               Navigator.push(context, MaterialPageRoute(builder: (_) => const TermsConditionsScreen()));
                             }
@@ -185,7 +186,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                           _buildDocItem(
                             context: context,
                             icon: LucideIcons.phone, 
-                            title: "Contact Support",
+                            title: AppLocalizations.of(context)!.contactSupport,
                             onTap: () async {
                               if (whatsappLink != null && whatsappLink!.isNotEmpty) {
                                 final Uri uri = Uri.parse(whatsappLink!);
@@ -194,7 +195,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                                 }
                               } else {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: const Text("Support contact not available"), backgroundColor: AppColors.error),
+                                  SnackBar(content: Text(AppLocalizations.of(context)!.supportContactNotAvailable), backgroundColor: AppColors.error),
                                 );
                               }
                             }
@@ -207,7 +208,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                     
                     // Developers Info
                     Text(
-                      "DEVELOPED BY",
+                      AppLocalizations.of(context)!.developedBy.toUpperCase(),
                       style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 2.0),
                     ),
                     const SizedBox(height: 8),

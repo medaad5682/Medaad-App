@@ -9,6 +9,7 @@ import '../../core/services/local_proxy.dart'; // ✅ استيراد خدمة ا
 import 'video_player_screen.dart';
 import 'pdf_viewer_screen.dart';
 import '../../core/services/storage_service.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class DownloadedChapterContentsScreen extends StatefulWidget {
   final String courseTitle;
@@ -102,7 +103,7 @@ class _DownloadedChapterContentsScreenState
             builder: (_) => VideoPlayerScreen(
               // نمرر رابط الفيديو الجاهز
               streams: {"Offline": playUrl},
-              title: item['title'] ?? "Offline Video",
+              title: item['title'] ?? AppLocalizations.of(context)!.offlineVideoFallbackTitle,
 
               // ✅✅ هام جداً: نمرر رابط الصوت الجاهز هنا
               preReadyAudioUrl: audioUrl,
@@ -122,7 +123,7 @@ class _DownloadedChapterContentsScreenState
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: const Text("Error preparing video playback"),
+              content: Text(AppLocalizations.of(context)!.errorPreparingVideoPlayback),
               backgroundColor: AppColors.error),
         );
       }
@@ -145,7 +146,7 @@ class _DownloadedChapterContentsScreenState
           .recordError(e, stack, reason: 'Failed to open offline PDF');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: const Text("Error opening PDF"),
+            content: Text(AppLocalizations.of(context)!.errorOpeningPdf),
             backgroundColor: AppColors.error),
       );
     }
@@ -162,7 +163,7 @@ class _DownloadedChapterContentsScreenState
       // التحديث يتم تلقائياً عبر ValueListenableBuilder
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Text("File removed"),
+            content: Text(AppLocalizations.of(context)!.fileRemoved),
             backgroundColor: AppColors.accentOrange));
       }
     } catch (e, stack) {
@@ -170,7 +171,7 @@ class _DownloadedChapterContentsScreenState
           .recordError(e, stack, reason: 'Failed to delete file');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Text("Failed to delete file"),
+            content: Text(AppLocalizations.of(context)!.failedToDeleteFile),
             backgroundColor: AppColors.error));
       }
     }
@@ -266,8 +267,8 @@ class _DownloadedChapterContentsScreenState
                       ),
                       child: Row(
                         children: [
-                          _buildTab("Videos (${videoItems.length})", 'videos'),
-                          _buildTab("PDFs (${pdfItems.length})", 'pdfs'),
+                          _buildTab(AppLocalizations.of(context)!.videosTabWithCount(videoItems.length), 'videos'),
+                          _buildTab(AppLocalizations.of(context)!.pdfsTabWithCount(pdfItems.length), 'pdfs'),
                         ],
                       ),
                     ),
@@ -331,7 +332,9 @@ class _DownloadedChapterContentsScreenState
                 color: AppColors.textSecondary.withOpacity(0.3)),
             const SizedBox(height: 16),
             Text(
-              "NO ${activeTab.toUpperCase()} DOWNLOADED",
+              activeTab == 'videos'
+                  ? AppLocalizations.of(context)!.noVideosDownloaded
+                  : AppLocalizations.of(context)!.noPdfsDownloaded,
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.bold,
@@ -365,8 +368,8 @@ class _DownloadedChapterContentsScreenState
             } else {
               // ✅ التعديل هنا: تمرير الـ ID الأصلي فقط بدلاً من المفتاح الكامل
               // هذا لأن شاشة PdfViewerScreen تضيف البادئة 'pdf_' تلقائياً
-              _openOfflinePdf(
-                  item['id'].toString(), item['title'] ?? 'Document');
+              _openOfflinePdf(item['id'].toString(),
+                  item['title'] ?? AppLocalizations.of(context)!.documentFallbackTitle);
             }
           },
           child: Container(
@@ -427,7 +430,7 @@ class _DownloadedChapterContentsScreenState
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    _buildMetaTag(LucideIcons.hardDrive, "$sizeMB MB"),
+                    _buildMetaTag(LucideIcons.hardDrive, AppLocalizations.of(context)!.sizeInMb(sizeMB)),
                     const SizedBox(width: 16),
                     if (activeTab == 'videos') ...[
                       _buildMetaTag(LucideIcons.clock, duration),

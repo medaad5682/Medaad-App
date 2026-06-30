@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
 import 'downloaded_chapters_screen.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class DownloadedSubjectsScreen extends StatelessWidget {
   final String courseTitle;
@@ -21,7 +22,7 @@ class DownloadedSubjectsScreen extends StatelessWidget {
     for (var key in box.keys) {
       final item = box.get(key);
       if (item['course'] == courseTitle) {
-        final subject = item['subject'] ?? 'Unknown Subject';
+        final subject = item['subject'] ?? AppLocalizations.of(context)!.unknownSubjectFallback;
         groupedSubjects[subject] = (groupedSubjects[subject] ?? 0) + 1;
       }
     }
@@ -67,7 +68,7 @@ class DownloadedSubjectsScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          "DOWNLOADED SUBJECTS",
+                          AppLocalizations.of(context)!.downloadedSubjectsLabel,
                           style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.bold,
@@ -85,7 +86,7 @@ class DownloadedSubjectsScreen extends StatelessWidget {
             // Content List
             Expanded(
               child: groupedSubjects.isEmpty
-                  ? Center(child: Text("No subjects found", style: TextStyle(color: Colors.white.withOpacity(0.5))))
+                  ? Center(child: Text(AppLocalizations.of(context)!.noSubjectsFound, style: TextStyle(color: Colors.white.withOpacity(0.5))))
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                       itemCount: groupedSubjects.length,
@@ -141,7 +142,7 @@ class DownloadedSubjectsScreen extends StatelessWidget {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        "$fileCount FILES",
+                                        AppLocalizations.of(context)!.filesCountLabel(fileCount),
                                         style: TextStyle(
                                           fontSize: 9,
                                           fontWeight: FontWeight.bold,

@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
 import 'downloaded_chapter_contents_screen.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class DownloadedChaptersScreen extends StatelessWidget {
   final String courseTitle;
@@ -27,7 +28,7 @@ class DownloadedChaptersScreen extends StatelessWidget {
       final item = box.get(key);
       // التأكد من تطابق الكورس والمادة
       if (item['course'] == courseTitle && item['subject'] == subjectTitle) {
-        final chapter = item['chapter'] ?? 'Unknown Chapter';
+        final chapter = item['chapter'] ?? AppLocalizations.of(context)!.unknownChapterFallback;
         groupedChapters[chapter] = (groupedChapters[chapter] ?? 0) + 1;
       }
     }
@@ -73,7 +74,7 @@ class DownloadedChaptersScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          "DOWNLOADED CHAPTERS",
+                          AppLocalizations.of(context)!.downloadedChaptersLabel,
                           style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.bold,
@@ -91,7 +92,7 @@ class DownloadedChaptersScreen extends StatelessWidget {
             // Content List
             Expanded(
               child: groupedChapters.isEmpty
-                  ? Center(child: Text("No chapters found", style: TextStyle(color: AppColors.textSecondary.withOpacity(0.5))))
+                  ? Center(child: Text(AppLocalizations.of(context)!.noChaptersFound, style: TextStyle(color: AppColors.textSecondary.withOpacity(0.5))))
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                       itemCount: groupedChapters.length,
