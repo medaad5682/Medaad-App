@@ -48,7 +48,7 @@ class ColorPaletteRow extends StatelessWidget {
             const SizedBox(width: 6),
           ],
           ..._palette.map((c) => Padding(
-                padding: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsetsDirectional.only(end: 6),
                 child: _circle(c),
               )),
           _customColorButton(context),
