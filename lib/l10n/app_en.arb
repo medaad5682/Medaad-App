@@ -2596,5 +2596,117 @@
   "deletePermanentlyUpperAction": "DELETE PERMANENTLY",
   "@deletePermanentlyUpperAction": {
     "description": "Button label (uppercase) to permanently delete a content item while editing"
+  },
+  "myProfileTitle": "MY PROFILE",
+  "@myProfileTitle": {
+    "description": "Header title on the Profile screen"
+  },
+  "teacherDashboardSubtitle": "TEACHER DASHBOARD",
+  "@teacherDashboardSubtitle": {
+    "description": "Profile screen subtitle shown to teachers"
+  },
+  "manageYourAccountSubtitle": "MANAGE YOUR ACCOUNT",
+  "@manageYourAccountSubtitle": {
+    "description": "Profile screen subtitle shown to students"
+  },
+  "guestUserName": "GUEST USER",
+  "@guestUserName": {
+    "description": "Display name shown for a guest (not logged in) user"
+  },
+  "notLoggedInLabel": "Not Logged In",
+  "@notLoggedInLabel": {
+    "description": "Username placeholder shown for a guest user"
+  },
+  "defaultUserNameLabel": "User",
+  "@defaultUserNameLabel": {
+    "description": "Fallback display name when the user has no first name set"
+  },
+  "teacherControlsSection": "TEACHER CONTROLS",
+  "@teacherControlsSection": {
+    "description": "Section header for teacher-only options on the Profile screen"
+  },
+  "incomingRequestsMenu": "Incoming Requests",
+  "@incomingRequestsMenu": {
+    "description": "Menu item: teacher's incoming subscription requests"
+  },
+  "myStudentsMenu": "My Students",
+  "@myStudentsMenu": {
+    "description": "Menu item: manage students"
+  },
+  "manageTeamMenu": "Manage Team",
+  "@manageTeamMenu": {
+    "description": "Menu item: manage teaching team"
+  },
+  "financialStatsMenu": "Financial Stats",
+  "@financialStatsMenu": {
+    "description": "Menu item: financial statistics"
+  },
+  "accountSettingsSection": "ACCOUNT SETTINGS",
+  "@accountSettingsSection": {
+    "description": "Section header for account settings on the Profile screen"
+  },
+  "editProfileMenu": "Edit Profile",
+  "@editProfileMenu": {
+    "description": "Menu item: edit profile"
+  },
+  "changePasswordMenu": "Change Password",
+  "@changePasswordMenu": {
+    "description": "Menu item: change password"
+  },
+  "myRequestsMenu": "My Requests",
+  "@myRequestsMenu": {
+    "description": "Menu item: student's own requests"
+  },
+  "generalSection": "GENERAL",
+  "@generalSection": {
+    "description": "Section header for general app settings on the Profile screen"
+  },
+  "appInformationMenu": "App Information",
+  "@appInformationMenu": {
+    "description": "Menu item: app information / about screen"
+  },
+  "languageMenu": "Language",
+  "@languageMenu": {
+    "description": "Menu item: app language switcher"
+  },
+  "dangerZoneSection": "DANGER ZONE",
+  "@dangerZoneSection": {
+    "description": "Section header for destructive account actions"
+  },
+  "deleteMyAccountMenu": "Delete My Account",
+  "@deleteMyAccountMenu": {
+    "description": "Menu item: permanently delete the account"
+  },
+  "loginRegisterButton": "LOGIN / REGISTER",
+  "@loginRegisterButton": {
+    "description": "Button shown to guests to log in or register"
+  },
+  "logoutButton": "LOGOUT",
+  "@logoutButton": {
+    "description": "Button to log out of the account"
+  },
+  "selectLanguageTitle": "Select Language",
+  "@selectLanguageTitle": {
+    "description": "Title of the language picker bottom sheet"
+  },
+  "englishLanguageOption": "English",
+  "@englishLanguageOption": {
+    "description": "Language option label for English"
+  },
+  "arabicLanguageOption": "العربية",
+  "@arabicLanguageOption": {
+    "description": "Language option label for Arabic"
+  },
+  "hqAudioLabel": "HQ Audio",
+  "@hqAudioLabel": {
+    "description": "Label/snackbar text shown when high-quality audio track is active"
+  },
+  "doubleSpeedLabel": "speed×2",
+  "@doubleSpeedLabel": {
+    "description": "Badge shown while the user is fast-forwarding by holding to seek at double speed"
+  },
+  "freeAccessLabel": "Free Access",
+  "@freeAccessLabel": {
+    "description": "Label shown instead of a price when a course is free"
   }
 }
