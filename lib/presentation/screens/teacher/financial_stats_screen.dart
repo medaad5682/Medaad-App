@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/teacher_service.dart';
 import '../../../core/constants/app_colors.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 class FinancialStatsScreen extends StatefulWidget {
   const FinancialStatsScreen({Key? key}) : super(key: key);
@@ -38,7 +39,7 @@ class _FinancialStatsScreenState extends State<FinancialStatsScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if(mounted) {
-         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("خطأ: $e"), backgroundColor: AppColors.error));
+         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.errorFetchingFinancialStats(e.toString())), backgroundColor: AppColors.error));
       }
     }
   }
@@ -48,7 +49,7 @@ class _FinancialStatsScreenState extends State<FinancialStatsScreen> {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(
-        title: Text("الإحصائيات والأرباح", style: TextStyle(color: AppColors.textPrimary)),
+        title: Text(AppLocalizations.of(context)!.financialStatsTitle, style: TextStyle(color: AppColors.textPrimary)),
         backgroundColor: AppColors.backgroundSecondary,
         iconTheme: IconThemeData(color: AppColors.accentYellow),
       ),
@@ -59,28 +60,28 @@ class _FinancialStatsScreenState extends State<FinancialStatsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 1. البطاقات الرئيسية
+                  // 1. Summary cards
                   Row(
                     children: [
-                      Expanded(child: _buildSummaryCard("إجمالي الطلاب", "$_totalUniqueStudents", Icons.people, Colors.blue)),
+                      Expanded(child: _buildSummaryCard(AppLocalizations.of(context)!.totalStudentsLabel, "$_totalUniqueStudents", Icons.people, Colors.blue)),
                       const SizedBox(width: 12),
-                      Expanded(child: _buildSummaryCard("إجمالي الأرباح", "$_totalEarnings ج.م", Icons.monetization_on, Colors.green)),
+                      Expanded(child: _buildSummaryCard(AppLocalizations.of(context)!.totalEarningsLabel, AppLocalizations.of(context)!.earningsEgpAmount(_totalEarnings.toString()), Icons.monetization_on, Colors.green)),
                     ],
                   ),
                    
                   const SizedBox(height: 25),
                    
-                  // 2. قسم الكورسات
+                  // 2. Courses section
                   if (_coursesStats.isNotEmpty) ...[
-                    Text("📊 إحصائيات الكورسات", style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(AppLocalizations.of(context)!.coursesStatsSectionTitle, style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
                     ..._coursesStats.map((c) => _buildStatTile(c['title'], c['count'], true)).toList(),
                     const SizedBox(height: 20),
                   ],
 
-                  // 3. قسم المواد
+                  // 3. Subjects section
                   if (_subjectsStats.isNotEmpty) ...[
-                    Text("📚 إحصائيات المواد (فردي)", style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(AppLocalizations.of(context)!.subjectsStatsSectionTitle, style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
                     ..._subjectsStats.map((s) => _buildStatTile(s['title'], s['count'], false)).toList(),
                   ],
@@ -127,7 +128,7 @@ class _FinancialStatsScreenState extends State<FinancialStatsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(color: AppColors.backgroundPrimary, borderRadius: BorderRadius.circular(8)),
-            child: Text("$count طالب", style: TextStyle(color: AppColors.success, fontSize: 12, fontWeight: FontWeight.bold)),
+            child: Text(AppLocalizations.of(context)!.studentCountLabel(count.toString()), style: TextStyle(color: AppColors.success, fontSize: 12, fontWeight: FontWeight.bold)),
           )
         ],
       ),

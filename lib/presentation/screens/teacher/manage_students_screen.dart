@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/teacher_service.dart';
 // تأكد من مسار ملف الألوان، أو احذفه إذا لم يكن مستخدماً في مشروعك
 import '../../../core/constants/app_colors.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 class ManageStudentsScreen extends StatefulWidget {
   const ManageStudentsScreen({Key? key}) : super(key: key);
@@ -45,7 +46,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   Future<void> _search() async {
     if (_searchController.text.length < 3) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("أدخل 3 أرقام/حروف على الأقل")),
+        SnackBar(content: Text(AppLocalizations.of(context)!.searchMinDigitsLettersWarning)),
       );
       return;
     }
@@ -66,7 +67,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("لم يتم العثور على الطالب أو حدث خطأ: $e"), backgroundColor: Colors.orange),
+        SnackBar(content: Text(AppLocalizations.of(context)!.studentNotFoundOrError(e.toString())), backgroundColor: Colors.orange),
       );
     }
   }
@@ -80,14 +81,14 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
       final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text("سحب الصلاحية"),
-          content: Text("هل أنت متأكد من حذف الصلاحية؟ سيتم منع الطالب من الوصول لهذا المحتوى."),
+          title: Text(AppLocalizations.of(context)!.revokeAccessDialogTitle),
+          content: Text(AppLocalizations.of(context)!.revokeAccessConfirmMessage),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text("إلغاء")),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context)!.cancel)),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: Text("تأكيد السحب"),
+              child: Text(AppLocalizations.of(context)!.confirmRevokeAction),
             ),
           ],
         ),
@@ -111,7 +112,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(allow ? "تمت إضافة الصلاحية بنجاح" : "تم سحب الصلاحية بنجاح"),
+            content: Text(allow ? AppLocalizations.of(context)!.accessGrantedSuccessMessage : AppLocalizations.of(context)!.accessRevokedSuccessMessage),
             backgroundColor: allow ? Colors.green : Colors.red,
           ),
         );
@@ -119,7 +120,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("فشلت العملية: $e"), backgroundColor: Colors.red),
+        SnackBar(content: Text(AppLocalizations.of(context)!.operationFailedWithDetails(e.toString())), backgroundColor: Colors.red),
       );
     }
   }
@@ -150,7 +151,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("تم منح $successCount صلاحيات بنجاح"),
+            content: Text(AppLocalizations.of(context)!.bulkGrantSuccessMessage(successCount.toString())),
             backgroundColor: Colors.green,
           ),
         );
@@ -158,7 +159,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("حدث خطأ أثناء المنح: $e"), backgroundColor: Colors.red),
+        SnackBar(content: Text(AppLocalizations.of(context)!.bulkGrantErrorWithDetails(e.toString())), backgroundColor: Colors.red),
       );
     }
   }
@@ -168,7 +169,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     // التأكد من تحميل البيانات أولاً
     if (_myContent.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("جارِ تحميل بيانات الكورسات... حاول مرة أخرى بعد قليل."))
+        SnackBar(content: Text(AppLocalizations.of(context)!.loadingCoursesRetryMessage))
       );
       _fetchMyContent();
       return;
@@ -194,7 +195,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            title: Text("اختر الصلاحيات لمنحها"),
+            title: Text(AppLocalizations.of(context)!.choosePermissionsToGrantTitle),
             content: SizedBox(
               width: double.maxFinite,
               child: ListView.builder(
@@ -283,7 +284,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx), 
-                child: Text("إلغاء")
+                child: Text(AppLocalizations.of(context)!.cancel)
               ),
               ElevatedButton(
                 onPressed: (selectedCourses.isEmpty && selectedSubjects.isEmpty)
@@ -292,7 +293,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                         Navigator.pop(ctx);
                         _grantBulkAccess(selectedCourses, selectedSubjects);
                       },
-                child: Text("منح (${selectedCourses.length + selectedSubjects.length})"),
+                child: Text(AppLocalizations.of(context)!.grantWithCountAction((selectedCourses.length + selectedSubjects.length).toString())),
               ),
             ],
           );
@@ -304,7 +305,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("إدارة الطلاب (طلابي)")),
+      appBar: AppBar(title: Text(AppLocalizations.of(context)!.manageStudentsTitle)),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -316,7 +317,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                   child: TextField(
                     controller: _searchController,
                     decoration: InputDecoration(
-                      hintText: "رقم الهاتف أو اسم المستخدم",
+                      hintText: AppLocalizations.of(context)!.phoneOrUsernameHint,
                       prefixIcon: Icon(Icons.search),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 10),
@@ -331,7 +332,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                  child: Text("بحث"),
+                  child: Text(AppLocalizations.of(context)!.searchAction),
                 ),
               ],
             ),
@@ -363,11 +364,11 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _studentData!['first_name'] ?? "بدون اسم",
+                                _studentData!['first_name'] ?? AppLocalizations.of(context)!.noNameFallback,
                                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                               ),
-                              Text("📞 ${_studentData!['phone']}"),
-                              Text("👤 ${_studentData!['username']}", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              Text(AppLocalizations.of(context)!.phoneEmojiLabel(_studentData!['phone']?.toString() ?? "")),
+                              Text(AppLocalizations.of(context)!.usernameEmojiLabel(_studentData!['username']?.toString() ?? ""), style: TextStyle(fontSize: 12, color: Colors.grey)),
                             ],
                           ),
                         ],
@@ -379,11 +380,11 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text("الصلاحيات الحالية:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text(AppLocalizations.of(context)!.currentPermissionsLabel, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                         TextButton.icon(
                           onPressed: _showAddAccessDialog, // ✅ استدعاء النافذة الجديدة
                           icon: Icon(Icons.playlist_add_check, size: 24),
-                          label: Text("إدارة الصلاحيات"),
+                          label: Text(AppLocalizations.of(context)!.managePermissionsAction),
                         ),
                       ],
                     ),
@@ -393,7 +394,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                     if (_accessList.isEmpty)
                       Padding(
                         padding: const EdgeInsets.all(20),
-                        child: Center(child: Text("هذا الطالب لا يملك أي صلاحيات حالياً")),
+                        child: Center(child: Text(AppLocalizations.of(context)!.noAccessCurrentlyMessage)),
                       )
                     else
                       ..._accessList.map((item) {
@@ -405,11 +406,11 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                               isCourse ? Icons.school : Icons.menu_book,
                               color: isCourse ? Colors.orange : Colors.purple,
                             ),
-                            title: Text(item['title'] ?? "غير معرّف"),
-                            subtitle: Text(item['subtitle'] ?? (isCourse ? "كورس كامل" : "مادة فردية")),
+                            title: Text(item['title'] ?? AppLocalizations.of(context)!.undefinedFallback),
+                            subtitle: Text(item['subtitle'] ?? (isCourse ? AppLocalizations.of(context)!.fullCourseBadgeLabel : AppLocalizations.of(context)!.individualSubjectBadgeLabel)),
                             trailing: IconButton(
                               icon: Icon(Icons.delete_forever, color: Colors.red),
-                              tooltip: "سحب الصلاحية",
+                              tooltip: AppLocalizations.of(context)!.revokeAccessDialogTitle,
                               onPressed: () => _toggleAccess(
                                 item['type'], 
                                 item['id'].toString(), 
@@ -430,7 +431,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                     children: [
                       Icon(Icons.search_off, size: 60, color: Colors.grey),
                       SizedBox(height: 10),
-                      Text("قم بالبحث عن طالب لإدارة صلاحياته", style: TextStyle(color: Colors.grey)),
+                      Text(AppLocalizations.of(context)!.searchForStudentPrompt, style: TextStyle(color: Colors.grey)),
                     ],
                   ),
                 ),

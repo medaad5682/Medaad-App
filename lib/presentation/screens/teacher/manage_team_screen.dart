@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/teacher_service.dart';
 import '../../../core/constants/app_colors.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 class ManageTeamScreen extends StatefulWidget {
   const ManageTeamScreen({Key? key}) : super(key: key);
@@ -49,7 +50,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       setState(() => _searchResults = []);
       if (query.trim().isNotEmpty) {
          ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("يرجى إدخال 3 أحرف على الأقل للبحث"), backgroundColor: AppColors.accentOrange),
+          SnackBar(content: Text(AppLocalizations.of(context)!.searchMinCharsWarning), backgroundColor: AppColors.accentOrange),
         );
       }
       return;
@@ -76,7 +77,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.backgroundSecondary, // ✅ خلفية متوافقة مع الثيم
         title: Text(
-          action == 'promote' ? "ترقية الطالب" : "حذف المشرف",
+          action == 'promote' ? AppLocalizations.of(context)!.promoteStudentDialogTitle : AppLocalizations.of(context)!.removeSupervisorDialogTitle,
           style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
         ),
         content: Text(
@@ -86,7 +87,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false), 
-            child: Text("إلغاء", style: TextStyle(color: AppColors.textSecondary))
+            child: Text(AppLocalizations.of(context)!.cancel, style: TextStyle(color: AppColors.textSecondary))
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -94,7 +95,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
               backgroundColor: action == 'promote' ? AppColors.success : AppColors.error,
               foregroundColor: Colors.white,
             ),
-            child: const Text("تأكيد"),
+            child: Text(AppLocalizations.of(context)!.confirm),
           ),
         ],
       ),
@@ -124,7 +125,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(action == 'promote' ? "تمت الترقية ومنح الصلاحيات بنجاح" : "تم حذف المشرف بنجاح"),
+            content: Text(action == 'promote' ? AppLocalizations.of(context)!.promoteSuccessMessage : AppLocalizations.of(context)!.demoteSuccessMessage),
             backgroundColor: AppColors.success,
           ),
         );
@@ -133,7 +134,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       if (mounted) {
         Navigator.pop(context); // إغلاق اللودينج
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("حدث خطأ: $e"), backgroundColor: AppColors.error),
+          SnackBar(content: Text(AppLocalizations.of(context)!.errorOccurredWithDetails(e.toString())), backgroundColor: AppColors.error),
         );
       }
     }
@@ -144,7 +145,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary, // ✅ خلفية رئيسية متوافقة
       appBar: AppBar(
-        title: Text("إدارة فريق العمل", style: TextStyle(color: AppColors.textPrimary)),
+        title: Text(AppLocalizations.of(context)!.manageTeamTitle, style: TextStyle(color: AppColors.textPrimary)),
         backgroundColor: AppColors.backgroundSecondary, // ✅ هيدر متوافق
         elevation: 0,
         iconTheme: IconThemeData(color: AppColors.accentYellow),
@@ -164,12 +165,12 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "إضافة مشرف جديد", 
+                  AppLocalizations.of(context)!.addNewSupervisorTitle, 
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary)
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  "ابحث عن طالب لترقيته ومنحه صلاحيات كاملة تلقائياً", 
+                  AppLocalizations.of(context)!.addSupervisorSubtitle, 
                   style: TextStyle(fontSize: 12, color: AppColors.textSecondary)
                 ),
                 const SizedBox(height: 15),
@@ -182,7 +183,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                     setState(() {}); // ✅ تحديث الواجهة فقط لإظهار/إخفاء زر الحذف، دون تنفيذ البحث
                   },
                   decoration: InputDecoration(
-                    hintText: "ابحث بالاسم أو اسم المستخدم...",
+                    hintText: AppLocalizations.of(context)!.searchByNameOrUsernameHint,
                     hintStyle: TextStyle(color: AppColors.textSecondary.withOpacity(0.5)),
                     prefixIcon: Icon(Icons.person_search, color: AppColors.textSecondary),
                     suffixIcon: _isSearching 
@@ -227,7 +228,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 5),
-                    child: Text("نتائج البحث:", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.accentYellow)),
+                    child: Text(AppLocalizations.of(context)!.searchResultsLabel, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.accentYellow)),
                   ),
                   Expanded(
                     child: ListView.separated(
@@ -240,13 +241,13 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                             backgroundColor: AppColors.backgroundSecondary,
                             child: Icon(Icons.person_outline, color: AppColors.accentYellow),
                           ),
-                          title: Text(student['first_name'] ?? "No Name", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                          title: Text(student['first_name'] ?? AppLocalizations.of(context)!.noNameFallback, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                           subtitle: Text("@${student['username']} • ${student['phone']}", style: TextStyle(color: AppColors.textSecondary)),
                           trailing: ElevatedButton(
                             onPressed: () => _handleAction(
                               student['id'].toString(), 
                               'promote', 
-                              "سيتم ترقية الطالب '${student['first_name']}' ليصبح مشرفاً وسيتم منحه صلاحية الوصول لجميع كورساتك الحالية.\n\nهل أنت متأكد؟"
+                              AppLocalizations.of(context)!.promoteConfirmMessage(student['first_name'] ?? AppLocalizations.of(context)!.noNameFallback)
                             ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.success, 
@@ -254,7 +255,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                               padding: const EdgeInsets.symmetric(horizontal: 12),
                               minimumSize: const Size(60, 32)
                             ),
-                            child: const Text("ترقية"),
+                            child: Text(AppLocalizations.of(context)!.promoteAction),
                           ),
                         );
                       },
@@ -275,7 +276,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                 Icon(Icons.shield_outlined, color: AppColors.accentYellow, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  "المشرفون الحاليون (${_teamMembers.length})", 
+                  AppLocalizations.of(context)!.currentSupervisorsCountLabel(_teamMembers.length.toString()), 
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textPrimary)
                 ),
               ],
@@ -292,7 +293,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                           children: [
                             Icon(Icons.group_off_outlined, size: 60, color: AppColors.textSecondary.withOpacity(0.3)),
                             const SizedBox(height: 10),
-                            Text("لا يوجد مشرفين حالياً", style: TextStyle(color: AppColors.textSecondary)),
+                            Text(AppLocalizations.of(context)!.noSupervisorsCurrently, style: TextStyle(color: AppColors.textSecondary)),
                           ],
                         ),
                       )
@@ -317,7 +318,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                 child: Icon(Icons.security, color: AppColors.accentYellow),
                               ),
                               title: Text(
-                                member['first_name'] ?? "Unknown",
+                                member['first_name'] ?? AppLocalizations.of(context)!.unknownFallback,
                                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
                               ),
                               subtitle: Padding(
@@ -329,11 +330,11 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                               ),
                               trailing: IconButton(
                                 icon: Icon(Icons.remove_circle_outline, color: AppColors.error),
-                                tooltip: "إلغاء الإشراف",
+                                tooltip: AppLocalizations.of(context)!.removeSupervisorTooltip,
                                 onPressed: () => _handleAction(
                                   member['id'].toString(), 
                                   'demote', 
-                                  "سيتم سحب صلاحيات الإشراف من '${member['first_name']}' وإعادته كطالب عادي.\n\nلن يتمكن من إدارة المحتوى بعد الآن."
+                                  AppLocalizations.of(context)!.demoteConfirmMessage(member['first_name'] ?? AppLocalizations.of(context)!.unknownFallback)
                                 ),
                               ),
                             ),

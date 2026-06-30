@@ -6,6 +6,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/services/teacher_service.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/constants/api_constants.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 class StudentRequestsScreen extends StatefulWidget {
   const StudentRequestsScreen({Key? key}) : super(key: key);
@@ -115,7 +116,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text("حدث خطأ في التحميل: $e"),
+              content: Text(AppLocalizations.of(context)!.errorLoadingDataWithDetails(e.toString())),
               backgroundColor: AppColors.error),
         );
       }
@@ -158,7 +159,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text("فشل جلب البيانات: $e"),
+              content: Text(AppLocalizations.of(context)!.failedToFetchDataWithDetails(e.toString())),
               backgroundColor: AppColors.error),
         );
       }
@@ -187,14 +188,14 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
           String reason = "";
           return AlertDialog(
             backgroundColor: AppColors.backgroundSecondary,
-            title: Text("سبب الرفض",
+            title: Text(AppLocalizations.of(context)!.rejectionReasonDialogTitle,
                 style: TextStyle(
                     fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
             content: TextField(
               onChanged: (val) => reason = val,
               style: TextStyle(color: AppColors.textPrimary),
               decoration: InputDecoration(
-                hintText: "اكتب سبب الرفض هنا...",
+                hintText: AppLocalizations.of(context)!.rejectionReasonHint,
                 hintStyle: TextStyle(color: AppColors.textSecondary),
                 border:
                     OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -206,7 +207,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: Text("إلغاء",
+                  child: Text(AppLocalizations.of(context)!.cancel,
                       style: TextStyle(color: AppColors.textSecondary))),
               ElevatedButton(
                 onPressed: () => Navigator.pop(ctx, reason),
@@ -215,7 +216,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                 ),
-                child: const Text("تأكيد الرفض",
+                child: Text(AppLocalizations.of(context)!.confirmRejectionAction,
                     style: TextStyle(color: Colors.white)),
               ),
             ],
@@ -228,9 +229,9 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
 
     try {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("جاري تنفيذ العملية..."),
-            duration: Duration(seconds: 1)),
+        SnackBar(
+            content: Text(AppLocalizations.of(context)!.processingActionMessage),
+            duration: const Duration(seconds: 1)),
       );
 
       await _teacherService.handleRequest(requestId, approve,
@@ -244,7 +245,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                 Icon(approve ? Icons.check_circle : Icons.cancel,
                     color: Colors.white),
                 const SizedBox(width: 8),
-                Text(approve ? "تم قبول الطالب بنجاح" : "تم رفض الطلب"),
+                Text(approve ? AppLocalizations.of(context)!.studentApprovedSuccessMessage : AppLocalizations.of(context)!.requestRejectedMessage),
               ],
             ),
             backgroundColor: approve ? AppColors.success : AppColors.error,
@@ -259,7 +260,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text("فشلت العملية: $e"),
+              content: Text(AppLocalizations.of(context)!.operationFailedWithDetails(e.toString())),
               backgroundColor: AppColors.error),
         );
       }
@@ -270,7 +271,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
     if (_deviceId == null || _token == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: const Text("خطأ: بيانات المصادقة غير جاهزة"),
+            content: Text(AppLocalizations.of(context)!.authDataNotReadyError),
             backgroundColor: AppColors.error),
       );
       return;
@@ -310,7 +311,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                         Icon(Icons.broken_image_rounded,
                             color: AppColors.error, size: 50),
                         const SizedBox(height: 8),
-                        Text("تعذر تحميل الصورة - تأكد من الاتصال",
+                        Text(AppLocalizations.of(context)!.imageLoadFailedCheckConnection,
                             style: TextStyle(color: AppColors.textSecondary)),
                       ],
                     ),
@@ -339,7 +340,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(
-        title: Text("طلبات الاشتراك",
+        title: Text(AppLocalizations.of(context)!.subscriptionRequestsTitle,
             style: TextStyle(
                 color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
         backgroundColor: AppColors.backgroundSecondary,
@@ -351,10 +352,10 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
           labelColor: AppColors.accentYellow,
           unselectedLabelColor: AppColors.textSecondary,
           indicatorColor: AppColors.accentYellow,
-          tabs: const [
-            Tab(text: "قيد الانتظار"),
-            Tab(text: "مقبولة"),
-            Tab(text: "مرفوضة"),
+          tabs: [
+            Tab(text: AppLocalizations.of(context)!.tabPending),
+            Tab(text: AppLocalizations.of(context)!.tabApproved),
+            Tab(text: AppLocalizations.of(context)!.tabRejected),
           ],
         ),
       ),
@@ -378,7 +379,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                                 color:
                                     AppColors.textSecondary.withOpacity(0.3)),
                             const SizedBox(height: 16),
-                            Text("لا توجد طلبات في هذه القائمة",
+                            Text(AppLocalizations.of(context)!.noRequestsInListMessage,
                                 style: TextStyle(
                                     color: AppColors.textSecondary,
                                     fontSize: 18)),
@@ -491,7 +492,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                         children: [
                           Expanded(
                             child: Text(
-                              req['user_name'] ?? "اسم غير معروف",
+                              req['user_name'] ?? AppLocalizations.of(context)!.unknownNameFallback,
                               style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
@@ -552,7 +553,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                                 Icon(Icons.shopping_cart_outlined,
                                     size: 16, color: AppColors.accentBlue),
                                 const SizedBox(width: 6),
-                                Text("المحتوى المطلوب:",
+                                Text(AppLocalizations.of(context)!.requestedContentLabel,
                                     style: TextStyle(
                                         color: AppColors.accentBlue,
                                         fontSize: 12,
@@ -561,7 +562,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              req['course_title'] ?? 'غير محدد',
+                              req['course_title'] ?? AppLocalizations.of(context)!.notSpecifiedFallback,
                               style: TextStyle(
                                   color: AppColors.textPrimary,
                                   fontSize: 13,
@@ -590,7 +591,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                                   Icon(Icons.edit_note_rounded,
                                       size: 16, color: Colors.amber),
                                   SizedBox(width: 6),
-                                  Text("ملاحظة الطالب:",
+                                  Text(AppLocalizations.of(context)!.studentNoteLabel,
                                       style: TextStyle(
                                           color: Colors.amber,
                                           fontSize: 12,
@@ -630,7 +631,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                                   Icon(Icons.info_outline_rounded,
                                       size: 16, color: AppColors.error),
                                   const SizedBox(width: 6),
-                                  Text("سبب الرفض:",
+                                  Text(AppLocalizations.of(context)!.rejectionReasonLabel,
                                       style: TextStyle(
                                           color: AppColors.error,
                                           fontSize: 12,
@@ -668,7 +669,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                                 : AppColors.success.withOpacity(0.3))),
                     child: Column(
                       children: [
-                        Text("الإجمالي",
+                        Text(AppLocalizations.of(context)!.totalLabel,
                             style: TextStyle(
                                 color: hasDiscount
                                     ? Colors.amber
@@ -678,7 +679,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
 
                         // السعر القديم المشطوب (يظهر فقط إذا كان هناك خصم)
                         if (hasDiscount)
-                          Text("$originalPrice EGP",
+                          Text(AppLocalizations.of(context)!.priceEgp(originalPrice.toString()),
                               style: TextStyle(
                                   color: AppColors.textSecondary,
                                   fontSize: 12,
@@ -695,7 +696,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                                     : AppColors.success,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 18)),
-                        Text("EGP",
+                        Text(AppLocalizations.of(context)!.egpCurrencyLabel,
                             style: TextStyle(
                                 color: hasDiscount
                                     ? Colors.amber
@@ -728,7 +729,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                             borderRadius: BorderRadius.circular(12)),
                       ),
                       icon: const Icon(Icons.close_rounded, size: 20),
-                      label: const Text("رفض الطلب",
+                      label: Text(AppLocalizations.of(context)!.rejectRequestAction,
                           style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ),
@@ -747,7 +748,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                       ),
                       icon: const Icon(Icons.check_circle_outline_rounded,
                           size: 20),
-                      label: const Text("قبول وتفعيل",
+                      label: Text(AppLocalizations.of(context)!.acceptAndActivateAction,
                           style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ),

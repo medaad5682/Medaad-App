@@ -8,6 +8,7 @@ import '../../../core/services/app_state.dart'; // ✅ ضروري لتحديث �
 import '../../../core/services/bunny_tus_upload_service.dart';
 import '../../widgets/custom_text_field.dart';
 import '../../../core/constants/app_colors.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 enum ContentType { course, subject, chapter, video, pdf }
 
@@ -319,13 +320,13 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
       if (hVal == 0 && mVal == 0 && sVal == 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: const Text("⚠️ يرجى إدخال مدة الفيديو الفعلية (لا يمكن تركها أصفاراً)"), backgroundColor: AppColors.error),
+          SnackBar(content: Text(AppLocalizations.of(context)!.videoDurationRequiredWarning), backgroundColor: AppColors.error),
         );
         return;
       }
       if (mVal > 59 || sVal > 59) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: const Text("⚠️ الدقائق والثواني يجب ألا تتجاوز 59"), backgroundColor: AppColors.error),
+          SnackBar(content: Text(AppLocalizations.of(context)!.minutesSecondsMaxWarning), backgroundColor: AppColors.error),
         );
         return;
       }
@@ -333,7 +334,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
     if (widget.contentType == ContentType.pdf && !isEditing && _selectedFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: const Text("Please select a PDF file"), backgroundColor: AppColors.error),
+        SnackBar(content: Text(AppLocalizations.of(context)!.pleaseSelectPdfFileWarning), backgroundColor: AppColors.error),
       );
       return;
     }
@@ -394,7 +395,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
           // معرف من حقل رابط فارغ (كان سيُسبب خطأ "رابط الفيديو غير صحيح").
           if (_videoSourceMode == VideoSourceMode.youtube) {
             String? videoId = _extractYoutubeId(_urlController.text);
-            if (videoId == null) throw Exception("رابط الفيديو غير صحيح");
+            if (videoId == null) throw Exception(AppLocalizations.of(context)!.invalidVideoUrlError);
             data['youtube_video_id'] = videoId;
           }
           if (!isEditing) data['notifyStudents'] = _notifyStudents;
@@ -443,7 +444,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isEditing ? "Updated Successfully" : "Created Successfully"), backgroundColor: AppColors.success),
+          SnackBar(content: Text(isEditing ? AppLocalizations.of(context)!.updatedSuccessfullyMessage : AppLocalizations.of(context)!.createdSuccessfullyMessage), backgroundColor: AppColors.success),
         );
         Navigator.pop(context, true);
       }
@@ -451,7 +452,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: ${e.toString().replaceAll('Exception:', '')}"), backgroundColor: AppColors.error),
+          SnackBar(content: Text(AppLocalizations.of(context)!.contentSaveErrorWithDetails(e.toString().replaceAll('Exception:', ''))), backgroundColor: AppColors.error),
         );
       }
     } finally {
@@ -465,7 +466,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
   Future<void> _submitVideoUpload() async {
     if (_videoFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: const Text("⚠️ يرجى اختيار ملف فيديو أولاً"), backgroundColor: AppColors.error),
+        SnackBar(content: Text(AppLocalizations.of(context)!.pleaseSelectVideoFileFirstWarning), backgroundColor: AppColors.error),
       );
       return;
     }
@@ -493,8 +494,8 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(durationPending
-                  ? "✅ تم رفع الفيديو بنجاح، وسيتم استخراج مدته تلقائياً بعد اكتمال المعالجة"
-                  : "✅ تم رفع الفيديو بنجاح وسيكون متاحاً بعد اكتمال المعالجة"),
+                  ? AppLocalizations.of(context)!.videoUploadedDurationPendingMessage
+                  : AppLocalizations.of(context)!.videoUploadedSuccessMessage),
               backgroundColor: AppColors.success,
             ),
           );
@@ -531,14 +532,14 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.backgroundSecondary,
-        title: Text("Confirm Delete", style: TextStyle(color: AppColors.textPrimary)),
-        content: Text("Are you sure you want to delete this item? This cannot be undone.", style: TextStyle(color: AppColors.textSecondary)),
+        title: Text(AppLocalizations.of(context)!.confirmDelete, style: TextStyle(color: AppColors.textPrimary)),
+        content: Text(AppLocalizations.of(context)!.confirmDeleteItemMessage, style: TextStyle(color: AppColors.textSecondary)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text("Cancel", style: TextStyle(color: AppColors.textSecondary))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context)!.cancel, style: TextStyle(color: AppColors.textSecondary))),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: const Text("Delete", style: TextStyle(color: Colors.white)),
+            child: Text(AppLocalizations.of(context)!.delete, style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -570,12 +571,12 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
       await AppState().reloadAppInit();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text("Deleted Successfully"), backgroundColor: AppColors.success));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.deletedSuccessfullyMessage), backgroundColor: AppColors.success));
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Delete Failed: $e"), backgroundColor: AppColors.error));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.deleteFailedWithDetails(e.toString())), backgroundColor: AppColors.error));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -594,13 +595,13 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
   String _bunnyStatusLabel() {
     switch (_bunnyStatus) {
       case BunnyUploadStatus.requesting:
-        return "جاري تجهيز جلسة الرفع...";
+        return AppLocalizations.of(context)!.preparingUploadSessionStatus;
       case BunnyUploadStatus.uploading:
-        return "جاري رفع الفيديو... ${(_bunnyProgress * 100).toInt()}%";
+        return AppLocalizations.of(context)!.uploadingVideoProgressStatus((_bunnyProgress * 100).toInt().toString());
       case BunnyUploadStatus.paused:
-        return "⏸️ انقطع الاتصال بالإنترنت — في انتظار عودة الاتصال للمتابعة تلقائياً";
+        return AppLocalizations.of(context)!.connectionLostWaitingStatus;
       case BunnyUploadStatus.confirming:
-        return "جاري حفظ بيانات الفيديو...";
+        return AppLocalizations.of(context)!.savingVideoDataStatus;
       default:
         return "";
     }
@@ -610,11 +611,11 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
   Widget build(BuildContext context) {
     String titleText = '';
     switch (widget.contentType) {
-      case ContentType.course: titleText = isEditing ? "Edit Course" : "New Course"; break;
-      case ContentType.subject: titleText = isEditing ? "Edit Subject" : "New Subject"; break;
-      case ContentType.chapter: titleText = isEditing ? "Edit Chapter" : "New Chapter"; break;
-      case ContentType.video: titleText = isEditing ? "Edit Video" : "New Video"; break;
-      case ContentType.pdf: titleText = isEditing ? "Edit PDF" : "New PDF"; break;
+      case ContentType.course: titleText = isEditing ? AppLocalizations.of(context)!.editCourseTitle : AppLocalizations.of(context)!.newCourseTitle; break;
+      case ContentType.subject: titleText = isEditing ? AppLocalizations.of(context)!.editSubjectTitle : AppLocalizations.of(context)!.newSubjectTitle; break;
+      case ContentType.chapter: titleText = isEditing ? AppLocalizations.of(context)!.editChapterTitle : AppLocalizations.of(context)!.newChapterTitle; break;
+      case ContentType.video: titleText = isEditing ? AppLocalizations.of(context)!.editVideoTitle : AppLocalizations.of(context)!.newVideoTitle; break;
+      case ContentType.pdf: titleText = isEditing ? AppLocalizations.of(context)!.editPdfTitle : AppLocalizations.of(context)!.newPdfTitle; break;
     }
 
     return Scaffold(
@@ -628,7 +629,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
           if (isEditing)
             IconButton(
               icon: Icon(Icons.delete_outline, color: AppColors.error),
-              tooltip: "Delete",
+              tooltip: AppLocalizations.of(context)!.delete,
               onPressed: (_isLoading || _isVideoUploadBusy) ? null : _deleteItem,
             ),
         ],
@@ -674,7 +675,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                   TextButton.icon(
                     onPressed: _cancelVideoUpload,
                     icon: Icon(Icons.close, color: AppColors.error),
-                    label: Text("إلغاء الرفع", style: TextStyle(color: AppColors.error)),
+                    label: Text(AppLocalizations.of(context)!.cancelUploadAction, style: TextStyle(color: AppColors.error)),
                   ),
                 ] else if (_uploadProgress > 0 && _uploadProgress < 1.0) ...[
                   Stack(
@@ -693,11 +694,11 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  Text("Uploading File...", style: TextStyle(color: AppColors.textSecondary)),
+                  Text(AppLocalizations.of(context)!.uploadingFileStatus, style: TextStyle(color: AppColors.textSecondary)),
                 ] else ...[
                   CircularProgressIndicator(color: AppColors.accentYellow),
                   const SizedBox(height: 16),
-                  Text("Saving Data...", style: TextStyle(color: AppColors.textSecondary)),
+                  Text(AppLocalizations.of(context)!.savingDataStatus, style: TextStyle(color: AppColors.textSecondary)),
                 ]
               ],
             ),
@@ -711,19 +712,19 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                 children: [
 
                   CustomTextField(
-                    label: "Title / Name",
+                    label: AppLocalizations.of(context)!.titleNameLabel,
                     controller: _titleController,
-                    hintText: "Enter title here",
+                    hintText: AppLocalizations.of(context)!.enterTitleHereHint,
                     prefixIcon: Icons.title,
-                    validator: (val) => val!.isEmpty ? "Required" : null,
+                    validator: (val) => val!.isEmpty ? AppLocalizations.of(context)!.requiredField : null,
                   ),
                   const SizedBox(height: 16),
 
                   if (widget.contentType == ContentType.course) ...[
                     CustomTextField(
-                      label: "Description",
+                      label: AppLocalizations.of(context)!.descriptionFieldLabel,
                       controller: _descController,
-                      hintText: "Enter description",
+                      hintText: AppLocalizations.of(context)!.enterDescriptionHint,
                       prefixIcon: Icons.description,
                       maxLines: 3,
                     ),
@@ -732,9 +733,9 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
                   if (widget.contentType == ContentType.course || widget.contentType == ContentType.subject) ...[
                     CustomTextField(
-                      label: "Price (EGP)",
+                      label: AppLocalizations.of(context)!.priceEgpFieldLabel,
                       controller: _priceController,
-                      hintText: "0.0",
+                      hintText: AppLocalizations.of(context)!.zeroPointZeroHint,
                       prefixIcon: Icons.attach_money,
                       keyboardType: TextInputType.number,
                     ),
@@ -766,7 +767,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Text(
-                                  "رابط يوتيوب",
+                                  AppLocalizations.of(context)!.youtubeLinkTabLabel,
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
@@ -790,7 +791,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Text(
-                                  "رفع ملف فيديو",
+                                  AppLocalizations.of(context)!.uploadVideoFileTabLabel,
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
@@ -822,7 +823,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                "اختيار ملف جديد هنا سيستبدل الفيديو الحالي بالكامل بعد اكتمال الرفع.",
+                                AppLocalizations.of(context)!.newFileReplaceWarning,
                                 style: TextStyle(color: AppColors.accentYellow, fontSize: 11),
                               ),
                             ),
@@ -833,7 +834,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
                     if (_videoSourceMode == VideoSourceMode.youtube) ...[
                       CustomTextField(
-                        label: "رابط فيديو يوتيوب",
+                        label: AppLocalizations.of(context)!.youtubeVideoLinkLabel,
                         controller: _urlController,
                         hintText: "https://youtu.be/...",
                         prefixIcon: Icons.video_library,
@@ -843,7 +844,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                       // ✅ واجهة الوقت (ساعات : دقائق : ثواني) الأنيقة
                       Align(
                         alignment: Alignment.centerRight,
-                        child: Text("مدة الفيديو الفعلية ⏱️", style: TextStyle(color: AppColors.accentYellow, fontWeight: FontWeight.bold)),
+                        child: Text(AppLocalizations.of(context)!.actualVideoDurationLabel, style: TextStyle(color: AppColors.accentYellow, fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(height: 10),
                       Container(
@@ -856,22 +857,22 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            _buildTimeField("ساعات", _hoursController),
+                            _buildTimeField(AppLocalizations.of(context)!.hoursLabel, _hoursController),
                             const Padding(
                               padding: EdgeInsets.symmetric(horizontal: 10),
                               child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
                             ),
-                            _buildTimeField("دقائق", _minutesController),
+                            _buildTimeField(AppLocalizations.of(context)!.minutesLabel, _minutesController),
                             const Padding(
                               padding: EdgeInsets.symmetric(horizontal: 10),
                               child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
                             ),
-                            _buildTimeField("ثواني", _secondsController),
+                            _buildTimeField(AppLocalizations.of(context)!.secondsLabel, _secondsController),
                           ],
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text("الصق رابط يوتيوب كاملاً وحدد مدته لتظهر للطلاب",
+                      Text(AppLocalizations.of(context)!.pasteYoutubeLinkHint,
                         style: TextStyle(fontSize: 11, color: AppColors.textSecondary.withOpacity(0.6))),
                     ] else ...[
                       // ============================================================
@@ -888,7 +889,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                           contentPadding: EdgeInsets.zero,
                           leading: Icon(Icons.video_file, color: AppColors.accentOrange, size: 30),
                           title: Text(
-                            _videoFileName ?? "لم يتم اختيار ملف",
+                            _videoFileName ?? AppLocalizations.of(context)!.noFileSelectedVideo,
                             style: TextStyle(
                               color: _videoFileName == null ? AppColors.textSecondary : AppColors.textPrimary,
                               fontWeight: _videoFileName == null ? FontWeight.normal : FontWeight.bold,
@@ -897,9 +898,9 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                           ),
                           subtitle: Text(
                             _videoFileName == null
-                                ? "اضغط لاختيار ملف فيديو من الجهاز"
+                                ? AppLocalizations.of(context)!.tapToSelectVideoFile
                                 : _isExtractingDuration
-                                    ? "جاري استخراج مدة الفيديو..."
+                                    ? AppLocalizations.of(context)!.extractingVideoDurationStatus
                                     : "${(_videoFileSize / (1024 * 1024)).toStringAsFixed(1)} MB",
                             style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
                           ),
@@ -923,7 +924,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  "تم العثور على رفع سابق متوقف لهذا الملف — سيتم استكمال الرفع من حيث توقف",
+                                  AppLocalizations.of(context)!.resumableUploadFoundMessage,
                                   style: TextStyle(color: AppColors.accentYellow, fontSize: 11),
                                 ),
                               ),
@@ -949,7 +950,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                               ElevatedButton.icon(
                                 onPressed: _resumeVideoUpload,
                                 icon: const Icon(Icons.refresh, size: 18),
-                                label: const Text("استئناف الرفع"),
+                                label: Text(AppLocalizations.of(context)!.resumeUploadAction),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.accentYellow,
                                   foregroundColor: AppColors.backgroundPrimary,
@@ -962,7 +963,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
                       const SizedBox(height: 8),
                       Text(
-                        "يمكن إيقاف رفع الفيديو والمتابعة لاحقاً، كما يستأنف الرفع تلقائياً عند انقطاع الاتصال بدلاً من البدء من جديد.",
+                        AppLocalizations.of(context)!.uploadPauseResumeInfoMessage,
                         style: TextStyle(fontSize: 11, color: AppColors.textSecondary.withOpacity(0.6)),
                       ),
 
@@ -970,7 +971,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                         const SizedBox(height: 16),
                         Align(
                           alignment: Alignment.centerRight,
-                          child: Text("مدة الفيديو (تُستخرج تلقائياً، يمكن تعديلها) ⏱️",
+                          child: Text(AppLocalizations.of(context)!.videoDurationAutoExtractedLabel,
                               style: TextStyle(color: AppColors.accentYellow, fontWeight: FontWeight.bold)),
                         ),
                         const SizedBox(height: 10),
@@ -984,17 +985,17 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              _buildTimeField("ساعات", _hoursController),
+                              _buildTimeField(AppLocalizations.of(context)!.hoursLabel, _hoursController),
                               const Padding(
                                 padding: EdgeInsets.symmetric(horizontal: 10),
                                 child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
                               ),
-                              _buildTimeField("دقائق", _minutesController),
+                              _buildTimeField(AppLocalizations.of(context)!.minutesLabel, _minutesController),
                               const Padding(
                                 padding: EdgeInsets.symmetric(horizontal: 10),
                                 child: Text(":", style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
                               ),
-                              _buildTimeField("ثواني", _secondsController),
+                              _buildTimeField(AppLocalizations.of(context)!.secondsLabel, _secondsController),
                             ],
                           ),
                         ),
@@ -1016,14 +1017,14 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.picture_as_pdf, color: AppColors.accentOrange, size: 30),
                         title: Text(
-                          _selectedFileName ?? "No file selected",
+                          _selectedFileName ?? AppLocalizations.of(context)!.noPdfFileSelected,
                           style: TextStyle(
                             color: _selectedFileName == null ? AppColors.textSecondary : AppColors.textPrimary,
                             fontWeight: _selectedFileName == null ? FontWeight.normal : FontWeight.bold,
                             fontSize: 14
                           ),
                         ),
-                        subtitle: Text("Tap to select PDF", style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                        subtitle: Text(AppLocalizations.of(context)!.tapToSelectPdfLabel, style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
                         trailing: Icon(Icons.upload_file, color: AppColors.accentYellow),
                         onTap: _pickPdfFile,
                       ),
@@ -1041,8 +1042,8 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                         border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
                       ),
                       child: SwitchListTile(
-                        title: Text("إرسال إشعار للطلاب", style: TextStyle(color: AppColors.accentYellow)),
-                        subtitle: Text("تنبيه الطلاب المشتركين بإضافة هذا المحتوى", style: TextStyle(color: AppColors.textSecondary)),
+                        title: Text(AppLocalizations.of(context)!.sendNotificationToStudentsLabel, style: TextStyle(color: AppColors.accentYellow)),
+                        subtitle: Text(AppLocalizations.of(context)!.notifySubscribedStudentsSubtitle, style: TextStyle(color: AppColors.textSecondary)),
                         value: _notifyStudents,
                         activeColor: AppColors.accentYellow,
                         onChanged: (val) => setState(() => _notifyStudents = val),
@@ -1063,11 +1064,11 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                     ),
                     child: Text(
                       isEditing
-                          ? "SAVE CHANGES"
+                          ? AppLocalizations.of(context)!.saveChangesUpperAction
                           : (widget.contentType == ContentType.video &&
                                   _videoSourceMode == VideoSourceMode.upload)
-                              ? (_hasResumableSession ? "استئناف ورفع الفيديو" : "رفع الفيديو")
-                              : "CREATE",
+                              ? (_hasResumableSession ? AppLocalizations.of(context)!.resumeAndUploadVideoAction : AppLocalizations.of(context)!.uploadVideoAction)
+                              : AppLocalizations.of(context)!.createUpperAction,
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.0),
                     ),
                   ),
@@ -1077,7 +1078,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                     TextButton.icon(
                       onPressed: _deleteItem,
                       icon: Icon(Icons.delete, color: AppColors.error),
-                      label: Text("DELETE PERMANENTLY", style: TextStyle(color: AppColors.error)),
+                      label: Text(AppLocalizations.of(context)!.deletePermanentlyUpperAction, style: TextStyle(color: AppColors.error)),
                     ),
                   ],
                 ],
