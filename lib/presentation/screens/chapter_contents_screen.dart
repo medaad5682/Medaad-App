@@ -8,6 +8,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/download_manager.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
+import '../../core/services/teacher_service.dart';
 import 'video_player_screen.dart';
 import 'youtube_player_screen.dart';
 import 'pdf_viewer_screen.dart';
@@ -38,6 +39,7 @@ class ChapterContentsScreen extends StatefulWidget {
 class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
   String activeTab = 'videos';
   final String _baseUrl = ApiConstants.baseUrl;
+  final TeacherService _teacherService = TeacherService();
   bool _isTeacher = false;
   late Map<String, dynamic> _currentChapter;
   bool _isLoading = false;
@@ -870,7 +872,15 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                               ]
                             ],
                           ),
-                          
+
+                          // ✅ حالة معالجة الفيديو على Bunny Stream — تظهر للمعلم فقط
+                          // (تماماً كما تظهر في لوحة تحكم الويب: في انتظار المعالجة /
+                          // قيد المعالجة / جاهز) — تُقرأ من حقل encoding_status
+                          if (_isTeacher && video['bunny_video_id'] != null) ...[
+                            const SizedBox(height: 6),
+                            _buildEncodingStatusBadge(videoId, video['encoding_status']?.toString()),
+                          ],
+
                         ],
                       ),
                     ),
@@ -966,6 +976,109 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
           ),
         );
       },
+    );
+  }
+
+  // ===========================================================================
+  // 🎬 شارة حالة معالجة الفيديو على Bunny Stream — مطابقة تماماً للوحة التحكم
+  // (pages/admin/teacher/content.js STATUS_MAP): waiting / encoding / ready
+  // ✅ قابلة للضغط لتحديث الحالة يدوياً طالما لم تصل بعد لـ "جاهز"
+  // ===========================================================================
+  final Set<String> _refreshingVideoIds = {};
+
+  Future<void> _refreshSingleVideoStatus(String videoId) async {
+    if (_refreshingVideoIds.contains(videoId)) return;
+    setState(() => _refreshingVideoIds.add(videoId));
+    try {
+      final result = await _teacherService.getVideoStatus(videoId);
+      final newStatus = result['encoding_status']?.toString();
+      if (mounted && newStatus != null) {
+        setState(() {
+          final videos = (_currentChapter['videos'] as List?) ?? [];
+          for (final v in videos) {
+            if (v is Map && v['id'].toString() == videoId) {
+              v['encoding_status'] = newStatus;
+              if (result['duration'] != null) {
+                v['duration'] = result['duration'];
+              }
+            }
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) _showErrorSnackBar("تعذر تحديث حالة الفيديو");
+    } finally {
+      if (mounted) setState(() => _refreshingVideoIds.remove(videoId));
+    }
+  }
+
+  Widget _buildEncodingStatusBadge(String videoId, String? encodingStatus) {
+    late String label;
+    late Color color;
+    late IconData icon;
+
+    switch (encodingStatus) {
+      case 'encoding':
+        label = "قيد المعالجة";
+        color = AppColors.accentYellow;
+        icon = LucideIcons.loader;
+        break;
+      case 'ready':
+        label = "جاهز";
+        color = AppColors.success;
+        icon = LucideIcons.checkCircle;
+        break;
+      case 'waiting':
+      default:
+        // أي قيمة غير معروفة (أو null) تُعامل كـ "waiting" تماماً كما في
+        // لوحة التحكم على الويب (STATUS_MAP[v.encoding_status] || waiting)
+        label = "في انتظار المعالجة";
+        color = AppColors.textSecondary;
+        icon = LucideIcons.clock;
+        break;
+    }
+
+    final bool isReady = encodingStatus == 'ready';
+    final bool isRefreshing = _refreshingVideoIds.contains(videoId);
+
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isRefreshing) ...[
+            SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: color),
+            ),
+            const SizedBox(width: 5),
+            Text("جاري التحديث",
+                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color)),
+          ] else ...[
+            Icon(icon, size: 11, color: color),
+            const SizedBox(width: 4),
+            Text(label,
+                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color)),
+            if (!isReady) ...[
+              const SizedBox(width: 4),
+              Icon(LucideIcons.refreshCw, size: 10, color: color.withOpacity(0.7)),
+            ],
+          ],
+        ],
+      ),
+    );
+
+    if (isReady || isRefreshing) return badge;
+
+    return GestureDetector(
+      onTap: () => _refreshSingleVideoStatus(videoId),
+      child: badge,
     );
   }
 
