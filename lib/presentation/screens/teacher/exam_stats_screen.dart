@@ -100,7 +100,7 @@ class _ExamStatsScreenState extends State<ExamStatsScreen> {
 
                   // --- قائمة الأوائل ---
                   Container(
-                    alignment: Alignment.centerRight,
+                    alignment: AlignmentDirectional.centerEnd,
                     padding: const EdgeInsets.only(bottom: 15),
                     child: Row(
                       children: [

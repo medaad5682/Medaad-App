@@ -843,7 +843,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
 
                       // ✅ واجهة الوقت (ساعات : دقائق : ثواني) الأنيقة
                       Align(
-                        alignment: Alignment.centerRight,
+                        alignment: AlignmentDirectional.centerEnd,
                         child: Text(AppLocalizations.of(context)!.actualVideoDurationLabel, style: TextStyle(color: AppColors.accentYellow, fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(height: 10),
@@ -970,7 +970,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                       if (_videoFileName != null) ...[
                         const SizedBox(height: 16),
                         Align(
-                          alignment: Alignment.centerRight,
+                          alignment: AlignmentDirectional.centerEnd,
                           child: Text(AppLocalizations.of(context)!.videoDurationAutoExtractedLabel,
                               style: TextStyle(color: AppColors.accentYellow, fontWeight: FontWeight.bold)),
                         ),

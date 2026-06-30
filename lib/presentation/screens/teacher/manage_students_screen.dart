@@ -253,7 +253,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                         final bool isSubjectSelected = selectedSubjects.contains(subjectId);
 
                         return Padding(
-                          padding: const EdgeInsets.only(right: 40.0), // إزاحة لليمين
+                          padding: const EdgeInsetsDirectional.only(end: 40.0), // إزاحة لليمين
                           child: CheckboxListTile(
                             title: Text(subject['title']),
                             // إذا تم اختيار الكورس، تظهر المادة وكأنها مختارة (أو معطلة)

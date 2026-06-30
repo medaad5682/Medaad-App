@@ -498,7 +498,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                                 ),
                                 if (q.isEssay)
                                   Container(
-                                    margin: const EdgeInsets.only(right: 6),
+                                    margin: const EdgeInsetsDirectional.only(end: 6),
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                     decoration: BoxDecoration(
                                       color: AppColors.accentBlue.withOpacity(0.15),
