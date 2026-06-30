@@ -865,5 +865,545 @@
         "example": "3:45 PM"
       }
     }
+  },
+  "selectPlayerTitle": "SELECT PLAYER",
+  "@selectPlayerTitle": {
+    "description": "Title of the bottom sheet where the student picks which video player to use"
+  },
+  "noActivePlayersAvailable": "No active players available.",
+  "@noActivePlayersAvailable": {
+    "description": "Message shown when no video players are enabled for a course"
+  },
+  "selectDownloadQualityTitle": "SELECT DOWNLOAD QUALITY",
+  "@selectDownloadQualityTitle": {
+    "description": "Title of the bottom sheet where the student picks a video quality to download"
+  },
+  "downloadStartedMessage": "Download Started...",
+  "@downloadStartedMessage": {
+    "description": "Snackbar shown when a video or PDF download begins"
+  },
+  "downloadCompletedMessage": "Download Completed!",
+  "@downloadCompletedMessage": {
+    "description": "Snackbar shown when a video or PDF download finishes successfully"
+  },
+  "downloadFailedMessage": "Download Failed",
+  "@downloadFailedMessage": {
+    "description": "Snackbar shown when a video or PDF download fails"
+  },
+  "pdfDownloadStartedMessage": "PDF Download Started...",
+  "@pdfDownloadStartedMessage": {
+    "description": "Snackbar shown when a PDF download begins"
+  },
+  "pdfDownloadCompletedMessage": "PDF Download Completed!",
+  "@pdfDownloadCompletedMessage": {
+    "description": "Snackbar shown when a PDF download finishes successfully"
+  },
+  "videosTabLabel": "Videos",
+  "@videosTabLabel": {
+    "description": "Plain tab label (no count) for the videos tab on the chapter contents screen"
+  },
+  "pdfsTabLabel": "PDFs",
+  "@pdfsTabLabel": {
+    "description": "Plain tab label (no count) for the PDFs tab on the chapter contents screen"
+  },
+  "noVideoLessonsMessage": "No video lessons",
+  "@noVideoLessonsMessage": {
+    "description": "Empty state message when a chapter has no video lessons"
+  },
+  "noPdfFilesMessage": "No PDF files",
+  "@noPdfFilesMessage": {
+    "description": "Empty state message when a chapter has no PDF files"
+  },
+  "videoLabel": "VIDEO",
+  "@videoLabel": {
+    "description": "Small label tag shown next to a video lesson's duration"
+  },
+  "studyMaterialLabel": "STUDY MATERIAL",
+  "@studyMaterialLabel": {
+    "description": "Small label tag shown under a PDF document's title"
+  },
+  "videoProcessingNotice": "Playback and download will be available once video processing is complete",
+  "@videoProcessingNotice": {
+    "description": "Notice shown to a teacher when a video is still being encoded and cannot be watched or downloaded yet"
+  },
+  "watchNowButton": "Watch Now",
+  "@watchNowButton": {
+    "description": "Button label to start watching a video lesson"
+  },
+  "openFileButton": "Open File",
+  "@openFileButton": {
+    "description": "Button label to open a PDF document"
+  },
+  "downloadButton": "Download",
+  "@downloadButton": {
+    "description": "Button label to download a video or PDF"
+  },
+  "savedLabel": "SAVED",
+  "@savedLabel": {
+    "description": "Status label shown when a video or PDF has already been downloaded"
+  },
+  "processingLabel": "PROCESSING...",
+  "@processingLabel": {
+    "description": "Status label shown while a download is in progress"
+  },
+  "downloadDisabledLabel": "DOWNLOAD DISABLED",
+  "@downloadDisabledLabel": {
+    "description": "Status label shown when downloading has been disabled for this content"
+  },
+  "videoStatusRefreshFailed": "Failed to refresh video status",
+  "@videoStatusRefreshFailed": {
+    "description": "Error snackbar shown when refreshing a video's encoding status fails"
+  },
+  "encodingStatusEncoding": "Encoding",
+  "@encodingStatusEncoding": {
+    "description": "Badge label for a video that is currently being encoded on the streaming backend"
+  },
+  "encodingStatusReady": "Ready",
+  "@encodingStatusReady": {
+    "description": "Badge label for a video that has finished encoding and is ready to watch"
+  },
+  "encodingStatusWaiting": "Waiting to process",
+  "@encodingStatusWaiting": {
+    "description": "Badge label for a video that is queued and waiting to be encoded"
+  },
+  "updatingLabel": "Updating",
+  "@updatingLabel": {
+    "description": "Label shown on the encoding-status badge while it is being manually refreshed"
+  },
+  "couldNotLaunchLink": "Could not launch link",
+  "@couldNotLaunchLink": {
+    "description": "Error snackbar shown when a link fails to open in the browser/app"
+  },
+  "copiedToClipboard": "Copied to clipboard",
+  "@copiedToClipboard": {
+    "description": "Snackbar shown after copying a value (wallet number, link) to the clipboard"
+  },
+  "pleaseUploadReceiptImage": "Please upload the payment receipt image",
+  "@pleaseUploadReceiptImage": {
+    "description": "Validation error shown when the student tries to submit checkout without a receipt screenshot"
+  },
+  "requestSentTitle": "REQUEST SENT",
+  "@requestSentTitle": {
+    "description": "Title of the confirmation dialog shown after a purchase request is submitted"
+  },
+  "requestReceivedMessage": "We have received your request.\nYou will be notified once approved.",
+  "@requestReceivedMessage": {
+    "description": "Body text of the confirmation dialog shown after a purchase request is submitted"
+  },
+  "failedToSendRequest": "Failed to send request",
+  "@failedToSendRequest": {
+    "description": "Fallback error message shown when submitting a purchase request fails"
+  },
+  "checkoutTitle": "CHECKOUT",
+  "@checkoutTitle": {
+    "description": "Title of the checkout screen"
+  },
+  "totalAmountLabel": "TOTAL AMOUNT",
+  "@totalAmountLabel": {
+    "description": "Label above the total payable amount on the checkout screen"
+  },
+  "discountCodeAppliedSuccess": "Discount code applied successfully!",
+  "@discountCodeAppliedSuccess": {
+    "description": "Snackbar shown when a discount code is applied successfully"
+  },
+  "discountCodeInvalid": "Invalid or already-used discount code.",
+  "@discountCodeInvalid": {
+    "description": "Fallback error message shown when a discount code fails validation"
+  },
+  "discountCodeLabel": "DISCOUNT CODE",
+  "@discountCodeLabel": {
+    "description": "Label above the discount code input field on checkout"
+  },
+  "enterCodeHint": "Enter code here",
+  "@enterCodeHint": {
+    "description": "Hint text inside the discount code input field"
+  },
+  "applyButton": "APPLY",
+  "@applyButton": {
+    "description": "Button label to apply a discount code"
+  },
+  "cashWalletsLabel": "CASH WALLETS",
+  "@cashWalletsLabel": {
+    "description": "Section header listing cash wallet payment numbers on checkout"
+  },
+  "walletNumberLabel": "WALLET NUMBER",
+  "@walletNumberLabel": {
+    "description": "Label on a card showing a cash wallet number"
+  },
+  "instapayNumbersLabel": "INSTAPAY NUMBERS",
+  "@instapayNumbersLabel": {
+    "description": "Section header listing InstaPay phone numbers on checkout"
+  },
+  "instapayPhoneLabel": "INSTAPAY PHONE",
+  "@instapayPhoneLabel": {
+    "description": "Label on a card showing an InstaPay phone number"
+  },
+  "instapayLinksLabel": "INSTAPAY LINKS / USERNAME",
+  "@instapayLinksLabel": {
+    "description": "Section header listing InstaPay payment links on checkout"
+  },
+  "paymentMethodsUnavailable": "Payment methods unavailable",
+  "@paymentMethodsUnavailable": {
+    "description": "Message shown when no payment methods are configured for checkout"
+  },
+  "contactSupportOrRetryLater": "Please contact support or try again later.",
+  "@contactSupportOrRetryLater": {
+    "description": "Secondary message shown alongside the payment-methods-unavailable notice"
+  },
+  "uploadReceiptLabel": "UPLOAD RECEIPT",
+  "@uploadReceiptLabel": {
+    "description": "Label above the receipt screenshot upload box on checkout"
+  },
+  "tapToUploadScreenshot": "Tap to upload screenshot",
+  "@tapToUploadScreenshot": {
+    "description": "Placeholder text inside the empty receipt upload box"
+  },
+  "notesOptionalLabel": "NOTES (OPTIONAL)",
+  "@notesOptionalLabel": {
+    "description": "Label above the optional notes field on checkout"
+  },
+  "addNotesHint": "Add any notes...",
+  "@addNotesHint": {
+    "description": "Hint text inside the optional checkout notes field"
+  },
+  "confirmPaymentButton": "CONFIRM PAYMENT",
+  "@confirmPaymentButton": {
+    "description": "Button label to submit the checkout/payment request"
+  },
+  "copyTooltip": "Copy",
+  "@copyTooltip": {
+    "description": "Tooltip on a button that copies a value to the clipboard"
+  },
+  "openLinkInstapayButton": "Open Link / InstaPay",
+  "@openLinkInstapayButton": {
+    "description": "Button label to open an InstaPay payment link"
+  },
+  "couldNotFetchLatestData": "Could not fetch latest data, showing cached version.",
+  "@couldNotFetchLatestData": {
+    "description": "Notice shown when profile data couldn't be refreshed from the server and a cached copy is shown instead"
+  },
+  "profileUpdatedSuccess": "Profile Updated Successfully",
+  "@profileUpdatedSuccess": {
+    "description": "Snackbar shown after the profile is saved successfully"
+  },
+  "failedToUpdateProfile": "Failed to update profile",
+  "@failedToUpdateProfile": {
+    "description": "Fallback error message shown when saving profile changes fails"
+  },
+  "editProfileTitle": "EDIT PROFILE",
+  "@editProfileTitle": {
+    "description": "Title of the edit profile screen"
+  },
+  "tapToChangePhoto": "Tap to change photo",
+  "@tapToChangePhoto": {
+    "description": "Hint under the profile photo on the edit profile screen"
+  },
+  "editFullNameHint": "Enter your full name",
+  "@editFullNameHint": {
+    "description": "Hint text for the full name field on the edit profile screen"
+  },
+  "nameRequiredValidation": "Name is required",
+  "@nameRequiredValidation": {
+    "description": "Validation error when the full name field is left empty"
+  },
+  "phoneNumberLabel": "Phone Number",
+  "@phoneNumberLabel": {
+    "description": "Label for the phone number field on the edit profile screen"
+  },
+  "invalidPhoneNumberValidation": "Invalid phone number",
+  "@invalidPhoneNumberValidation": {
+    "description": "Validation error when the phone number is too short"
+  },
+  "usernameLabel": "Username",
+  "@usernameLabel": {
+    "description": "Label for the username field on the edit profile screen"
+  },
+  "usernameEnglishNumbersOnlyHint": "English letters & numbers only",
+  "@usernameEnglishNumbersOnlyHint": {
+    "description": "Hint text for the username field on the edit profile screen"
+  },
+  "usernameRequiredValidation": "Username is required",
+  "@usernameRequiredValidation": {
+    "description": "Validation error when the username field is left empty"
+  },
+  "usernameInvalidCharsValidation": "Only English letters & numbers allowed (No spaces)",
+  "@usernameInvalidCharsValidation": {
+    "description": "Validation error when the username contains invalid characters"
+  },
+  "teacherInfoLabel": "TEACHER INFO",
+  "@teacherInfoLabel": {
+    "description": "Section header for teacher-specific fields on the edit profile screen"
+  },
+  "specialtyJobTitleLabel": "Specialty / Job Title",
+  "@specialtyJobTitleLabel": {
+    "description": "Label for the teacher's specialty/job title field"
+  },
+  "specialtyHint": "e.g. Physics Teacher",
+  "@specialtyHint": {
+    "description": "Hint text for the teacher's specialty/job title field"
+  },
+  "whatsappNumberLabel": "WhatsApp Number (For Students)",
+  "@whatsappNumberLabel": {
+    "description": "Label for the teacher's WhatsApp number field"
+  },
+  "whatsappNumberHint": "201xxxxxxxxx",
+  "@whatsappNumberHint": {
+    "description": "Hint text for the teacher's WhatsApp number field"
+  },
+  "whatsappNumberNotice": "Enter number with country code without '+' (e.g. 201xxxxxxxxx)",
+  "@whatsappNumberNotice": {
+    "description": "Helper text explaining the expected WhatsApp number format"
+  },
+  "bioAboutMeLabel": "Bio / About Me",
+  "@bioAboutMeLabel": {
+    "description": "Label for the teacher's bio field"
+  },
+  "bioHint": "Tell students about yourself...",
+  "@bioHint": {
+    "description": "Hint text for the teacher's bio field"
+  },
+  "paymentMethodsLabel": "PAYMENT METHODS",
+  "@paymentMethodsLabel": {
+    "description": "Section header for payment method fields on the edit profile screen"
+  },
+  "cashWalletNumbersTitle": "Cash Wallet Numbers",
+  "@cashWalletNumbersTitle": {
+    "description": "Title above the dynamic list of cash wallet numbers"
+  },
+  "enterWalletNumberHint": "Enter Wallet Number",
+  "@enterWalletNumberHint": {
+    "description": "Hint text for a cash wallet number input field"
+  },
+  "instapayNumbersTitle": "InstaPay Numbers",
+  "@instapayNumbersTitle": {
+    "description": "Title above the dynamic list of InstaPay phone numbers"
+  },
+  "enterInstapayPhoneHint": "Enter InstaPay Phone Number",
+  "@enterInstapayPhoneHint": {
+    "description": "Hint text for an InstaPay phone number input field"
+  },
+  "instapayLinksUsernamesTitle": "InstaPay Links / Usernames",
+  "@instapayLinksUsernamesTitle": {
+    "description": "Title above the dynamic list of InstaPay links/usernames"
+  },
+  "instapayLinkHint": "username@instapay or Link",
+  "@instapayLinkHint": {
+    "description": "Hint text for an InstaPay link/username input field"
+  },
+  "saveChangesButton": "SAVE CHANGES",
+  "@saveChangesButton": {
+    "description": "Button label to save profile changes"
+  },
+  "clickPlusToAddHint": "Click + to add a number/link",
+  "@clickPlusToAddHint": {
+    "description": "Helper text shown when a dynamic payment-method list is empty"
+  },
+  "failedToStartExam": "Failed to start exam",
+  "@failedToStartExam": {
+    "description": "Fallback error message shown when an exam attempt fails to start"
+  },
+  "accessDeniedFallback": "Access Denied",
+  "@accessDeniedFallback": {
+    "description": "Fallback error message shown when access to an exam is denied"
+  },
+  "examPendingReviewMessage": "This exam is pending review by the teacher",
+  "@examPendingReviewMessage": {
+    "description": "Message shown when a submitted exam is still awaiting teacher grading"
+  },
+  "examAlreadyCompleted": "Exam already completed",
+  "@examAlreadyCompleted": {
+    "description": "Message shown when the student tries to retake an already-completed exam"
+  },
+  "cannotSubmitUnanswered": "Cannot submit yet. You have {count} unanswered questions!",
+  "@cannotSubmitUnanswered": {
+    "description": "Warning shown when the student tries to submit an exam with unanswered questions",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "failedToSubmitTryAgain": "Failed to submit. Try again.",
+  "@failedToSubmitTryAgain": {
+    "description": "Error message shown when submitting an exam attempt fails"
+  },
+  "exitExamTitle": "Exit Exam?",
+  "@exitExamTitle": {
+    "description": "Title of the confirmation dialog shown when leaving the exam screen"
+  },
+  "exitExamWarningMessage": "Leaving the exam screen now will AUTOMATICALLY SUBMIT your current answers and you cannot return.\n\nAre you sure?",
+  "@exitExamWarningMessage": {
+    "description": "Body text of the exit-exam confirmation dialog"
+  },
+  "stayButton": "Stay",
+  "@stayButton": {
+    "description": "Button label to cancel exiting the exam and remain on the screen"
+  },
+  "submitAndExitButton": "Submit & Exit",
+  "@submitAndExitButton": {
+    "description": "Button label to submit the exam and leave the screen"
+  },
+  "noModelAnswerProvided": "No model answer provided.",
+  "@noModelAnswerProvided": {
+    "description": "Placeholder shown when an essay question has no model answer set"
+  },
+  "writtenQuestionInstructions": "Written Question — Type your answer below",
+  "@writtenQuestionInstructions": {
+    "description": "Instruction shown above the text field for an essay/written exam question"
+  },
+  "writeAnswerHint": "Write your answer here...",
+  "@writeAnswerHint": {
+    "description": "Hint text inside the essay answer text field"
+  },
+  "charactersCountLabel": "{count} characters",
+  "@charactersCountLabel": {
+    "description": "Character count shown below an essay answer field",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "120"
+      }
+    }
+  },
+  "markQuestionTooltip": "Mark Question",
+  "@markQuestionTooltip": {
+    "description": "Tooltip on the flag button to mark a question for review"
+  },
+  "questionCounterLabel": "Q {current}/{total}",
+  "@questionCounterLabel": {
+    "description": "Header showing the current question number out of the total",
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "modelAnswerLabel": "MODEL ANSWER",
+  "@modelAnswerLabel": {
+    "description": "Badge shown when viewing an exam in model-answer review mode"
+  },
+  "writtenQuestionBadge": "WRITTEN QUESTION",
+  "@writtenQuestionBadge": {
+    "description": "Small badge marking an essay/written question"
+  },
+  "questionTextFallback": "Question Text",
+  "@questionTextFallback": {
+    "description": "Fallback text if a question's text is missing"
+  },
+  "backButton": "BACK",
+  "@backButton": {
+    "description": "Button label to go to the previous exam question"
+  },
+  "examCloseButton": "CLOSE",
+  "@examCloseButton": {
+    "description": "Button label to close the exam when in model-answer review mode"
+  },
+  "examFinishButton": "FINISH",
+  "@examFinishButton": {
+    "description": "Button label to finish and submit the exam on the last question"
+  },
+  "examNextButton": "NEXT",
+  "@examNextButton": {
+    "description": "Button label to move to the next exam question"
+  },
+  "noAnswerSubmittedFallback": "(No answer submitted)",
+  "@noAnswerSubmittedFallback": {
+    "description": "Fallback shown for an essay question the student left blank"
+  },
+  "writtenBadgeShort": "WRITTEN",
+  "@writtenBadgeShort": {
+    "description": "Short badge marking an essay question on the exam results screen"
+  },
+  "questionNumberLabel": "Question {number}",
+  "@questionNumberLabel": {
+    "description": "Header showing a question's position in the exam",
+    "placeholders": {
+      "number": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "pointsScoredLabel": "{earned} / {max} pts",
+  "@pointsScoredLabel": {
+    "description": "Score shown for a graded essay question",
+    "placeholders": {
+      "earned": {
+        "type": "int",
+        "example": "8"
+      },
+      "max": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "pointsPendingLabel": "— / {max} pts",
+  "@pointsPendingLabel": {
+    "description": "Score placeholder shown for an essay question that hasn't been graded yet",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "yourAnswerLabel": "YOUR ANSWER",
+  "@yourAnswerLabel": {
+    "description": "Label above the student's submitted answer on the exam results screen"
+  },
+  "teacherFeedbackLabel": "TEACHER FEEDBACK",
+  "@teacherFeedbackLabel": {
+    "description": "Label above the teacher's written feedback on a graded essay question"
+  },
+  "failedToLoadResults": "Failed to load results",
+  "@failedToLoadResults": {
+    "description": "Error message shown when exam results fail to load"
+  },
+  "awaitingTeacherReview": "Awaiting Teacher Review",
+  "@awaitingTeacherReview": {
+    "description": "Title shown when an exam has been submitted but not yet graded"
+  },
+  "examUnderReviewMessage": "Your exam has been submitted and is being reviewed by your teacher. You will be notified once grading is complete.",
+  "@examUnderReviewMessage": {
+    "description": "Body text shown while an exam attempt awaits teacher grading"
+  },
+  "backToCourseButton": "BACK TO COURSE",
+  "@backToCourseButton": {
+    "description": "Button label to return to the course from the exam results screen"
+  },
+  "examPassedLabel": "PASSED",
+  "@examPassedLabel": {
+    "description": "Status label shown when the student passed the exam"
+  },
+  "examFailedLabel": "FAILED",
+  "@examFailedLabel": {
+    "description": "Status label shown when the student failed the exam"
+  },
+  "practiceResultTitle": "PRACTICE RESULT",
+  "@practiceResultTitle": {
+    "description": "App bar title when viewing results of a practice exam attempt"
+  },
+  "examResultsTitle": "EXAM RESULTS",
+  "@examResultsTitle": {
+    "description": "App bar title when viewing results of a graded exam attempt"
+  },
+  "practiceModeNotice": "This is a practice result (Practice Mode). This result has not been saved to your permanent grade record.",
+  "@practiceModeNotice": {
+    "description": "Notice shown on practice-mode exam results explaining the score isn't recorded"
+  },
+  "detailedAnalysisLabel": "DETAILED ANALYSIS",
+  "@detailedAnalysisLabel": {
+    "description": "Section header above the per-question breakdown on the exam results screen"
+  },
+  "writtenQuestionsPendingGrading": "Written questions pending grading",
+  "@writtenQuestionsPendingGrading": {
+    "description": "Notice shown when an exam has essay questions still awaiting a grade"
   }
 }
