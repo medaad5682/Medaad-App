@@ -351,15 +351,20 @@ class BunnyTusUploadService {
           rethrow; // تُعالَج بشكل منفصل دائماً عبر regenerateAndResume
         } on _RetryableUploadError catch (e) {
           if (attempt >= retryDelays.length - 1 || _cancelRequested) rethrow;
-          // إذا فُقد الاتصال بالكامل، ننتظر عودته بدل استهلاك محاولات
-          // الجدول الزمني على عمليات ستفشل حتماً دون شبكة
+          // ✅ فشل سريع عند انقطاع الاتصال: ننتظر مهلة قصيرة فقط (3 ثوانٍ)
+          // لامتصاص أي رجّة عابرة في الشبكة، ثم إن بقي الاتصال مقطوعاً
+          // نرمي الخطأ فوراً بدلاً من الانتظار لحين عودته (قد يستغرق ذلك
+          // وقتاً طويلاً وكان يُظهر للمعلم تجمّد الشاشة عند آخر نسبة دون أي
+          // رسالة). المستخدم يضغط زر "استكمال الرفع" يدوياً عند عودة
+          // الاتصال، وهو ما يعمل بشكل صحيح بالفعل (يكمل من نفس نقطة التوقف).
           if (!_isNetworkAvailable) {
             _pauseWaiter = Completer<void>();
             await _pauseWaiter!.future.timeout(
-              const Duration(days: 1),
+              const Duration(seconds: 3),
               onTimeout: () {},
             );
             if (_cancelRequested) rethrow;
+            if (!_isNetworkAvailable) rethrow; // ما زال الاتصال مقطوعاً — فشل فوري
             continue;
           }
           await Future.delayed(retryDelays[attempt + 1]);
@@ -418,18 +423,32 @@ class BunnyTusUploadService {
           return;
         }
 
-        // ⏸️ إذا لا يوجد اتصال إنترنت، ننتظر بهدوء حتى يعود بدل الفشل الفوري
+        // ⛔ فشل سريع عند فقد الاتصال: ننتظر مهلة قصيرة فقط (3 ثوانٍ) احتياطاً
+        // لرجّة عابرة بالشبكة، ثم إن بقي الاتصال مقطوعاً نوقف الرفع فوراً
+        // بحالة خطأ واضحة بدلاً من تجميد الشاشة عند آخر نسبة دون أي رسالة.
+        // ✅ الجلسة تبقى محفوظة كما هي (offset/tusUploadUrl) — عند عودة
+        // الاتصال يضغط المعلم "استكمال الرفع" فيكمل من نفس نقطة التوقف
+        // بالضبط، تماماً كما يعمل الآن.
         if (!_isNetworkAvailable) {
           status = BunnyUploadStatus.paused;
           _emit();
           _pauseWaiter = Completer<void>();
           await _pauseWaiter!.future.timeout(
-            const Duration(days: 1),
+            const Duration(seconds: 3),
             onTimeout: () {},
           );
           if (_cancelRequested) {
             status = BunnyUploadStatus.cancelled;
             _emit();
+            return;
+          }
+          if (!_isNetworkAvailable) {
+            // ما زال الاتصال مقطوعاً — فشل فوري بدلاً من الانتظار لحين عودته
+            await raf.close();
+            status = BunnyUploadStatus.error;
+            errorMessage = 'انقطع الاتصال — اضغط "استكمال الرفع" للمتابعة من نقطة التوقف';
+            _emit();
+            onError(errorMessage!);
             return;
           }
           status = BunnyUploadStatus.uploading;
