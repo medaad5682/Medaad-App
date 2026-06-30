@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
-import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 /// شريط لوحة ألوان كاملة قابلة لإعادة الاستخدام في كل الأدوات (قلم، هايلايتر،
 /// تسطير، نص، أشكال). يعرض مجموعة ألوان شائعة بالإضافة إلى زر "لون مخصص" يفتح
@@ -48,7 +47,7 @@ class ColorPaletteRow extends StatelessWidget {
             const SizedBox(width: 6),
           ],
           ..._palette.map((c) => Padding(
-                padding: const EdgeInsetsDirectional.only(end: 6),
+                padding: const EdgeInsets.only(right: 6),
                 child: _circle(c),
               )),
           _customColorButton(context),
@@ -176,7 +175,7 @@ class _CustomColorDialogState extends State<_CustomColorDialog> {
     return AlertDialog(
       backgroundColor: AppColors.backgroundSecondary,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(AppLocalizations.of(context)!.chooseColorTitle, style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+      title: Text("اختر لوناً", style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -224,7 +223,7 @@ class _CustomColorDialogState extends State<_CustomColorDialog> {
             const SizedBox(height: 12),
             // التشبع
             Row(children: [
-              Text(AppLocalizations.of(context)!.saturationLabel, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+              Text("التشبع", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
               Expanded(
                 child: Slider(
                   value: _hsv.saturation,
@@ -235,7 +234,7 @@ class _CustomColorDialogState extends State<_CustomColorDialog> {
             ]),
             // السطوع
             Row(children: [
-              Text(AppLocalizations.of(context)!.brightnessLabel, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+              Text("السطوع", style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
               Expanded(
                 child: Slider(
                   value: _hsv.value,
@@ -250,13 +249,13 @@ class _CustomColorDialogState extends State<_CustomColorDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: Text(AppLocalizations.of(context)!.cancel, style: const TextStyle(color: Colors.grey)),
+          child: const Text("إلغاء", style: TextStyle(color: Colors.grey)),
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.accentYellow, foregroundColor: Colors.black),
           onPressed: () => Navigator.pop(context, current),
-          child: Text(AppLocalizations.of(context)!.selectAction, style: const TextStyle(fontWeight: FontWeight.bold)),
+          child: const Text("اختيار", style: TextStyle(fontWeight: FontWeight.bold)),
         ),
       ],
     );
