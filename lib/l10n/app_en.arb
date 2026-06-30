@@ -1,1 +1,93 @@
-.
+{
+  "@@locale": "en",
+
+  "appTitle": "Medaad",
+  "@appTitle": {
+    "description": "The application name shown in the title bar / task switcher"
+  },
+
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Generic Cancel button label"
+  },
+
+  "save": "Save",
+  "@save": {
+    "description": "Generic Save button label"
+  },
+
+  "delete": "Delete",
+  "@delete": {
+    "description": "Generic Delete button label"
+  },
+
+  "confirm": "Confirm",
+  "@confirm": {
+    "description": "Generic Confirm button label"
+  },
+
+  "confirmDelete": "Confirm Delete",
+  "@confirmDelete": {
+    "description": "Title shown on delete-confirmation dialogs"
+  },
+
+  "ok": "OK",
+  "@ok": {
+    "description": "Generic OK button label"
+  },
+
+  "yes": "Yes",
+  "@yes": {
+    "description": "Generic affirmative button label"
+  },
+
+  "no": "No",
+  "@no": {
+    "description": "Generic negative button label"
+  },
+
+  "close": "Close",
+  "@close": {
+    "description": "Generic Close button label"
+  },
+
+  "retry": "Retry",
+  "@retry": {
+    "description": "Generic Retry button label"
+  },
+
+  "loading": "Loading...",
+  "@loading": {
+    "description": "Generic loading indicator label"
+  },
+
+  "error": "Error",
+  "@error": {
+    "description": "Generic error dialog/title label"
+  },
+
+  "success": "Success",
+  "@success": {
+    "description": "Generic success dialog/title label"
+  },
+
+  "language": "Language",
+  "@language": {
+    "description": "Label for the language setting / switcher"
+  },
+
+  "languageEnglish": "English",
+  "@languageEnglish": {
+    "description": "Name of the English language option in the language switcher"
+  },
+
+  "languageArabic": "Arabic",
+  "@languageArabic": {
+    "description": "Name of the Arabic language option in the language switcher"
+  },
+
+  "languageChangeRestartNotice": "The app will restart to apply the new language.",
+  "@languageChangeRestartNotice": {
+    "description": "Notice shown to the user when changing language, explaining the app will restart"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "@@locale": "ar",
+
+  "appTitle": "مــــداد",
+  "cancel": "إلغاء",
+  "save": "حفظ",
+  "delete": "حذف",
+  "confirm": "تأكيد",
+  "confirmDelete": "تأكيد الحذف",
+  "ok": "حسناً",
+  "yes": "نعم",
+  "no": "لا",
+  "close": "إغلاق",
+  "retry": "إعادة المحاولة",
+  "loading": "جاري التحميل...",
+  "error": "خطأ",
+  "success": "تم بنجاح",
+  "language": "اللغة",
+  "languageEnglish": "الإنجليزية",
+  "languageArabic": "العربية",
+  "languageChangeRestartNotice": "سيتم إعادة تشغيل التطبيق لتطبيق اللغة الجديدة."
+}
