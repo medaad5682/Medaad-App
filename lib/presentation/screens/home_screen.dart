@@ -11,6 +11,7 @@ import 'teacher_profile_screen.dart';
 import 'teacher/student_requests_screen.dart';
 // ✅ 1. استيراد شاشة الإشعارات
 import 'notifications_screen.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -34,13 +35,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isTeacher = false;
 
-  final List<String> _encouragements = [
-    "Knowledge is the key to unlocking your true potential.",
-    "Every expert was once a beginner. Keep learning.",
-    "Your future self will thank you for the effort you put in today.",
-    "Invest in yourself; education pays the best interest.",
-    "Learning never exhausts the mind. Stay curious!"
-  ];
+  // ✅ عدد الجمل التشجيعية ثابت (النصوص الفعلية تُبنى داخل build() لأنها تحتاج context للترجمة)
+  static const int _encouragementsCount = 5;
 
   @override
   void initState() {
@@ -50,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // إعداد مؤقت السلايدر للنص التشجيعي
     _timer = Timer.periodic(const Duration(seconds: 8), (Timer timer) {
-      if (_currentSlide < _encouragements.length - 1) {
+      if (_currentSlide < _encouragementsCount - 1) {
         _currentSlide++;
       } else {
         _currentSlide = 0;
@@ -97,6 +93,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    // ✅ الجمل التشجيعية مبنية هنا لأنها تحتاج context للترجمة (راجع _encouragementsCount أعلاه)
+    final List<String> encouragements = [
+      l10n.encouragement1,
+      l10n.encouragement2,
+      l10n.encouragement3,
+      l10n.encouragement4,
+      l10n.encouragement5,
+    ];
+
     // منطق العرض: إذا كان هناك بحث نستخدم _allCourses، وإلا نستخدم _randomCourses
     List<dynamic> coursesToDisplay;
       
@@ -137,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "WELCOME",
+                            l10n.homeWelcomeGreeting,
                             style: TextStyle(
                               color: AppColors.accentYellow,
                               fontSize: 10,
@@ -147,7 +154,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            (_user?['first_name'] ?? "GUEST").toUpperCase(),
+                            (_user?['first_name'] ?? l10n.guestFallbackName)
+                                .toString()
+                                .toUpperCase(),
                             style: TextStyle(
                               color: AppColors.textPrimary,
                               fontSize: 20,
@@ -238,7 +247,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: _searchTerm.isNotEmpty ? AppColors.accentYellow : AppColors.textSecondary,
                           size: 18,
                         ),
-                        hintText: "Search course name or code...",
+                        hintText: l10n.searchCourseHint,
                         hintStyle: TextStyle(color: AppColors.textSecondary.withOpacity(0.5)),
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
@@ -277,14 +286,14 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             PageView.builder(
                               controller: _pageController,
-                              itemCount: _encouragements.length,
+                              itemCount: encouragements.length,
                               onPageChanged: (idx) => setState(() => _currentSlide = idx),
                               itemBuilder: (context, index) {
                                 return Center(
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(horizontal: 32),
                                     child: Text(
-                                      _encouragements[index].toUpperCase(),
+                                      encouragements[index].toUpperCase(),
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(
                                         color: Colors.black, // النص باللون الأسود
@@ -302,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               left: 0, right: 0,
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
-                                children: List.generate(_encouragements.length, (index) {
+                                children: List.generate(encouragements.length, (index) {
                                   return AnimatedContainer(
                                     duration: const Duration(milliseconds: 300),
                                     margin: const EdgeInsets.symmetric(horizontal: 2),
@@ -330,7 +339,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          _searchTerm.isEmpty ? "SUGGESTED FOR YOU" : "SEARCH RESULTS", 
+                          _searchTerm.isEmpty ? l10n.suggestedForYou : l10n.searchResults, 
                           style: TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 12,
@@ -339,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         Text(
-                          "ACTIVE",
+                          l10n.activeLabel,
                           style: TextStyle(
                             color: AppColors.accentOrange,
                             fontSize: 8,
@@ -355,7 +364,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     coursesToDisplay.isEmpty 
                     ? Padding(
                         padding: const EdgeInsets.symmetric(vertical: 40),
-                        child: Text("No courses found", style: TextStyle(color: AppColors.textSecondary.withOpacity(0.5))),
+                        child: Text(l10n.noCoursesFound, style: TextStyle(color: AppColors.textSecondary.withOpacity(0.5))),
                       )
                     : ListView.builder(
                         shrinkWrap: true,

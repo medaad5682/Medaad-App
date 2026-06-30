@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
+import '../../l10n/generated/app_localizations.dart';
 import 'home_screen.dart';
 import 'my_courses_screen.dart';
 import 'profile_screen.dart';
@@ -58,10 +59,10 @@ class _MainWrapperState extends State<MainWrapper> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildNavItem(0, LucideIcons.home, "Home"),
-              _buildNavItem(1, LucideIcons.bookOpen, "Courses"),
-              _buildNavItem(2, LucideIcons.download, "Downloads"),
-              _buildNavItem(3, LucideIcons.user, "Profile"),
+              _buildNavItem(0, LucideIcons.home, AppLocalizations.of(context)!.navHome),
+              _buildNavItem(1, LucideIcons.bookOpen, AppLocalizations.of(context)!.navCourses),
+              _buildNavItem(2, LucideIcons.download, AppLocalizations.of(context)!.navDownloads),
+              _buildNavItem(3, LucideIcons.user, AppLocalizations.of(context)!.navProfile),
             ],
           ),
         ),
