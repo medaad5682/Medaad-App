@@ -550,7 +550,7 @@
   "requestedContentLabel": "المحتوى المطلوب:",
   "notSpecifiedFallback": "غير محدد",
   "studentNoteLabel": "ملاحظة الطالب:",
-  "rejectionReasonLabel": "سبب الرفض: {reason}",
+  "rejectionReasonLabel": "سبب الرفض:",
   "myRequestsTitle": "طلباتي",
   "trackYourOrdersLabel": "تتبع طلباتك",
   "noRequestsFound": "لا توجد طلبات",

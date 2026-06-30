@@ -2300,14 +2300,9 @@
   "@studentNoteLabel": {
     "description": "Label above a student's note in a subscription request card"
   },
-  "rejectionReasonLabel": "Rejection reason: {reason}",
+  "rejectionReasonLabel": "Rejection reason:",
   "@rejectionReasonLabel": {
-    "description": "Label and value shown for the rejection reason in a rejected request card",
-    "placeholders": {
-      "reason": {
-        "type": "String"
-      }
-    }
+    "description": "Label above the rejection reason shown in a rejected request card"
   },
   "myRequestsTitle": "My Requests",
   "@myRequestsTitle": {
