@@ -10,6 +10,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class TeacherProfileScreen extends StatefulWidget {
   final String teacherId;
@@ -118,8 +119,8 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
                         border: Border.all(
                             color: AppColors.textSecondary.withOpacity(0.1)),
                       ),
-                      child: Icon(LucideIcons.arrowLeft,
-                          color: AppColors.accentYellow, size: 20),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                          color: AppColors.accentYellow, size: 20)),
                     ),
                   ),
                 ),
@@ -306,9 +307,9 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
                                 ],
                               ),
                             ),
-                            Icon(LucideIcons.chevronRight,
+                            DirectionalFlip(child: Icon(LucideIcons.chevronRight,
                                 color: AppColors.textSecondary.withOpacity(0.4),
-                                size: 20),
+                                size: 20)),
                           ],
                         ),
                       ),

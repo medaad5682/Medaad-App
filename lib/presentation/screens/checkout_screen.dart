@@ -13,6 +13,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class CheckoutScreen extends StatefulWidget {
   final double amount;
@@ -379,8 +380,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         color: AppColors.backgroundSecondary,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(LucideIcons.arrowLeft,
-                          color: AppColors.accentYellow, size: 20),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                          color: AppColors.accentYellow, size: 20)),
                     ),
                   ),
                   const SizedBox(width: 16),

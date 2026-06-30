@@ -17,6 +17,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -386,7 +387,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          const Icon(LucideIcons.arrowRight, size: 18),
+                          DirectionalFlip(child: Icon(LucideIcons.arrowRight, size: 18)),
                         ],
                       ),
               ),

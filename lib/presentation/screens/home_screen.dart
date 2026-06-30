@@ -12,6 +12,7 @@ import 'teacher/student_requests_screen.dart';
 // ✅ 1. استيراد شاشة الإشعارات
 import 'notifications_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -420,7 +421,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           ),
                                         ),
                                       ),
-                                      Icon(LucideIcons.chevronRight, color: AppColors.accentYellow, size: 20),
+                                      DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.accentYellow, size: 20)),
                                     ],
                                   ),
                                   const SizedBox(height: 12),

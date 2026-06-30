@@ -462,6 +462,14 @@ class _SplashScreenState extends State<SplashScreen>
     final logoWidth =
         size.width * (isLandscape ? 0.25 : (isTablet ? 0.4 : 0.6));
 
+    // ✅ النص العربي (حروف متصلة) يحتاج خطاً أكبر وتباعد أحرف أقل
+    // ليبقى مقروءاً، بعكس النص الإنجليزي المتباعد بتصميمه.
+    final isArabic = Localizations.localeOf(context).languageCode == 'ar';
+    final taglineFontSize = isArabic ? 14.0 : 10.0;
+    final taglineLetterSpacing = isArabic ? 1.0 : 4.0;
+    final loadingFontSize = isArabic ? 12.0 : 9.0;
+    final loadingLetterSpacing = isArabic ? 2.0 : 6.0;
+
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       body: SafeArea(
@@ -488,10 +496,10 @@ class _SplashScreenState extends State<SplashScreen>
               Text(
                 AppLocalizations.of(context)!.splashTagline,
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: taglineFontSize,
                   fontWeight: FontWeight.bold,
                   color: AppColors.accentOrange,
-                  letterSpacing: 4.0,
+                  letterSpacing: taglineLetterSpacing,
                 ),
               ),
               const Spacer(flex: 2),
@@ -532,9 +540,9 @@ class _SplashScreenState extends State<SplashScreen>
                   Text(
                     AppLocalizations.of(context)!.splashLoadingSystem,
                     style: TextStyle(
-                      fontSize: 9,
+                      fontSize: loadingFontSize,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: 6.0,
+                      letterSpacing: loadingLetterSpacing,
                       color: AppColors.textSecondary.withOpacity(0.3),
                     ),
                   ),

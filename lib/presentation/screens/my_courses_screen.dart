@@ -11,6 +11,7 @@ import 'course_materials_screen.dart';
 import 'login_screen.dart';
 import 'teacher/manage_content_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class MyCoursesScreen extends StatefulWidget {
   const MyCoursesScreen({super.key});
@@ -559,10 +560,10 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                                       ),
                                     )
                                   else
-                                    Icon(LucideIcons.chevronRight,
+                                    DirectionalFlip(child: Icon(LucideIcons.chevronRight,
                                         color: AppColors.textSecondary
                                             .withOpacity(0.6),
-                                        size: 20),
+                                        size: 20)),
                                 ],
                               ),
                             ),
@@ -613,8 +614,8 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                           BoxShadow(color: Colors.black26, blurRadius: 4)
                         ],
                       ),
-                      child: Icon(LucideIcons.arrowLeft,
-                          color: AppColors.accentYellow, size: 20),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                          color: AppColors.accentYellow, size: 20)),
                     ),
                   ),
                   const SizedBox(width: 16),

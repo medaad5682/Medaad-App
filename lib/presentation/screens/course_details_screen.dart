@@ -10,6 +10,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class CourseDetailsScreen extends StatefulWidget {
   final String courseCode;
@@ -199,8 +200,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                 color: AppColors.backgroundSecondary,
                                 borderRadius: BorderRadius.circular(16),
                               ),
-                              child: Icon(LucideIcons.arrowLeft,
-                                  color: AppColors.accentYellow, size: 20),
+                              child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                                  color: AppColors.accentYellow, size: 20)),
                             ),
                           ),
                         ],
@@ -308,8 +309,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                 ],
                               ),
                               const SizedBox(width: 16),
-                              Icon(LucideIcons.chevronRight,
-                                  size: 16, color: AppColors.textSecondary),
+                              DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                                  size: 16, color: AppColors.textSecondary)),
                             ],
                           ),
                         ),
@@ -730,11 +731,13 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                           fontSize: 14,
                                           letterSpacing: 1.0)),
                                   const SizedBox(width: 8),
-                                  Icon(
-                                      _isFreeMode
-                                          ? LucideIcons.unlock
-                                          : LucideIcons.arrowRight,
-                                      size: 18),
+                                  DirectionalFlip(
+                                    child: Icon(
+                                        _isFreeMode
+                                            ? LucideIcons.unlock
+                                            : LucideIcons.arrowRight,
+                                        size: 18),
+                                  ),
                                 ],
                               ),
                       ),

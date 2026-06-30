@@ -7,6 +7,7 @@ import '../../core/constants/api_constants.dart';
 import '../../core/services/api_client.dart';
 import 'package:dio/dio.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -123,7 +124,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
         ),
         leading: IconButton(
-          icon: Icon(LucideIcons.arrowLeft, color: textColor),
+          icon: DirectionalFlip(child: Icon(LucideIcons.arrowLeft, color: textColor)),
           onPressed: () => Navigator.pop(context),
         ),
       ),

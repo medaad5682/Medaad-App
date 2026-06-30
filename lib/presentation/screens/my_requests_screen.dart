@@ -7,6 +7,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class MyRequestsScreen extends StatefulWidget {
   const MyRequestsScreen({super.key});
@@ -66,8 +67,8 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                         border:
                             Border.all(color: Colors.white.withOpacity(0.05)),
                       ),
-                      child: Icon(LucideIcons.arrowLeft,
-                          color: AppColors.accentYellow, size: 20),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                          color: AppColors.accentYellow, size: 20)),
                     ),
                   ),
                   const SizedBox(width: 16),

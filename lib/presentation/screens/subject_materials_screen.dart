@@ -16,6 +16,7 @@ import 'teacher/create_exam_screen.dart';
 import 'teacher/exam_stats_screen.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class SubjectMaterialsScreen extends StatefulWidget {
   final String subjectId;
@@ -399,8 +400,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                                         color: Colors.black12, blurRadius: 4)
                                   ],
                                 ),
-                                child: Icon(LucideIcons.arrowLeft,
-                                    color: AppColors.accentYellow, size: 20),
+                                child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                                    color: AppColors.accentYellow, size: 20)),
                               ),
                             ),
                             const SizedBox(width: 16),
@@ -704,8 +705,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                 )
               else
                 IconButton(
-                  icon: Icon(LucideIcons.chevronRight,
-                      size: 20, color: statusColor.withOpacity(0.5)),
+                  icon: DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                      size: 20, color: statusColor.withOpacity(0.5))),
                   onPressed: () => _openExam(exam, isCompleted, isExpired),
                 ),
             ],
@@ -1021,8 +1022,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                         },
                       )
                     else
-                      Icon(LucideIcons.chevronRight,
-                          size: 18, color: AppColors.textSecondary),
+                      DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                          size: 18, color: AppColors.textSecondary)),
                   ],
                 ),
               ],

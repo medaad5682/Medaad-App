@@ -7,6 +7,7 @@ import 'login_screen.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/services/api_client.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -174,8 +175,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: Border.all(
                         color: AppColors.textSecondary.withOpacity(0.1)),
                   ),
-                  child: Icon(LucideIcons.arrowLeft,
-                      color: AppColors.accentYellow, size: 20),
+                  child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                      color: AppColors.accentYellow, size: 20)),
                 ),
               ),
 
@@ -315,7 +316,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            const Icon(LucideIcons.arrowRight, size: 18),
+                            DirectionalFlip(child: Icon(LucideIcons.arrowRight, size: 18)),
                           ],
                         ),
                 ),

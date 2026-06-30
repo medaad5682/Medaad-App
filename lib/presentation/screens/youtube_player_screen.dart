@@ -14,6 +14,7 @@ import '../../core/services/audio_protection_service.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class YoutubePlayerScreen extends StatefulWidget {
   final String videoId;
@@ -337,8 +338,8 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
                           color: Colors.black54,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(LucideIcons.arrowLeft,
-                            color: Colors.white, size: 20),
+                        child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                            color: Colors.white, size: 20)),
                       ),
                     ),
                     const SizedBox(width: 12),

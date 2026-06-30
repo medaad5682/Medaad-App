@@ -16,6 +16,7 @@ import 'teacher/manage_content_screen.dart';
 import '../../core/constants/api_constants.dart';
 import '../../data/models/player_settings_model.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class ChapterContentsScreen extends StatefulWidget {
   final Map<String, dynamic> chapter;
@@ -502,7 +503,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                                 style: TextStyle(color: Colors.grey[600], fontSize: 12),
                               )
                             : null,
-                        trailing: const Icon(LucideIcons.chevronRight, color: Colors.black54, size: 16), 
+                        trailing: DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: Colors.black54, size: 16)), 
                         onTap: () {
                           Navigator.pop(context);
                           String? targetAudio = (q['type'] == 'video_only') ? audioUrl : null;
@@ -633,9 +634,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                                             blurRadius: 4)
                                       ],
                                     ),
-                                    child: Icon(LucideIcons.arrowLeft,
+                                    child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
                                         color: AppColors.accentYellow,
-                                        size: 20),
+                                        size: 20)),
                                   ),
                                 ),
                                 const SizedBox(width: 16),
@@ -1289,8 +1290,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                 ],
               ),
             ),
-            Icon(LucideIcons.chevronRight,
-                color: AppColors.textSecondary.withOpacity(0.6), size: 18),
+            DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                color: AppColors.textSecondary.withOpacity(0.6), size: 18)),
           ],
         ),
       ),

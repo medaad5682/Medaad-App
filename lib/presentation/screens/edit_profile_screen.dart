@@ -13,6 +13,7 @@ import '../../core/services/teacher_service.dart';
 import '../widgets/custom_text_field.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -339,8 +340,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           BoxShadow(color: Colors.black12, blurRadius: 4)
                         ],
                       ),
-                      child: Icon(LucideIcons.arrowLeft,
-                          color: AppColors.accentYellow, size: 20),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                          color: AppColors.accentYellow, size: 20)),
                     ),
                   ),
                   const SizedBox(width: 16),

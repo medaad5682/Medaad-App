@@ -10,6 +10,7 @@ import 'subject_materials_screen.dart';
 import 'teacher/manage_content_screen.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class CourseMaterialsScreen extends StatefulWidget {
   final String courseId;
@@ -145,8 +146,8 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                                       color: Colors.black12, blurRadius: 4)
                                 ],
                               ),
-                              child: Icon(LucideIcons.arrowLeft,
-                                  color: AppColors.accentYellow, size: 20),
+                              child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                                  color: AppColors.accentYellow, size: 20)),
                             ),
                           ),
                           const SizedBox(width: 16),
@@ -422,10 +423,10 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                                                   AppColors.backgroundPrimary,
                                               shape: BoxShape.circle,
                                             ),
-                                            child: Icon(
+                                            child: DirectionalFlip(child: Icon(
                                                 LucideIcons.chevronRight,
                                                 size: 14,
-                                                color: AppColors.accentOrange),
+                                                color: AppColors.accentOrange)),
                                           ),
                                         ],
                                       ),

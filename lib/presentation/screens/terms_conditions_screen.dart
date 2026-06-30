@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class TermsConditionsScreen extends StatelessWidget {
   const TermsConditionsScreen({super.key});
@@ -26,7 +27,7 @@ class TermsConditionsScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
                       ),
-                      child: Icon(LucideIcons.arrowLeft, color: AppColors.accentYellow, size: 20),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft, color: AppColors.accentYellow, size: 20)),
                     ),
                   ),
                   const SizedBox(width: 16),

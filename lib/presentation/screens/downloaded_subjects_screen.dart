@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
 import 'downloaded_chapters_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class DownloadedSubjectsScreen extends StatelessWidget {
   final String courseTitle;
@@ -47,7 +48,7 @@ class DownloadedSubjectsScreen extends StatelessWidget {
                         border: Border.all(color: Colors.white.withOpacity(0.05)),
                         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
                       ),
-                      child: Icon(LucideIcons.arrowLeft, color: AppColors.accentYellow, size: 20),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft, color: AppColors.accentYellow, size: 20)),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -153,7 +154,7 @@ class DownloadedSubjectsScreen extends StatelessWidget {
                                     ],
                                   ),
                                 ),
-                                Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: 18),
+                                DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: 18)),
                               ],
                             ),
                           ),

@@ -9,6 +9,7 @@ import '../../core/services/download_manager.dart';
 import 'downloaded_subjects_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 // أو المسار المناسب حسب مكان الملف
 
 class DownloadedFilesScreen extends StatefulWidget {
@@ -310,7 +311,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                                           ],
                                         ),
                                       ),
-                                      Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: 20),
+                                      DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: 20)),
                                     ],
                                   ),
                                 ),

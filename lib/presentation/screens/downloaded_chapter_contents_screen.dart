@@ -10,6 +10,7 @@ import 'video_player_screen.dart';
 import 'pdf_viewer_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class DownloadedChapterContentsScreen extends StatefulWidget {
   final String courseTitle;
@@ -219,8 +220,8 @@ class _DownloadedChapterContentsScreenState
                       children: [
                         GestureDetector(
                           onTap: () => Navigator.pop(context),
-                          child: Icon(LucideIcons.arrowLeft,
-                              color: AppColors.accentYellow, size: 24),
+                          child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                              color: AppColors.accentYellow, size: 24)),
                         ),
                         const SizedBox(width: 16),
                         Expanded(

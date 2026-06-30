@@ -18,6 +18,7 @@ import 'package:Medaad/l10n/generated/app_localizations.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/local_proxy.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
   final Map<String, String> streams;
@@ -985,7 +986,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       topButtonBar: [
         MaterialCustomButton(
           onPressed: () => _safeExit(),
-          icon: const Icon(LucideIcons.arrowLeft, color: Colors.white),
+          icon: DirectionalFlip(child: Icon(LucideIcons.arrowLeft, color: Colors.white)),
         ),
         const SizedBox(width: 14),
         Text(widget.title,
@@ -1124,6 +1125,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 left: 0,
                 right: 0,
                 child: Row(
+                  // ✅ نُثبت اتجاه هذا الصف على LTR عمداً، تماماً مثل أدوات
+                  // التحكم بالفيديو، حتى يبقى النصف الفعلي الأيسر من الشاشة
+                  // دائماً هو "الترجيع للخلف" والنصف الأيمن "التقديم للأمام"
+                  // بغض النظر عن لغة الواجهة (عربي/إنجليزي).
+                  textDirection: TextDirection.ltr,
                   children: [
                     Expanded(
                       child: GestureDetector(

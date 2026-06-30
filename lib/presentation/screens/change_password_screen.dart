@@ -8,6 +8,7 @@ import '../../core/services/api_client.dart';
 // أو المسار المناسب حسب مكان الملف
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -118,8 +119,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                           BoxShadow(color: Colors.black12, blurRadius: 4)
                         ],
                       ),
-                      child: Icon(LucideIcons.arrowLeft,
-                          color: AppColors.accentYellow, size: 20),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                          color: AppColors.accentYellow, size: 20)),
                     ),
                   ),
                   const SizedBox(width: 16),

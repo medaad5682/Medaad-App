@@ -27,6 +27,7 @@ import 'teacher/student_requests_screen.dart';
 import 'teacher/manage_students_screen.dart';
 import 'teacher/manage_team_screen.dart';
 import 'teacher/financial_stats_screen.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -564,8 +565,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 color: AppColors.textSecondary),
                           ),
                           const SizedBox(width: 6),
-                          Icon(LucideIcons.chevronRight,
-                              size: 18, color: AppColors.textSecondary),
+                          DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                              size: 18, color: AppColors.textSecondary)),
                         ],
                       ),
                     ),
@@ -633,8 +634,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         icon: LucideIcons.trash2,
                         title: AppLocalizations.of(context)!.deleteMyAccountMenu,
                         // أيقونة حمراء لتمييز الخطر
-                        trailing: Icon(LucideIcons.chevronRight,
-                            size: 18, color: AppColors.error),
+                        trailing: DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                            size: 18, color: AppColors.error)),
                         onTap: _deleteAccount, // استدعاء دالة الحذف
                       ),
                     ],
@@ -810,8 +811,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             fontWeight: FontWeight.bold,
                             color: Colors.white)),
                   ),
-                Icon(LucideIcons.chevronRight,
-                    size: 18, color: AppColors.textSecondary),
+                DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                    size: 18, color: AppColors.textSecondary)),
               ]
             ],
           ),

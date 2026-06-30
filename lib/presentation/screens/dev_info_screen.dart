@@ -6,6 +6,7 @@ import '../../core/services/storage_service.dart'; // ✅ استيراد خدم�
 import 'privacy_policy_screen.dart';
 import 'terms_conditions_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class DevInfoScreen extends StatefulWidget {
   const DevInfoScreen({super.key});
@@ -59,7 +60,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                         border: Border.all(color: Colors.white.withOpacity(0.05)),
                         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
                       ),
-                      child: Icon(LucideIcons.arrowLeft, color: AppColors.accentYellow, size: 20),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft, color: AppColors.accentYellow, size: 20)),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -276,7 +277,7 @@ class _DevInfoScreenState extends State<DevInfoScreen> {
                 ),
               ),
               const Spacer(),
-              Icon(LucideIcons.chevronRight, color: AppColors.textSecondary, size: 16),
+              DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary, size: 16)),
             ],
           ),
         ),

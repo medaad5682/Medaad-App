@@ -122,7 +122,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   void initState() {
     super.initState();
-    _loadingMessage = AppLocalizations.of(context)!.verifyingFileMessage;
     _sessionToken = _generateSecureToken();
     _store = PdfAnnotationStore(widget.pdfId);
     _highlightController = PdfHighlightController(
@@ -140,6 +139,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _initWatermarkText();
     _loadToolSettings();
     _preparePdf();
+  }
+
+  bool _didInitLocalizedText = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_didInitLocalizedText) {
+      _didInitLocalizedText = true;
+      _loadingMessage = AppLocalizations.of(context)!.verifyingFileMessage;
+    }
   }
 
   @override
