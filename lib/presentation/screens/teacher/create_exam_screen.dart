@@ -60,6 +60,10 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
         
         // ✅ جلب إعداد سماحية الإعادة من السيرفر
         _allowRetake = data['allow_retake'] ?? false;
+
+        // ✅ جلب الحالة الحالية لعلَم الإشعار من السيرفر، حتى يقرر المعلم
+        //    عند التعديل هل يريد إرسال إشعار جديد لموعد البدء الجديد أم لا
+        _notifyStudents = data['notify_students'] ?? false;
         
         if (data['start_time'] != null) {
           _startDate = DateTime.parse(data['start_time']).toLocal();
@@ -424,17 +428,16 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
                           onChanged: (val) => setState(() => _allowRetake = val),
                         ),
 
-                        // ✅ خيار إرسال الإشعار يظهر فقط في حالة إنشاء امتحان جديد
-                        if (widget.examId == null) ...[
-                          Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.1)),
-                          SwitchListTile(
-                            title: Text(AppLocalizations.of(context)!.notifyStudentsTitle, style: TextStyle(color: AppColors.accentYellow)),
-                            subtitle: Text(AppLocalizations.of(context)!.notifyStudentsSubtitle, style: TextStyle(color: AppColors.textSecondary)),
-                            value: _notifyStudents,
-                            activeColor: AppColors.accentYellow,
-                            onChanged: (val) => setState(() => _notifyStudents = val),
-                          ),
-                        ],
+                        // ✅ خيار إرسال الإشعار يظهر عند الإنشاء والتعديل معاً — يقرر المعلم
+                        //    في كل مرة هل يريد إشعار الطلاب عند حلول موعد بدء الامتحان أم لا
+                        Divider(height: 1, color: AppColors.textSecondary.withOpacity(0.1)),
+                        SwitchListTile(
+                          title: Text(AppLocalizations.of(context)!.notifyStudentsTitle, style: TextStyle(color: AppColors.accentYellow)),
+                          subtitle: Text(AppLocalizations.of(context)!.notifyStudentsSubtitle, style: TextStyle(color: AppColors.textSecondary)),
+                          value: _notifyStudents,
+                          activeColor: AppColors.accentYellow,
+                          onChanged: (val) => setState(() => _notifyStudents = val),
+                        ),
 
                         Divider(thickness: 2, color: AppColors.textSecondary.withOpacity(0.1)),
                         ListTile(
@@ -861,7 +864,12 @@ class _QuestionDialogState extends State<QuestionDialog> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(AppLocalizations.of(context)!.optionsSelectCorrectLabel, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                      Expanded(
+                        child: Text(
+                          AppLocalizations.of(context)!.optionsSelectCorrectLabel,
+                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        ),
+                      ),
                       TextButton.icon(
                         onPressed: _addOption,
                         icon: Icon(Icons.add_circle, size: 18, color: AppColors.accentYellow),
