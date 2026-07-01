@@ -438,7 +438,7 @@
   "allowRetakeTitle": "السماح بإعادة الامتحان (تدريب)",
   "allowRetakeSubtitle": "يمكن للطالب إعادة الامتحان دون التأثير على درجته الأولى",
   "notifyStudentsTitle": "إرسال إشعار للطلاب",
-  "notifyStudentsSubtitle": "تنبيه الطلاب المشتركين بإضافة هذا الامتحان",
+  "notifyStudentsSubtitle": "إرسال إشعار للطلاب المشتركين عند بدء الامتحان",
   "activationDateTimeLabel": "تاريخ ووقت التفعيل (البداية)",
   "startsAtLabel": "يبدأ: {date}",
   "tapToSetStart": "اضغط لتحديد البداية",

@@ -1863,7 +1863,7 @@
   "allowRetakeTitle": "Allow Retake (Practice)",
   "allowRetakeSubtitle": "Student can retake the exam without affecting their first score",
   "notifyStudentsTitle": "Notify Students",
-  "notifyStudentsSubtitle": "Alert enrolled students that this exam was added",
+  "notifyStudentsSubtitle": "Send a notification to enrolled students when the exam starts",
   "activationDateTimeLabel": "Activation Date & Time (Start)",
   "startsAtLabel": "Starts: {date}",
   "@startsAtLabel": {
