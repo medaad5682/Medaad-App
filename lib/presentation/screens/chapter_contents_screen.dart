@@ -157,12 +157,25 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.backgroundSecondary,
+      // ✅ isScrollControlled: true يتيح للـ bottom sheet أن يشغل حتى 80%
+      // من الشاشة بدلاً من النصف الافتراضي، مما يمنع الـ overflow عند 3+ مشغلات.
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(24.0),
+        return Container(
+          // ✅ تحديد ارتفاع أقصى لمنع تجاوز حدود الشاشة
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.80,
+          ),
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 24,
+            // ✅ padding إضافي أسفل الـ sheet لتجنب تداخل لوحة المفاتيح
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -177,37 +190,47 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
               ),
               const SizedBox(height: 24),
               if (players.isEmpty)
-                 Padding(
-                   padding: const EdgeInsets.all(16.0),
-                   child: Text(AppLocalizations.of(context)!.noActivePlayersAvailable, style: const TextStyle(color: Colors.white54)),
-                 ),
-              ...players.map((player) {
-                IconData icon = LucideIcons.playCircle;
-                if (player.engine == PlayerEngine.explodeDirect) icon = LucideIcons.rocket;
-                if (player.engine == PlayerEngine.bunnyHls) icon = LucideIcons.server;
-                if (player.engine == PlayerEngine.bunnyNative) icon = LucideIcons.shieldCheck;
-                if (player.engine == PlayerEngine.youtube) icon = LucideIcons.playSquare;
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text(AppLocalizations.of(context)!.noActivePlayersAvailable, style: const TextStyle(color: Colors.white54)),
+                )
+              else
+                // ✅ Flexible + SingleChildScrollView: يمنع الـ overflow ويتيح
+                // التمرير عند وجود أكثر من 3 مشغلات في القائمة.
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: players.map((player) {
+                        IconData icon = LucideIcons.playCircle;
+                        if (player.engine == PlayerEngine.explodeDirect) icon = LucideIcons.rocket;
+                        if (player.engine == PlayerEngine.bunnyHls) icon = LucideIcons.server;
+                        if (player.engine == PlayerEngine.bunnyNative) icon = LucideIcons.shieldCheck;
+                        if (player.engine == PlayerEngine.youtube) icon = LucideIcons.playSquare;
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 16.0),
-                  child: _buildOptionTile(
-                    icon: icon,
-                    title: player.name,
-                    subtitle: player.description,
-                    onTap: () {
-                      Navigator.pop(context);
-                      if (player.engine == PlayerEngine.explodeDirect) {
-                        _fetchAndPlayWithExplode(video);
-                      } else {
-                        // bunny_hls / bunny_native / youtube جميعها تعتمد
-                        // على نفس نقطة النهاية get-video-id، وتختلف فقط في
-                        // شاشة العرض التي يفتحها التطبيق بعد جلب البيانات.
-                        _fetchAndPlayVideo(video, engine: player.engine);
-                      }
-                    },
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 16.0),
+                          child: _buildOptionTile(
+                            icon: icon,
+                            title: player.name,
+                            subtitle: player.description,
+                            onTap: () {
+                              Navigator.pop(context);
+                              if (player.engine == PlayerEngine.explodeDirect) {
+                                _fetchAndPlayWithExplode(video);
+                              } else {
+                                // bunny_hls / bunny_native / youtube جميعها تعتمد
+                                // على نفس نقطة النهاية get-video-id، وتختلف فقط في
+                                // شاشة العرض التي يفتحها التطبيق بعد جلب البيانات.
+                                _fetchAndPlayVideo(video, engine: player.engine);
+                              }
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
-                );
-              }).toList(),
+                ),
             ],
           ),
         );
@@ -391,10 +414,15 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     );
 
     try {
-      // 1. المحاولة الأولى عبر السيرفر الأساسي (get-stream-proxy)
+      // ================================================================
+      // 1. المحاولة الأولى: get-video-id (Bunny Stream HLS — الأسرع والأفضل)
+      // ================================================================
+      // نبدأ بـ get-video-id لأن معظم الفيديوهات الآن على Bunny Stream وتُعيد
+      // availableQualities جاهزة ومباشرة بدون الحاجة لسيرفر وسيط.
       try {
+        FirebaseCrashlytics.instance.log("🔄 [Download] Trying get-video-id (Bunny) first...");
         final res = await ApiClient.instance.get(
-          '$_baseUrl/api/secure/get-stream-proxy',
+          '$_baseUrl/api/secure/get-video-id',
           queryParameters: {'lessonId': videoId},
           options: Options(
             receiveTimeout: const Duration(minutes: 3),
@@ -405,34 +433,36 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
         if (res.statusCode == 200) {
           final data = res.data;
           List<dynamic> rawQualities = data['availableQualities'] ?? [];
-          var videoOptions = rawQualities.where((q) => q['type'] != 'audio_only').toList();
 
-          if (videoOptions.isNotEmpty) {
-            String? bestAudioUrl;
-            int audioSize = 0; 
-            try {
-              final audioObj = rawQualities.firstWhere(
-                  (q) => q['type'] == 'audio_only',
-                  orElse: () => null);
-              if (audioObj != null) {
-                bestAudioUrl = audioObj['url'];
-                audioSize = _getFileSizeFromUrl(bestAudioUrl);
-              }
-            } catch (_) {}
-
-            if (mounted) Navigator.pop(context); // إغلاق نافذة التحميل
-            _showQualitySelectionDialog(videoId, videoTitle, videoOptions, duration, bestAudioUrl, audioSize);
-            return; // الخروج من الدالة بنجاح
+          // ✅ نتحقق أن الرابط هو HLS (m3u8) وليس stream proxy قابل للتحميل المباشر.
+          // روابط Bunny هي signed HLS — نمررها مباشرة لـ DownloadManager
+          // الذي يعرف كيف يتعامل مع HLS عبر muxer.
+          if (rawQualities.isNotEmpty) {
+            if (mounted) Navigator.pop(context);
+            _showQualitySelectionDialog(videoId, videoTitle, rawQualities, duration, null, 0);
+            return;
+          } else if (data['url'] != null) {
+            if (mounted) Navigator.pop(context);
+            _showQualitySelectionDialog(videoId, videoTitle, [
+              {'quality': 'Auto', 'url': data['url'], 'type': 'video_audio'}
+            ], duration, null, 0);
+            return;
           }
+          // لو الـ response فارغ تمامًا -> نكمل للاحتياطي
+          FirebaseCrashlytics.instance.log("⚠️ [Download] get-video-id returned empty qualities. Trying proxy...");
         }
       } catch (primaryError) {
-        FirebaseCrashlytics.instance.log("⚠️ Primary proxy failed for download. Proceeding to fallback.");
+        FirebaseCrashlytics.instance.log("⚠️ [Download] get-video-id failed: $primaryError. Trying proxy fallback...");
       }
 
-      // 2. المحاولة الاحتياطية (Fallback) عبر سيرفر المانيفست (get-video-id)
-      FirebaseCrashlytics.instance.log("🔄 Trying Fallback Manifest API for download...");
+      // ================================================================
+      // 2. المحاولة الاحتياطية: get-stream-proxy (YouTube / proxy streams)
+      // ================================================================
+      // يُستخدم عند فشل Bunny أو عند الفيديوهات القادمة من اليوتيوب/البروكسي
+      // حيث تكون الجودات مع audio_only منفصل.
+      FirebaseCrashlytics.instance.log("🔄 [Download] Trying get-stream-proxy fallback...");
       final fallbackRes = await ApiClient.instance.get(
-        '$_baseUrl/api/secure/get-video-id',
+        '$_baseUrl/api/secure/get-stream-proxy',
         queryParameters: {'lessonId': videoId},
         options: Options(
           receiveTimeout: const Duration(minutes: 3),
@@ -440,18 +470,27 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
         ),
       );
 
-      if (mounted) Navigator.pop(context); // إغلاق نافذة التحميل بعد انتهاء المحاولات
+      if (mounted) Navigator.pop(context);
 
       if (fallbackRes.statusCode == 200) {
         final data = fallbackRes.data;
         List<dynamic> rawQualities = data['availableQualities'] ?? [];
+        var videoOptions = rawQualities.where((q) => q['type'] != 'audio_only').toList();
 
-        if (rawQualities.isNotEmpty) {
-          _showQualitySelectionDialog(videoId, videoTitle, rawQualities, duration, null, 0);
-        } else if (data['url'] != null) {
-          _showQualitySelectionDialog(videoId, videoTitle, [
-            {'quality': 'Auto', 'url': data['url'], 'type': 'video_audio'}
-          ], duration, null, 0);
+        if (videoOptions.isNotEmpty) {
+          String? bestAudioUrl;
+          int audioSize = 0;
+          try {
+            final audioObj = rawQualities.firstWhere(
+                (q) => q['type'] == 'audio_only',
+                orElse: () => null);
+            if (audioObj != null) {
+              bestAudioUrl = audioObj['url'];
+              audioSize = _getFileSizeFromUrl(bestAudioUrl);
+            }
+          } catch (_) {}
+
+          _showQualitySelectionDialog(videoId, videoTitle, videoOptions, duration, bestAudioUrl, audioSize);
         } else {
           _showErrorSnackBar("No compatible video streams found.");
         }
@@ -459,7 +498,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
         _showErrorSnackBar("Server Error: ${fallbackRes.statusCode}");
       }
     } catch (e, stack) {
-      if (mounted) Navigator.pop(context); // إغلاق النافذة في حالة الفشل التام
+      if (mounted) Navigator.pop(context);
       FirebaseCrashlytics.instance.recordError(e, stack, reason: 'Both Download APIs Failed');
       _showErrorSnackBar("Failed to fetch download info. Please check internet.");
     }
