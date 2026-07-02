@@ -74,6 +74,18 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
 
+  // -----------------------------------------------------------------------
+  // FIX: Delegate all controls show/hide to BetterPlayer's built-in system.
+  // toggleControlsVisibility() handles:
+  //   - First tap  → fade controls in, start the 3s auto-hide timer
+  //   - Second tap → hide controls immediately
+  // No manual state, no competing Timer — one system owns the lifecycle.
+  // -----------------------------------------------------------------------
+  void _toggleControls() {
+    if (_betterPlayerController == null || _isDisposing) return;
+    _betterPlayerController?.toggleControlsVisibility();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -274,6 +286,8 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           progressBarBufferedColor: Colors.white24,
           progressBarBackgroundColor: Colors.white10,
           textColor: Colors.white,
+          // BetterPlayer owns the hide timer — 3s after controls appear they
+          // auto-hide. toggleControlsVisibility() resets this timer on each tap.
           controlsHideTime: const Duration(seconds: 3),
         ),
         errorBuilder: (context, errorMessage) {
@@ -302,7 +316,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                 'Unknown player exception')
             .toString();
         FirebaseCrashlytics.instance.log(
-          '⚠️ Native Player exception: $errMsg (quality: $_currentQuality)',
+          '⚠️ Native Player (better_player) exception: $errMsg (quality: $_currentQuality)',
         );
         _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
         break;
@@ -669,12 +683,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       controllerToDispose?.dispose(forceDispose: true);
 
       await WakelockPlus.disable();
-      
-      try {
-        await FlutterWindowManagerPlus.clearFlags(
-            FlutterWindowManagerPlus.FLAG_SECURE);
-      } catch (_) {}
-      
       await _resetSystemChrome();
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -696,6 +704,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _betterPlayerController = null;
     c?.dispose(forceDispose: true);
     WakelockPlus.disable();
+    _resetSystemChrome();
     super.dispose();
   }
 
@@ -727,7 +736,17 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   child: BetterPlayer(controller: _betterPlayerController!),
                 ),
 
-              // ── منطقة الإيماءات الأساسية المستعادة من الكود القديم ────────
+              // ── Gesture layer ──────────────────────────────────────────
+              // All three zones use HitTestBehavior.translucent so
+              // BetterPlayer's seek-bar drag still fires through.
+              //
+              // Single tap ANYWHERE → _toggleControls() which calls
+              // toggleControlsVisibility(). BetterPlayer shows controls
+              // immediately with a smooth fade, starts its own 3s hide
+              // timer, and hides on a second tap. No manual timer needed.
+              //
+              // Double tap left/right → seek ±10s.
+              // Long press left/right → ×2 hold speed.
               if (!_isRecordingDetected &&
                   !_isError &&
                   !_isInitializing &&
@@ -737,38 +756,32 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     textDirection: TextDirection.ltr,
                     child: Row(
                       children: [
-                        // ── اليسار: دبل تاب للتأخير + ضغط مطول للتسريع ──────
+                        // ── Left zone ──────────────────────────────────
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
+                            onTap: _toggleControls,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: false),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
                             onLongPressCancel: _onHoldEnd,
                           ),
                         ),
-                        // ── المنتصف: نقرة واحدة للإيقاف والتشغيل ──────────
+                        // ── Centre zone ────────────────────────────────
                         Expanded(
                           flex: 2,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: () {
-                              final ctrl = _betterPlayerController;
-                              if (ctrl == null || _isDisposing) return;
-                              if (ctrl.isPlaying() == true) {
-                                ctrl.pause();
-                              } else {
-                                ctrl.play();
-                              }
-                            },
+                            onTap: _toggleControls,
                           ),
                         ),
-                        // ── اليمين: دبل تاب للتقديم + ضغط مطول للتسريع ─────
+                        // ── Right zone ─────────────────────────────────
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
+                            onTap: _toggleControls,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: true),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
@@ -780,31 +793,31 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── مؤشر الضغط المطول لتسريع الفيديو ────────────
+              // ── ×2 speed indicator ────────────────────────────────────
               if (_isHolding2x)
                 Positioned(
-                  top: 56,
+                  top: 12,
                   left: 0,
                   right: 0,
                   child: IgnorePointer(
                     child: Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.70),
-                          borderRadius: BorderRadius.circular(24),
+                          color: Colors.black.withOpacity(0.45),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: const [
-                            Icon(Icons.fast_forward, color: Colors.white, size: 18),
-                            SizedBox(width: 6),
+                            Icon(Icons.fast_forward, color: Colors.white70, size: 14),
+                            SizedBox(width: 4),
                             Text(
                               '×2',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: Colors.white70,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: 12,
                                 decoration: TextDecoration.none,
                               ),
                             ),
@@ -815,7 +828,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── مؤشر التقديم/الترجيع التراكمي ──────────────────────────
+              // ── Seek indicator ────────────────────────────────────────
               if (_showSeekIndicator)
                 Align(
                   alignment: _seekIndicatorIsForward
@@ -825,14 +838,14 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 48),
                     child: IgnorePointer(
                       child: AnimatedOpacity(
-                        opacity: _showSeekIndicator ? 1.0 : 0.0,
+                        opacity: _showSeekIndicator ? 0.55 : 0.0,
                         duration: const Duration(milliseconds: 200),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 14),
+                              horizontal: 12, vertical: 9),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.65),
-                            borderRadius: BorderRadius.circular(50),
+                            color: Colors.black.withOpacity(0.35),
+                            borderRadius: BorderRadius.circular(40),
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
@@ -841,15 +854,16 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 _seekIndicatorIsForward
                                     ? Icons.fast_forward
                                     : Icons.fast_rewind,
-                                color: Colors.white,
-                                size: 28,
+                                color: Colors.white.withOpacity(0.75),
+                                size: 18,
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 2),
                               Text(
                                 '${_pendingSeekDelta.abs()} ث',
-                                style: const TextStyle(
-                                  color: Colors.white,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.75),
                                   fontWeight: FontWeight.bold,
+                                  fontSize: 11,
                                   decoration: TextDecoration.none,
                                 ),
                               ),
@@ -861,7 +875,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── الشريط العلوي ────────────────────────────────────────
+              // ── Top bar: back + title + fit + speed + quality ─────────
               if (!_isRecordingDetected && !_isDisposing)
                 Positioned(
                   top: 4,
@@ -915,7 +929,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── العلامة المائية ────────────────────────────────────────
+              // ── Watermark ─────────────────────────────────────────────
               if (!_isDisposing && !_isError && !_isInitializing)
                 AnimatedAlign(
                   alignment: _watermarkAlignment,
