@@ -783,15 +783,13 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       controllerToDispose?.dispose(forceDispose: true);
 
       await WakelockPlus.disable();
-      // ✅ FIX FLAG_SECURE: explicitly clear the flag before popping.
-      // This guarantees the parent screen's FLAG_SECURE state (set via
-      // FlutterWindowManagerPlus in its own initState) is respected —
-      // the native window manager merges flags per-window, so clearing
-      // here allows the parent to control its own secure state cleanly.
-      try {
-        await FlutterWindowManagerPlus.clearFlags(
-            FlutterWindowManagerPlus.FLAG_SECURE);
-      } catch (_) {}
+      // ✅ FLAG_SECURE: do NOT clear the flag here.
+      // MainActivity.onResume() calls window.addFlags(FLAG_SECURE) every time
+      // the activity comes to the foreground, so the flag is always present on
+      // the parent screen without any intervention from this screen.
+      // Calling clearFlags here was the root cause of the FLAG_SECURE bug:
+      // clearFlags wiped it globally, and the parent's initState had already
+      // run so it never re-applied it.
       await _resetSystemChrome();
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -808,11 +806,20 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _watermarkTimer?.cancel();
     _seekIndicatorTimer?.cancel();
     _recordingSubscription?.cancel();
+    // ✅ Stop the audio-recording monitor (mirrors video_player_screen.dart).
+    // Without this the background polling timer keeps firing after the screen
+    // is gone, leaking resources and potentially invoking callbacks on a dead
+    // widget tree.
+    _protectionService.stopMonitoring();
     // ✅ نفس النهج: نُفرغ المتغير أولاً ثم نستدعي dispose
     final c = _betterPlayerController;
     _betterPlayerController = null;
     c?.dispose(forceDispose: true);
     WakelockPlus.disable();
+    // ✅ Reset orientation + system UI bars so the parent screen is never left
+    // stuck in landscape/immersive if Flutter disposes this widget without
+    // going through _safeExit (e.g. OS kills the route from the back-stack).
+    _resetSystemChrome();
     super.dispose();
   }
 
@@ -875,10 +882,16 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     child: Row(
                       children: [
                         // ── Left zone: double-tap rewind + long-press ×2 ──────
+                        // ✅ FIX PLAY/PAUSE BLEED-THROUGH:
+                        //   - HitTestBehavior.opaque: this zone owns the hit-test area;
+                        //     taps no longer fall through to BetterPlayer's built-in controls.
+                        //   - onTap: () {}: explicit no-op absorbs single taps so they
+                        //     don't toggle play/pause via the underlying player UI.
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
-                            behavior: HitTestBehavior.translucent,
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {},
                             onDoubleTap: () => _handleDoubleTapSeek(forward: false),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
@@ -902,10 +915,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                           ),
                         ),
                         // ── Right zone: double-tap forward + long-press ×2 ────
+                        // ✅ Same opaque + no-op fix as left zone above.
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
-                            behavior: HitTestBehavior.translucent,
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {},
                             onDoubleTap: () => _handleDoubleTapSeek(forward: true),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
@@ -918,30 +933,35 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                 ),
 
               // ── مؤشر الضغط المطوّل 2× (أعلى الشاشة وسطها) ────────────
+              // ✅ ×2 INDICATOR POLISH:
+              //   - top: 12 → hugs the top bar (was 56, too far down)
+              //   - padding reduced → smaller pill footprint
+              //   - opacity 0.45 → more transparent, less intrusive
+              //   - icon size 14, font size 12 → visually lighter
               if (_isHolding2x)
                 Positioned(
-                  top: 56,   // below the top bar
+                  top: 12,
                   left: 0,
                   right: 0,
                   child: IgnorePointer(
                     child: Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.70),
-                          borderRadius: BorderRadius.circular(24),
+                          color: Colors.black.withOpacity(0.45),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: const [
-                            Icon(Icons.fast_forward, color: Colors.white, size: 18),
-                            SizedBox(width: 6),
+                            Icon(Icons.fast_forward, color: Colors.white70, size: 14),
+                            SizedBox(width: 4),
                             Text(
                               '×2',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: Colors.white70,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: 12,
                                 decoration: TextDecoration.none,
                               ),
                             ),
