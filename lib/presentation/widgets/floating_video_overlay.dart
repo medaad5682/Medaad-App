@@ -7,6 +7,8 @@ import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/floating_video_controller.dart';
+import '../../main.dart' show navigatorKey;
+import '../screens/native_video_player_screen.dart';
 
 // ============================================================
 // 🎬 FloatingVideoOverlay
@@ -58,6 +60,20 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
   bool _isError = false;
   String _currentQuality = '';
   List<String> _sortedQualities = [];
+  double _currentSpeed = 1.0;
+  bool _handoffApplied = false;
+
+  // ── Seeking ─────────────────────────────────────────────────
+  Duration _videoPosition = Duration.zero;
+  Duration _videoDuration = Duration.zero;
+  bool _isScrubbing = false;
+  double _scrubFraction = 0.0; // 0..1, only meaningful while scrubbing
+
+  Offset? _lastTapLocalPos;
+  bool _showSeekBubble = false;
+  bool _seekBubbleForward = true;
+  Timer? _seekBubbleTimer;
+  static const Duration _doubleTapSeekStep = Duration(seconds: 10);
 
   // ── Watermark ───────────────────────────────────────────────
   Timer? _watermarkTimer;
@@ -122,18 +138,25 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
       return nA.compareTo(nB); // ascending: start with lowest for PiP
     });
 
-    // Choose a modest default quality for PiP (360p preferred)
-    const preferred = ['360', '240', '480', '720'];
-    int chosenIdx = 0;
-    for (final p in preferred) {
-      final idx = _sortedQualities
-          .indexWhere((q) => q.replaceAll(RegExp(r'[^0-9]'), '') == p);
-      if (idx != -1) {
-        chosenIdx = idx;
-        break;
+    // Keep the exact same quality that was playing full-screen, if it was
+    // handed off to us. Otherwise fall back to a modest default for PiP.
+    final handoffQuality = state.initialQuality;
+    if (handoffQuality != null && _sortedQualities.contains(handoffQuality)) {
+      _currentQuality = handoffQuality;
+    } else {
+      const preferred = ['360', '240', '480', '720'];
+      int chosenIdx = 0;
+      for (final p in preferred) {
+        final idx = _sortedQualities
+            .indexWhere((q) => q.replaceAll(RegExp(r'[^0-9]'), '') == p);
+        if (idx != -1) {
+          chosenIdx = idx;
+          break;
+        }
       }
+      _currentQuality = _sortedQualities[chosenIdx];
     }
-    _currentQuality = _sortedQualities[chosenIdx];
+    _currentSpeed = state.playbackSpeed;
 
     final dataSource = BetterPlayerDataSource(
       BetterPlayerDataSourceType.network,
@@ -150,7 +173,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     final controller = BetterPlayerController(
       BetterPlayerConfiguration(
         fit: BoxFit.contain,
-        autoPlay: true,
+        autoPlay: state.wasPlaying,
         looping: false,
         fullScreenByDefault: false,
         allowedScreenSleep: false,
@@ -186,6 +209,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     switch (event.betterPlayerEventType) {
       case BetterPlayerEventType.initialized:
         _attachVideoListener();
+        _applyHandoffStateIfNeeded();
         break;
       case BetterPlayerEventType.exception:
         setState(() => _isError = true);
@@ -210,7 +234,33 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     if (!mounted) return;
     final v = _controller?.videoPlayerController?.value;
     if (v == null) return;
-    setState(() => _isPlaying = v.isPlaying);
+    setState(() {
+      _isPlaying = v.isPlaying;
+      if (!_isScrubbing) _videoPosition = v.position;
+      _videoDuration = v.duration ?? Duration.zero;
+    });
+  }
+
+  /// Resumes playback at the exact position/speed handed off from the
+  /// full-screen player, the first time the floating player initializes.
+  void _applyHandoffStateIfNeeded() {
+    if (_handoffApplied || !mounted) return;
+    _handoffApplied = true;
+
+    final pos = _fvc.videoState?.initialPosition ?? Duration.zero;
+    if (pos > Duration.zero) {
+      try {
+        _controller?.seekTo(pos);
+      } catch (_) {}
+    }
+    if (_currentSpeed != 1.0) {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (!mounted) return;
+        try {
+          _controller?.setSpeed(_currentSpeed);
+        } catch (_) {}
+      });
+    }
   }
 
   // ── Controls auto-hide ───────────────────────────────────────
@@ -245,6 +295,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
         ?.removeListener(_onVideoValueChanged);
     _controlsTimer?.cancel();
     _watermarkTimer?.cancel();
+    _seekBubbleTimer?.cancel();
     final c = _controller;
     _controller = null;
     c?.dispose(forceDispose: true);
@@ -270,6 +321,86 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     );
   }
 
+  // ── Restore full screen ─────────────────────────────────────
+
+  /// Captures the floating player's current position/speed/quality/
+  /// play-state, tears down the floating player, and pushes the
+  /// full-screen player back so it resumes at exactly the same spot.
+  void _expandToFullScreen() {
+    final fvcState = _fvc.videoState;
+    if (fvcState == null) return;
+
+    final position =
+        _controller?.videoPlayerController?.value.position ?? Duration.zero;
+    final isPlaying = _controller?.isPlaying() ?? _isPlaying;
+
+    _fvc.updatePlaybackSnapshot(
+      position: position,
+      speed: _currentSpeed,
+      quality: _currentQuality,
+      isPlaying: isPlaying,
+    );
+
+    final streams = fvcState.streams;
+    final title = fvcState.title;
+
+    _disposePlayer();
+    _fvc.stopFloating();
+
+    navigatorKey.currentState?.push(
+      MaterialPageRoute(
+        builder: (_) => NativeVideoPlayerScreen(
+          streams: streams,
+          title: title,
+          initialPosition: position,
+          initialSpeed: _currentSpeed,
+          initialQuality: _currentQuality,
+          initialAutoPlay: isPlaying,
+        ),
+      ),
+    );
+  }
+
+  // ── Seek gestures ─────────────────────────────────────────────
+
+  /// Double-tap the left half to rewind, right half to fast-forward —
+  /// same convention as the full-screen player — without leaving the
+  /// floating window.
+  void _handleDoubleTap() {
+    final tapX = _lastTapLocalPos?.dx ?? (_width / 2);
+    final forward = tapX >= _width / 2;
+    final current = _controller?.videoPlayerController?.value.position ??
+        _videoPosition;
+    final total = _videoDuration;
+    Duration target = forward
+        ? current + _doubleTapSeekStep
+        : current - _doubleTapSeekStep;
+    if (target < Duration.zero) target = Duration.zero;
+    if (total > Duration.zero && target > total) target = total;
+
+    try {
+      _controller?.seekTo(target);
+    } catch (_) {}
+
+    setState(() {
+      _videoPosition = target;
+      _seekBubbleForward = forward;
+      _showSeekBubble = true;
+    });
+    _seekBubbleTimer?.cancel();
+    _seekBubbleTimer = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) setState(() => _showSeekBubble = false);
+    });
+  }
+
+  String _formatDuration(Duration d) {
+    if (d.isNegative) d = Duration.zero;
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
+  }
+
   // ── Quality picker ───────────────────────────────────────────
 
   void _switchQuality(String q) {
@@ -278,6 +409,14 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     setState(() => _currentQuality = q);
     try {
       _controller?.setResolution(url);
+      if (_currentSpeed != 1.0) {
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (!mounted) return;
+          try {
+            _controller?.setSpeed(_currentSpeed);
+          } catch (_) {}
+        });
+      }
     } catch (e) {
       FirebaseCrashlytics.instance
           .recordError(e, null, reason: 'FloatingVideo setResolution');
@@ -316,8 +455,10 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
           });
         },
         onPanEnd: (_) => setState(() => _isDragging = false),
-        // ── Tap to toggle controls ────────────────────────────
+        // ── Tap to toggle controls / double-tap to seek ────────
         onTap: _showControls,
+        onDoubleTapDown: (d) => _lastTapLocalPos = d.localPosition,
+        onDoubleTap: _handleDoubleTap,
         child: Material(
           color: Colors.transparent,
           child: Container(
@@ -398,6 +539,31 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                 if (_controlsVisible)
                   _buildControls(screen),
 
+                // ── Double-tap seek indicator ─────────────────
+                if (_showSeekBubble)
+                  Align(
+                    alignment: _seekBubbleForward
+                        ? const Alignment(0.6, 0)
+                        : const Alignment(-0.6, 0),
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.45),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          _seekBubbleForward
+                              ? Icons.fast_forward
+                              : Icons.fast_rewind,
+                          color: Colors.white.withOpacity(0.85),
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+
                 // ── Resize handle (bottom-right) ──────────────
                 Positioned(
                   bottom: 0,
@@ -466,11 +632,29 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
               ),
             ),
 
+            // ── Expand to full screen (top-right, next to close) ─
+            Positioned(
+              top: 4,
+              right: 28,
+              child: GestureDetector(
+                onTap: _expandToFullScreen,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.fullscreen,
+                      color: Colors.white, size: 15),
+                ),
+              ),
+            ),
+
             // ── Title (top-left) ─────────────────────────────
             Positioned(
               top: 6,
               left: 6,
-              right: 28,
+              right: 52,
               child: Text(
                 _fvc.videoState?.title ?? '',
                 overflow: TextOverflow.ellipsis,
@@ -511,10 +695,10 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
               ),
             ),
 
-            // ── Quality badge (bottom-left) ───────────────────
+            // ── Quality badge (bottom-left, above seek bar) ────
             if (_sortedQualities.length > 1)
               Positioned(
-                bottom: 4,
+                bottom: 20,
                 left: 4,
                 child: GestureDetector(
                   onTap: () => _showQualityPicker(context),
@@ -540,7 +724,126 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                   ),
                 ),
               ),
+
+            // ── Elapsed / total time (bottom-right, above seek bar) ─
+            if (_videoDuration > Duration.zero)
+              Positioned(
+                bottom: 20,
+                right: 4,
+                child: Text(
+                  '${_formatDuration(_isScrubbing ? Duration(milliseconds: (_scrubFraction * _videoDuration.inMilliseconds).round()) : _videoPosition)} / ${_formatDuration(_videoDuration)}',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 7,
+                    fontWeight: FontWeight.bold,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
+              ),
+
+            // ── Seek bar (bottom, full width, draggable) ───────
+            _buildSeekBar(),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Thin, draggable progress bar pinned to the bottom edge of the
+  /// floating window. Tap anywhere on it to jump to that point, or drag
+  /// the thumb to scrub — all without leaving the floating window.
+  Widget _buildSeekBar() {
+    final hasDuration = _videoDuration > Duration.zero;
+    final progress = hasDuration
+        ? (_isScrubbing
+                ? _scrubFraction
+                : _videoPosition.inMilliseconds /
+                    _videoDuration.inMilliseconds)
+            .clamp(0.0, 1.0)
+        : 0.0;
+
+    void seekToFraction(double dx) {
+      if (!hasDuration) return;
+      final fraction = (dx / _width).clamp(0.0, 1.0);
+      setState(() => _scrubFraction = fraction);
+    }
+
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 18, // generous touch target even though the visible track is thin
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (d) {
+          if (!hasDuration) return;
+          final fraction = (d.localPosition.dx / _width).clamp(0.0, 1.0);
+          final target = Duration(
+              milliseconds:
+                  (fraction * _videoDuration.inMilliseconds).round());
+          try {
+            _controller?.seekTo(target);
+          } catch (_) {}
+          setState(() => _videoPosition = target);
+          _showControls();
+        },
+        onHorizontalDragStart: (d) {
+          if (!hasDuration) return;
+          _controlsTimer?.cancel();
+          setState(() {
+            _isScrubbing = true;
+            _scrubFraction = progress;
+          });
+          seekToFraction(d.localPosition.dx);
+        },
+        onHorizontalDragUpdate: (d) => seekToFraction(d.localPosition.dx),
+        onHorizontalDragEnd: (_) {
+          if (!hasDuration) return;
+          final target = Duration(
+              milliseconds:
+                  (_scrubFraction * _videoDuration.inMilliseconds).round());
+          try {
+            _controller?.seekTo(target);
+          } catch (_) {}
+          setState(() {
+            _videoPosition = target;
+            _isScrubbing = false;
+          });
+          _showControls();
+        },
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: Stack(
+            alignment: Alignment.centerLeft,
+            children: [
+              // Track background
+              Container(height: 3, color: Colors.white24),
+              // Played portion
+              FractionallySizedBox(
+                widthFactor: progress,
+                child: Container(height: 3, color: AppColors.accentYellow),
+              ),
+              // Thumb
+              if (hasDuration)
+                Positioned(
+                  left: (progress * _width - 4).clamp(0.0, _width - 8),
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: AppColors.accentYellow,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.4),
+                          blurRadius: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
