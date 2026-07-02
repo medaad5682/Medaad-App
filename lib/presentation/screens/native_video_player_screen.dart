@@ -214,9 +214,13 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     final oldChewie = _chewieController;
 
     try {
+      // ✅ نحدد formatHint: VideoFormat.hls صراحةً لأن الروابط هي ملفات m3u8
+      // بدون هذا يفشل ExoPlayer أحيانًا في التعرف على البث وتظهر رسالة
+      // "فشل تشغيل الفيديو" حتى لو كان الرابط صحيحًا.
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(url),
         httpHeaders: _headers,
+        formatHint: VideoFormat.hls,
       );
 
       await controller.initialize();
