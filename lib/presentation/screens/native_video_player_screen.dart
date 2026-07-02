@@ -290,9 +290,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         fullScreenByDefault: false,
         allowedScreenSleep: true,
         autoDetectFullscreenDeviceOrientation: false,
-        // ✅ FIX: controls start hidden; we manage visibility manually
-        showControlsOnInitialize: false,
+        
         controlsConfiguration: BetterPlayerControlsConfiguration(
+          showControlsOnInitialize: false,
           enableFullscreen: false,
           enablePip: false,
           enableQualities: false,
