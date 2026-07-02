@@ -94,6 +94,16 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   bool _showSeekIndicator = false;
   bool _seekIndicatorIsForward = true;
 
+  // ✅ Video fit/size mode: fill (fullscreen crop), contain (16:9 letterbox), cover with black sides
+  BoxFit _videoFit = BoxFit.contain; // default: 16:9 with black sides
+  static const List<BoxFit> _fitCycle = [BoxFit.contain, BoxFit.fill, BoxFit.fitWidth];
+  static const List<String> _fitLabels = ['16:9', 'Full', 'Wide'];
+  int _fitIndex = 0;
+
+  // ✅ Hold-to-2× speed: track long-press state
+  bool _isHolding2x = false;
+  double _speedBeforeHold = 1.0;
+
   final Map<String, String> _headers = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
@@ -175,6 +185,11 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (state == AppLifecycleState.paused) {
       _betterPlayerController?.pause();
     } else if (state == AppLifecycleState.resumed) {
+      // ✅ FIX: Re-apply FLAG_SECURE every time the screen comes back to foreground.
+      // Without this, returning from PiP, external app, or system overlay can
+      // drop the secure flag and expose the video in the task switcher.
+      FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
+          .catchError((_) {});
       _protectionService.blockAudioCapture();
       if (_isRecordingDetected) {
         _betterPlayerController?.setVolume(0.0);
@@ -305,14 +320,11 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           enableQualities: false, // بنستخدم قائمة الجودة المخصصة في الشريط العلوي
           enableSubtitles: false,
           enableAudioTracks: false,
-          enableSkips: true,
+          enableSkips: false, // ✅ removed default 10s skip buttons — double-tap handles seeking
           enableMute: true,
           // ✅ بنستخدم قائمة السرعة المخصصة في الشريط العلوي (0.25× إلى 2×)
           // بدل القائمة الداخلية المحدودة في المكتبة
           enablePlaybackSpeed: false,
-          // ✅ نفس مقدار القفزة المستخدم في التقديم/الترجيع بالدبل تاب (10 ثواني)
-          forwardSkipTimeInMilliseconds: 10000,
-          backwardSkipTimeInMilliseconds: 10000,
           loadingColor: AppColors.accentYellow,
           progressBarPlayedColor: AppColors.accentYellow,
           progressBarHandleColor: AppColors.accentYellow,
@@ -464,6 +476,38 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         _betterPlayerController?.setSpeed(_currentSpeed);
       } catch (_) {}
     });
+  }
+
+  // -----------------------------------------------------------------------
+  // ✅ دورة أحجام الفيديو: 16:9 (contain) → Full (fill) → Wide (fitWidth)
+  // -----------------------------------------------------------------------
+  void _cycleVideoFit() {
+    setState(() {
+      _fitIndex = (_fitIndex + 1) % _fitCycle.length;
+      _videoFit = _fitCycle[_fitIndex];
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // ✅ الضغط المطوّل = 2× سرعة مؤقتة؛ رفع الإصبع يعيد السرعة السابقة
+  // -----------------------------------------------------------------------
+  void _onHoldStart() {
+    if (_betterPlayerController == null || _isDisposing) return;
+    _speedBeforeHold = _currentSpeed;
+    _isHolding2x = true;
+    try {
+      _betterPlayerController?.setSpeed(2.0);
+    } catch (_) {}
+    if (mounted) setState(() {});
+  }
+
+  void _onHoldEnd() {
+    if (!_isHolding2x) return;
+    _isHolding2x = false;
+    try {
+      _betterPlayerController?.setSpeed(_speedBeforeHold);
+    } catch (_) {}
+    if (mounted) setState(() {});
   }
 
   // -----------------------------------------------------------------------
@@ -725,8 +769,15 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       controllerToDispose?.dispose(forceDispose: true);
 
       await WakelockPlus.disable();
-      await FlutterWindowManagerPlus.clearFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
+      // ✅ FIX FLAG_SECURE: explicitly clear the flag before popping.
+      // This guarantees the parent screen's FLAG_SECURE state (set via
+      // FlutterWindowManagerPlus in its own initState) is respected —
+      // the native window manager merges flags per-window, so clearing
+      // here allows the parent to control its own secure state cleanly.
+      try {
+        await FlutterWindowManagerPlus.clearFlags(
+            FlutterWindowManagerPlus.FLAG_SECURE);
+      } catch (_) {}
       await _resetSystemChrome();
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -775,55 +826,108 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
               else if (_isError)
                 _buildErrorWidget(_errorMessage)
               else if (_isInitializing || _betterPlayerController == null)
+                // ✅ removed "videoReadyStabilizing" text — show spinner only
                 Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(color: AppColors.accentYellow),
-                      const SizedBox(height: 12),
-                      Text(
-                        AppLocalizations.of(context)?.videoReadyStabilizing ??
-                            'جاري التحميل...',
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    ],
-                  ),
+                  child: CircularProgressIndicator(color: AppColors.accentYellow),
                 )
               else
-                Center(
-                  child: BetterPlayer(controller: _betterPlayerController!),
+                // ✅ AspectRatio wrapper to support fit modes (16:9, Full, Wide)
+                Positioned.fill(
+                  child: FittedBox(
+                    fit: _videoFit,
+                    clipBehavior: Clip.hardEdge,
+                    child: SizedBox(
+                      // Use 16:9 reference size; ExoPlayer/AVPlayer handles actual ratio internally
+                      width: MediaQuery.of(context).size.longestSide,
+                      height: MediaQuery.of(context).size.longestSide * 9 / 16,
+                      child: BetterPlayer(controller: _betterPlayerController!),
+                    ),
+                  ),
                 ),
 
-              // ── مناطق الدبل تاب للتقديم/الترجيع التراكمي (يمين/يسار) ──
+              // ── مناطق الدبل تاب + الضغط المطوّل (يمين/يسار) ──────────
+              // ✅ RTL FIX: wrap in LTR Directionality so the physical left half
+              // is always rewind and physical right half is always forward,
+              // regardless of whether the app locale is Arabic (RTL) or English (LTR).
+              // Without this, Flutter's Row reverses child order in RTL mode,
+              // making the Arabic user tap right to rewind and left to forward —
+              // the opposite of every video player convention.
               if (!_isRecordingDetected &&
                   !_isError &&
                   !_isInitializing &&
                   _betterPlayerController != null)
                 Positioned.fill(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.translucent,
-                          onDoubleTap: () => _handleDoubleTapSeek(forward: false),
+                  child: Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Row(
+                      children: [
+                        // Physical left zone → rewind (same in Arabic & English)
+                        Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onDoubleTap: () => _handleDoubleTapSeek(forward: false),
+                            onLongPressStart: (_) => _onHoldStart(),
+                            onLongPressEnd: (_) => _onHoldEnd(),
+                            onLongPressCancel: _onHoldEnd,
+                          ),
+                        ),
+                        // Physical right zone → forward (same in Arabic & English)
+                        Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onDoubleTap: () => _handleDoubleTapSeek(forward: true),
+                            onLongPressStart: (_) => _onHoldStart(),
+                            onLongPressEnd: (_) => _onHoldEnd(),
+                            onLongPressCancel: _onHoldEnd,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // ── مؤشر الضغط المطوّل 2× ──────────────────────────────────
+              if (_isHolding2x)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.65),
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.fast_forward, color: Colors.white, size: 22),
+                            SizedBox(width: 6),
+                            Text(
+                              '×2',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      Expanded(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.translucent,
-                          onDoubleTap: () => _handleDoubleTapSeek(forward: true),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
 
               // ── مؤشر التقديم/الترجيع التراكمي ──────────────────────────
+              // ✅ RTL FIX: use absolute Alignment(x, 0) instead of
+              // Alignment.centerRight/Left — the named alignments are
+              // direction-aware and would flip in Arabic, showing the
+              // forward indicator on the left and rewind on the right.
               if (_showSeekIndicator)
                 Align(
                   alignment: _seekIndicatorIsForward
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
+                      ? const Alignment(0.85, 0)
+                      : const Alignment(-0.85, 0),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 48),
                     child: IgnorePointer(
@@ -888,12 +992,26 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (!_isError && _betterPlayerController != null)
+                        if (!_isError && _betterPlayerController != null) ...[
+                          // ✅ Video size / fit mode toggle button
+                          IconButton(
+                            icon: Icon(
+                              _fitIndex == 0
+                                  ? Icons.crop_16_9
+                                  : _fitIndex == 1
+                                      ? Icons.fit_screen
+                                      : Icons.width_full,
+                              color: Colors.white,
+                            ),
+                            onPressed: _cycleVideoFit,
+                            tooltip: _fitLabels[_fitIndex],
+                          ),
                           IconButton(
                             icon: const Icon(Icons.speed, color: Colors.white),
                             onPressed: _showSpeedSheet,
                             tooltip: '×$_currentSpeed',
                           ),
+                        ],
                         if (_sortedQualities.length > 1 && !_isError)
                           IconButton(
                             icon: const Icon(LucideIcons.settings, color: Colors.white),
