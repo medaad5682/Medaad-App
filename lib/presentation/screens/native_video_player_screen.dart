@@ -74,27 +74,85 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
 
-  // -----------------------------------------------------------------------
-  // FIX: Delegate all controls show/hide to BetterPlayer's built-in system.
-  // toggleControlsVisibility() handles:
-  //   - First tap  → fade controls in, start the 3s auto-hide timer
-  //   - Second tap → hide controls immediately
-  // No manual state, no competing Timer — one system owns the lifecycle.
-  // -----------------------------------------------------------------------
-  // 1. أعد إضافة هذا المتغير البسيط لتتبع حالة الأزرار
+  // ── Custom Controls State ──────────────────────────────────────────────
   bool _controlsVisible = false;
+  bool _isPlaying = false;
+  Duration _position = Duration.zero;
+  Duration _videoDuration = Duration.zero;
+  bool _isSeekBarDragging = false;
+  Timer? _controlsAutoHideTimer;
 
-  // -----------------------------------------------------------------------
-  // FIX: Delegate all controls show/hide to BetterPlayer's built-in system.
-  // -----------------------------------------------------------------------
   void _toggleControls() {
     if (_betterPlayerController == null || _isDisposing) return;
+    setState(() => _controlsVisible = !_controlsVisible);
+    _resetAutoHideTimer();
+  }
 
-    // 2. عكس الحالة مع كل نقرة
-    _controlsVisible = !_controlsVisible; 
+  void _resetAutoHideTimer() {
+    _controlsAutoHideTimer?.cancel();
+    if (_controlsVisible) {
+      _controlsAutoHideTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted && !_isSeekBarDragging) {
+          setState(() => _controlsVisible = false);
+        }
+      });
+    }
+  }
 
-    // 3. تمرير الحالة الجديدة للدالة (هذا ما كان ينقص الكود ويسبب الخطأ)
-    _betterPlayerController?.toggleControlsVisibility(_controlsVisible);
+  void _togglePlayPause() {
+    if (_betterPlayerController == null || _isDisposing) return;
+    if (_betterPlayerController!.isPlaying() ?? false) {
+      _betterPlayerController!.pause();
+    } else {
+      _betterPlayerController!.play();
+    }
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _resetAutoHideTimer();
+  }
+
+  void _attachVideoListener() {
+    final vpc = _betterPlayerController?.videoPlayerController;
+    if (vpc == null) return;
+    vpc.removeListener(_onVideoValueChanged);
+    vpc.addListener(_onVideoValueChanged);
+    _onVideoValueChanged();
+  }
+
+  void _onVideoValueChanged() {
+    if (!mounted || _isDisposing) return;
+    final value = _betterPlayerController?.videoPlayerController?.value;
+    if (value == null) return;
+    setState(() {
+      _isPlaying = value.isPlaying;
+      if (!_isSeekBarDragging) _position = value.position;
+      _videoDuration = value.duration ?? Duration.zero;
+    });
+  }
+
+  void _onSeekStart(double _) {
+    _isSeekBarDragging = true;
+    _controlsAutoHideTimer?.cancel();
+  }
+
+  void _onSeekChanged(double value) {
+    setState(() => _position = Duration(milliseconds: value.toInt()));
+  }
+
+  void _onSeekEnd(double value) {
+    try {
+      _betterPlayerController?.seekTo(Duration(milliseconds: value.toInt()));
+    } catch (e) {
+      FirebaseCrashlytics.instance.recordError(e, null, reason: 'Native Player Seekbar Error');
+    }
+    _isSeekBarDragging = false;
+    _resetAutoHideTimer();
+  }
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
   }
 
   @override
@@ -280,6 +338,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         allowedScreenSleep: true,
         autoDetectFullscreenDeviceOrientation: false,
         controlsConfiguration: BetterPlayerControlsConfiguration(
+          showControls: false, // 🔴 تعطيل المتحكمات الافتراضية
           showControlsOnInitialize: false,
           enableFullscreen: false,
           enablePip: false,
@@ -297,9 +356,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           progressBarBufferedColor: Colors.white24,
           progressBarBackgroundColor: Colors.white10,
           textColor: Colors.white,
-          // BetterPlayer owns the hide timer — 3s after controls appear they
-          // auto-hide. toggleControlsVisibility() resets this timer on each tap.
-          controlsHideTime: const Duration(seconds: 3),
         ),
         errorBuilder: (context, errorMessage) {
           return const SizedBox.shrink();
@@ -318,40 +374,31 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   }
 
   void _onPlayerEvent(BetterPlayerEvent event) {
-  if (!mounted || _isDisposing) return;
+    if (!mounted || _isDisposing) return;
 
-  switch (event.betterPlayerEventType) {
-    case BetterPlayerEventType.exception:
-      final errMsg = (event.parameters?['exception'] ??
-              event.parameters?['error'] ??
-              'Unknown player exception')
-          .toString();
-      FirebaseCrashlytics.instance.log(
-        '⚠️ Native Player (better_player) exception: $errMsg (quality: $_currentQuality)',
-      );
-      _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
-      break;
-    case BetterPlayerEventType.initialized:
-      if (_isError) {
-        setState(() {
-          _isError = false;
-        });
-      }
-      break;
-
-    // NEW: keep our local flag in sync with what BetterPlayer is actually
-    // doing internally (including its own 3s auto-hide timer).
-    case BetterPlayerEventType.controlsVisible:
-      _controlsVisible = true;
-      break;
-    case BetterPlayerEventType.controlsHiddenStart:
-      _controlsVisible = false;
-      break;
-
-    default:
-      break;
+    switch (event.betterPlayerEventType) {
+      case BetterPlayerEventType.exception:
+        final errMsg = (event.parameters?['exception'] ??
+                event.parameters?['error'] ??
+                'Unknown player exception')
+            .toString();
+        FirebaseCrashlytics.instance.log(
+          '⚠️ Native Player (better_player) exception: $errMsg (quality: $_currentQuality)',
+        );
+        _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
+        break;
+      case BetterPlayerEventType.initialized:
+        if (_isError) {
+          setState(() {
+            _isError = false;
+          });
+        }
+        _attachVideoListener(); // 🟢 ربط الـ Listener المخصص
+        break;
+      default:
+        break;
+    }
   }
-}
 
   void _handlePlayerError(String errorDescription, {required bool isCodecRelated}) {
     if (!mounted || _isDisposing) return;
@@ -695,6 +742,8 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (mounted) setState(() {});
 
     try {
+      _betterPlayerController?.videoPlayerController?.removeListener(_onVideoValueChanged);
+      _controlsAutoHideTimer?.cancel();
       _watermarkTimer?.cancel();
       _seekIndicatorTimer?.cancel();
       await _recordingSubscription?.cancel();
@@ -717,13 +766,18 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _isDisposing = true;
+    
+    _betterPlayerController?.videoPlayerController?.removeListener(_onVideoValueChanged);
+    _controlsAutoHideTimer?.cancel();
     _watermarkTimer?.cancel();
     _seekIndicatorTimer?.cancel();
     _recordingSubscription?.cancel();
     _protectionService.stopMonitoring();
+    
     final c = _betterPlayerController;
     _betterPlayerController = null;
     c?.dispose(forceDispose: true);
+    
     WakelockPlus.disable();
     _resetSystemChrome();
     super.dispose();
@@ -758,16 +812,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                 ),
 
               // ── Gesture layer ──────────────────────────────────────────
-              // All three zones use HitTestBehavior.translucent so
-              // BetterPlayer's seek-bar drag still fires through.
-              //
-              // Single tap ANYWHERE → _toggleControls() which calls
-              // toggleControlsVisibility(). BetterPlayer shows controls
-              // immediately with a smooth fade, starts its own 3s hide
-              // timer, and hides on a second tap. No manual timer needed.
-              //
-              // Double tap left/right → seek ±10s.
-              // Long press left/right → ×2 hold speed.
               if (!_isRecordingDetected &&
                   !_isError &&
                   !_isInitializing &&
@@ -807,6 +851,66 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
                             onLongPressCancel: _onHoldEnd,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // ── Custom Controls Stack ────────────────────────────────────────
+              if (!_isRecordingDetected && !_isError && !_isInitializing && _betterPlayerController != null)
+                IgnorePointer(
+                  ignoring: !_controlsVisible,
+                  child: AnimatedOpacity(
+                    opacity: _controlsVisible ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Stack(
+                      children: [
+                        Center(
+                          child: IconButton(
+                            iconSize: 56,
+                            icon: Icon(
+                              _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                              color: Colors.white,
+                            ),
+                            onPressed: _togglePlayPause,
+                          ),
+                        ),
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          bottom: 8,
+                          child: SafeArea(
+                            child: Row(
+                              children: [
+                                Text(_formatDuration(_position),
+                                    style: const TextStyle(color: Colors.white, fontSize: 12, decoration: TextDecoration.none)),
+                                Expanded(
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 2.5,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                    ),
+                                    child: Slider(
+                                      value: _position.inMilliseconds
+                                          .clamp(0, _videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds)
+                                          .toDouble(),
+                                      min: 0,
+                                      max: (_videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds).toDouble(),
+                                      activeColor: AppColors.accentYellow,
+                                      inactiveColor: Colors.white24,
+                                      onChangeStart: _onSeekStart,
+                                      onChanged: _onSeekChanged,
+                                      onChangeEnd: _onSeekEnd,
+                                    ),
+                                  ),
+                                ),
+                                Text(_formatDuration(_videoDuration),
+                                    style: const TextStyle(color: Colors.white, fontSize: 12, decoration: TextDecoration.none)),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -903,49 +1007,56 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   left: 4,
                   right: 4,
                   child: SafeArea(
-                    child: Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
-                          onPressed: _safeExit,
-                        ),
-                        Expanded(
-                          child: Text(
-                            widget.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.none,
+                    child: AnimatedOpacity( // إضافة Animation للبار العلوي ليختفي مع الأزرار
+                      opacity: _controlsVisible ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: IgnorePointer(
+                        ignoring: !_controlsVisible, // يمنع النقر عند الاختفاء
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back, color: Colors.white),
+                              onPressed: _safeExit,
                             ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (!_isError && _betterPlayerController != null) ...[
-                          IconButton(
-                            icon: Icon(
-                              _fitIndex == 0
-                                  ? Icons.crop_16_9
-                                  : _fitIndex == 1
-                                      ? Icons.fit_screen
-                                      : Icons.width_full,
-                              color: Colors.white,
+                            Expanded(
+                              child: Text(
+                                widget.title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  decoration: TextDecoration.none,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            onPressed: _cycleVideoFit,
-                            tooltip: _fitLabels[_fitIndex],
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.speed, color: Colors.white),
-                            onPressed: _showSpeedSheet,
-                            tooltip: '×$_currentSpeed',
-                          ),
-                        ],
-                        if (_sortedQualities.length > 1 && !_isError)
-                          IconButton(
-                            icon: const Icon(LucideIcons.settings, color: Colors.white),
-                            onPressed: _showQualitySheet,
-                            tooltip: _currentQuality,
-                          ),
-                      ],
+                            if (!_isError && _betterPlayerController != null) ...[
+                              IconButton(
+                                icon: Icon(
+                                  _fitIndex == 0
+                                      ? Icons.crop_16_9
+                                      : _fitIndex == 1
+                                          ? Icons.fit_screen
+                                          : Icons.width_full,
+                                  color: Colors.white,
+                                ),
+                                onPressed: _cycleVideoFit,
+                                tooltip: _fitLabels[_fitIndex],
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.speed, color: Colors.white),
+                                onPressed: _showSpeedSheet,
+                                tooltip: '×$_currentSpeed',
+                              ),
+                            ],
+                            if (_sortedQualities.length > 1 && !_isError)
+                              IconButton(
+                                icon: const Icon(LucideIcons.settings, color: Colors.white),
+                                onPressed: _showQualitySheet,
+                                tooltip: _currentQuality,
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
