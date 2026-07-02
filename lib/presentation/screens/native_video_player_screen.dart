@@ -19,10 +19,22 @@ class NativeVideoPlayerScreen extends StatefulWidget {
   final Map<String, String> streams;
   final String title;
 
+  /// Playback handoff — set when returning from the floating (PiP) player,
+  /// so full-screen resumes at the same position, speed and quality
+  /// instead of restarting from the beginning.
+  final Duration? initialPosition;
+  final double? initialSpeed;
+  final String? initialQuality;
+  final bool initialAutoPlay;
+
   const NativeVideoPlayerScreen({
     super.key,
     required this.streams,
     required this.title,
+    this.initialPosition,
+    this.initialSpeed,
+    this.initialQuality,
+    this.initialAutoPlay = true,
   });
 
   @override
@@ -47,6 +59,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   bool _isDisposing = false;
 
   int _currentQualityIndex = 0;
+  bool _handoffApplied = false;
 
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
@@ -160,6 +173,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (widget.initialSpeed != null) {
+      _currentSpeed = widget.initialSpeed!;
+    }
     _sortQualities();
     _loadUserData();
     _initializeProtection();
@@ -174,6 +190,16 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       return numB.compareTo(numA);
     });
     if (_sortedQualities.isNotEmpty) {
+      // If we're resuming from the floating player, keep the exact same
+      // quality it was playing at instead of falling back to a default.
+      final handoffQuality = widget.initialQuality;
+      if (handoffQuality != null &&
+          _sortedQualities.contains(handoffQuality)) {
+        _currentQualityIndex = _sortedQualities.indexOf(handoffQuality);
+        _currentQuality = handoffQuality;
+        return;
+      }
+
       const priorityOrder = ['360', '480', '240', '720'];
       int chosenIndex = -1;
       for (final p in priorityOrder) {
@@ -333,7 +359,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     final controller = BetterPlayerController(
       BetterPlayerConfiguration(
         fit: _videoFit,
-        autoPlay: true,
+        autoPlay: widget.initialAutoPlay,
         looping: false,
         fullScreenByDefault: false,
         allowedScreenSleep: true,
@@ -395,6 +421,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           });
         }
         _attachVideoListener(); // 🟢 ربط الـ Listener المخصص
+        _applyHandoffStateIfNeeded();
         break;
       default:
         break;
@@ -477,6 +504,37 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       FirebaseCrashlytics.instance
           .recordError(e, stack, reason: 'Native Player setResolution Error');
       _handlePlayerError(e.toString(), isCodecRelated: _isCodecError(e));
+    }
+  }
+
+  /// Resumes at the exact position/speed/play-state handed off from the
+  /// floating (PiP) player, the first time the video initializes.
+  void _applyHandoffStateIfNeeded() {
+    if (_handoffApplied || !mounted || _isDisposing) return;
+    _handoffApplied = true;
+
+    final pos = widget.initialPosition;
+    final speed = widget.initialSpeed;
+
+    if (pos != null && pos > Duration.zero) {
+      try {
+        _betterPlayerController?.seekTo(pos);
+      } catch (_) {}
+    }
+    if (speed != null && speed != 1.0) {
+      // A short delay avoids the seek/speed calls racing the player's own
+      // startup on some devices.
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (!mounted || _isDisposing) return;
+        try {
+          _betterPlayerController?.setSpeed(speed);
+        } catch (_) {}
+      });
+    }
+    if (!widget.initialAutoPlay) {
+      try {
+        _betterPlayerController?.pause();
+      } catch (_) {}
     }
   }
 
@@ -1062,13 +1120,29 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
                                 tooltip: 'تشغيل كنافذة عائمة',
                                 onPressed: () {
-                                  // 1. تفعيل وضع الفيديو العائم وتمرير الروابط
+                                  // 1. التقاط حالة التشغيل الحالية (الموضع/السرعة/الجودة)
+                                  //    حتى يستأنف المشغل العائم من نفس النقطة تمامًا.
+                                  final currentPosition =
+                                      _betterPlayerController
+                                              ?.videoPlayerController
+                                              ?.value
+                                              .position ??
+                                          _position;
+                                  final wasPlaying = _betterPlayerController
+                                          ?.isPlaying() ??
+                                      _isPlaying;
+
+                                  // 2. تفعيل وضع الفيديو العائم وتمرير الروابط + حالة التشغيل
                                   FloatingVideoController.instance.startFloating(
                                     streams: widget.streams,
                                     title: widget.title,
                                     watermarkText: _watermarkText,
+                                    initialPosition: currentPosition,
+                                    playbackSpeed: _currentSpeed,
+                                    initialQuality: _currentQuality,
+                                    wasPlaying: wasPlaying,
                                   );
-                                  // 2. الخروج من المشغل الحالي (بأمان)
+                                  // 3. الخروج من المشغل الحالي (بأمان)
                                   _safeExit();
                                 },
                               ),
