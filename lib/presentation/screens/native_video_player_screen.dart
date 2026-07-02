@@ -317,6 +317,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
     final controller = BetterPlayerController(
       BetterPlayerConfiguration(
+        fit: _videoFit, // ✅ تم إضافة مقاس الفيديو هنا
         autoPlay: true,
         looping: false,
         // ✅ الشاشة نفسها بتشتغل بملء الشاشة (اتجاه أفقي مثبّت + immersive)
@@ -500,6 +501,8 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       _fitIndex = (_fitIndex + 1) % _fitCycle.length;
       _videoFit = _fitCycle[_fitIndex];
     });
+    // ✅ تحديث مقاس الفيديو الداخلي دون تغيير واجهة المشغل
+    _betterPlayerController?.setOverriddenFit(_videoFit);
   }
 
   // -----------------------------------------------------------------------
@@ -852,18 +855,10 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   child: CircularProgressIndicator(color: AppColors.accentYellow),
                 )
               else
-                // ✅ AspectRatio wrapper to support fit modes (16:9, Full, Wide)
+                // ✅ جعل المشغل يملأ الشاشة لتثبيت شريط التحكم
+                // وتغيير مقاس الفيديو سيتم داخلياً عبر setOverriddenFit
                 Positioned.fill(
-                  child: FittedBox(
-                    fit: _videoFit,
-                    clipBehavior: Clip.hardEdge,
-                    child: SizedBox(
-                      // Use 16:9 reference size; ExoPlayer/AVPlayer handles actual ratio internally
-                      width: MediaQuery.of(context).size.longestSide,
-                      height: MediaQuery.of(context).size.longestSide * 9 / 16,
-                      child: BetterPlayer(controller: _betterPlayerController!),
-                    ),
-                  ),
+                  child: BetterPlayer(controller: _betterPlayerController!),
                 ),
 
               // ── مناطق الإيماءات: يسار / وسط / يمين ─────────────────────
