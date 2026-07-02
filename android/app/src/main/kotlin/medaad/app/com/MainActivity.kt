@@ -164,6 +164,10 @@ class MainActivity: FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+        // ✅ Re-apply FLAG_SECURE on every resume so it is never left stripped
+        // after returning from a child route (e.g. NativeVideoPlayerScreen) that
+        // may have called FlutterWindowManagerPlus.clearFlags before popping.
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             audioManager?.allowedCapturePolicy = 3
         }
