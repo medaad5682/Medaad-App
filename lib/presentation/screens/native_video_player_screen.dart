@@ -63,6 +63,10 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   bool _isInitializing = true;
   bool _isDisposing = false;
 
+  // ✅ نتذكر فهرس الجودة الحالية في القائمة المرتبة حتى نستطيع
+  // الانتقال تلقائياً للجودة الأقل عند خطأ فك ترميز MediaCodec
+  int _currentQualityIndex = 0;
+
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
   String _watermarkText = "";
@@ -87,13 +91,25 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
   void _sortQualities() {
     _sortedQualities = widget.streams.keys.toList();
+    // ✅ نرتب من الأعلى جودةً للأقل حتى يظهر للمستخدم الأعلى جودةً أولاً في
+    // قائمة الاختيار، لكن عند بدء التشغيل نبدأ من منتصف القائمة (جودة متوسطة)
+    // لتجنب خطأ MediaCodecVideoRenderer على الأجهزة الضعيفة بالجودة العالية.
     _sortedQualities.sort((a, b) {
       final numA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       final numB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-      return numB.compareTo(numA); // من الأعلى جودة للأقل
+      return numB.compareTo(numA); // من الأعلى جودة للأقل: [720p, 480p, 360p, 240p]
     });
     if (_sortedQualities.isNotEmpty) {
-      _currentQuality = _sortedQualities.first;
+      // ابدأ من المنتصف: جودة "360p" أو "480p" أكثر أماناً من "720p" على أجهزة
+      // تعاني من مشكلة MediaCodec مع MPEG-TS High Profile
+      _currentQualityIndex = (_sortedQualities.length / 2).floor();
+      // لكن لو فيه جودة 360p بالضبط نفضّلها كنقطة بداية
+      final idx360 = _sortedQualities.indexWhere(
+        (q) => q.replaceAll(RegExp(r'[^0-9]'), '') == '360',
+      );
+      if (idx360 != -1) _currentQualityIndex = idx360;
+
+      _currentQuality = _sortedQualities[_currentQualityIndex];
     }
   }
 
@@ -203,29 +219,69 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   // تهيئة/تبديل المشغل
   // ---------------------------------------------------------------------
 
-  Future<void> _initializePlayer(String url, {Duration? startAt}) async {
-    if (!mounted) return;
-    setState(() {
-      _isInitializing = true;
-      _isError = false;
-    });
+  // -----------------------------------------------------------------------
+  // هل الخطأ ناتج عن MediaCodec (مشكلة فك ترميز hardware)؟
+  // ExoPlaybackException مع "MediaCodecVideoRenderer" أو "video/mp2t"
+  // يعني الجهاز لا يستطيع فك تشفير هذه الجودة — نحاول جودة أقل.
+  // -----------------------------------------------------------------------
+  bool _isCodecError(dynamic e) {
+    final msg = e.toString().toLowerCase();
+    return msg.contains('mediacodec') ||
+        msg.contains('exoplaybackexception') ||
+        msg.contains('video/mp2t') ||
+        msg.contains('videorenderer') ||
+        msg.contains('codecexception') ||
+        msg.contains('mediacodecvideorenderererror');
+  }
+
+  // -----------------------------------------------------------------------
+  // يحاول تشغيل رابط محدد، وإذا فشل بخطأ codec يتراجع للجودة التالية.
+  // startAt: موضع التشغيل عند تبديل الجودة
+  // isAutoFallback: true عندما نستدعيها داخلياً (لا نغلق loading spinner)
+  // -----------------------------------------------------------------------
+  Future<void> _initializePlayer(String url,
+      {Duration? startAt, bool isAutoFallback = false}) async {
+    if (!mounted || _isDisposing) return;
+
+    if (!isAutoFallback) {
+      setState(() {
+        _isInitializing = true;
+        _isError = false;
+      });
+    }
 
     final oldController = _videoController;
     final oldChewie = _chewieController;
 
+    VideoPlayerController? controller;
+
     try {
-      // ✅ نحدد formatHint: VideoFormat.hls صراحةً لأن الروابط هي ملفات m3u8
-      // بدون هذا يفشل ExoPlayer أحيانًا في التعرف على البث وتظهر رسالة
-      // "فشل تشغيل الفيديو" حتى لو كان الرابط صحيحًا.
-      final controller = VideoPlayerController.networkUrl(
+      // ✅ formatHint: VideoFormat.hls — ضروري لروابط Bunny المُوقَّعة التي
+      // لا تنتهي بـ .m3u8 بشكل صريح بسبب query params الطويلة.
+      controller = VideoPlayerController.networkUrl(
         Uri.parse(url),
         httpHeaders: _headers,
         formatHint: VideoFormat.hls,
       );
 
+      // ✅ نُسجّل listener للأخطاء قبل initialize() لاصطياد أخطاء
+      // MediaCodec التي تظهر أثناء التشغيل لا أثناء التهيئة.
+      controller.addListener(() {
+        if (!mounted || _isDisposing) return;
+        final value = controller?.value;
+        if (value == null) return;
+        if (value.hasError && !_isError) {
+          final errMsg = value.errorDescription ?? '';
+          FirebaseCrashlytics.instance.log(
+            '⚠️ Native Player listener error: $errMsg (quality: $_currentQuality)',
+          );
+          _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
+        }
+      });
+
       await controller.initialize();
 
-      if (!mounted) {
+      if (!mounted || _isDisposing) {
         controller.dispose();
         return;
       }
@@ -248,10 +304,18 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           bufferedColor: Colors.white24,
           backgroundColor: Colors.white10,
         ),
-        errorBuilder: (context, errorMessage) => _buildErrorWidget(errorMessage),
+        // ✅ errorBuilder لـ Chewie يحسّن رسالة الخطأ المعروضة للمستخدم
+        errorBuilder: (context, errorMessage) {
+          final isCodec = _isCodecError(errorMessage);
+          return _buildErrorWidget(
+            isCodec
+                ? 'جهازك لا يدعم هذه الجودة. جرّب جودة أقل من أيقونة الإعدادات.'
+                : 'تعذر تشغيل الفيديو. تحقق من اتصال الإنترنت.',
+          );
+        },
       );
 
-      if (!mounted) {
+      if (!mounted || _isDisposing) {
         chewie.dispose();
         controller.dispose();
         return;
@@ -261,18 +325,88 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         _videoController = controller;
         _chewieController = chewie;
         _isInitializing = false;
+        _isError = false;
       });
 
-      // نتخلص من المتحكمات القديمة (إن وُجدت) بعد نجاح التبديل بأمان
-      oldChewie?.dispose();
-      await oldController?.dispose();
+      // ✅ نتخلص من المتحكمات القديمة بعد نجاح التبديل
+      // نؤخّر قليلاً لتجنب race condition أثناء إعادة البناء
+      Future.delayed(const Duration(milliseconds: 300), () {
+        oldChewie?.dispose();
+        oldController?.dispose();
+      });
     } catch (e, stack) {
-      FirebaseCrashlytics.instance
-          .recordError(e, stack, reason: 'Native Player Init Error: $url');
+      // تأكد من تنظيف المتحكم الجديد الفاشل
+      try {
+        controller?.dispose();
+      } catch (_) {}
+
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        stack,
+        reason: 'Native Player Init Error: $url (quality: $_currentQuality)',
+      );
+
+      final isCodec = _isCodecError(e);
+      _handlePlayerError(e.toString(), isCodecRelated: isCodec);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // معالجة الخطأ: إذا كان خطأ codec نحاول الجودة التالية الأقل تلقائياً،
+  // وإذا لم يكن أو نفدت الخيارات نعرض رسالة خطأ واضحة.
+  // -----------------------------------------------------------------------
+  void _handlePlayerError(String errorDescription, {required bool isCodecRelated}) {
+    if (!mounted || _isDisposing) return;
+
+    if (isCodecRelated) {
+      // ابحث عن الجودة التالية الأقل في القائمة المرتبة (الفهرس الأكبر = جودة أقل)
+      final nextIndex = _sortedQualities.indexWhere((q) {
+        final qNum = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        final curNum = int.tryParse(
+              _currentQuality.replaceAll(RegExp(r'[^0-9]'), ''),
+            ) ??
+            0;
+        return qNum < curNum;
+      });
+
+      if (nextIndex != -1) {
+        final fallbackQuality = _sortedQualities[nextIndex];
+        final fallbackUrl = widget.streams[fallbackQuality];
+
+        if (fallbackUrl != null) {
+          FirebaseCrashlytics.instance.log(
+            '🔄 Codec error on $_currentQuality → auto-fallback to $fallbackQuality',
+          );
+          setState(() {
+            _currentQuality = fallbackQuality;
+            _currentQualityIndex = nextIndex;
+          });
+          // إعادة المحاولة بالجودة الأقل بعد تأخير قصير
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted && !_isDisposing) {
+              _initializePlayer(fallbackUrl, isAutoFallback: true);
+            }
+          });
+          return;
+        }
+      }
+
+      // نفدت الجودات الأقل → أخبر المستخدم بالتبديل يدوياً
       if (mounted) {
         setState(() {
           _isError = true;
-          _errorMessage = "تعذر تشغيل الفيديو. تحقق من اتصال الإنترنت.";
+          _errorMessage =
+              'جهازك لا يدعم فك ترميز هذه الجودة. جرّب اختيار جودة أقل من أيقونة ⚙️ أعلى الشاشة.';
+          _isInitializing = false;
+        });
+      }
+    } else {
+      // خطأ شبكة أو خطأ غير معروف
+      if (mounted) {
+        setState(() {
+          _isError = true;
+          _errorMessage =
+              'تعذر تشغيل الفيديو. تحقق من اتصال الإنترنت وأعد المحاولة.';
           _isInitializing = false;
         });
       }
@@ -284,7 +418,11 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       return;
     }
     final position = _videoController?.value.position ?? Duration.zero;
-    setState(() => _currentQuality = quality);
+    final newIndex = _sortedQualities.indexOf(quality);
+    setState(() {
+      _currentQuality = quality;
+      if (newIndex != -1) _currentQualityIndex = newIndex;
+    });
     await _initializePlayer(widget.streams[quality]!, startAt: position);
   }
 
@@ -366,13 +504,25 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
   Future<void> _safeExit() async {
     if (_isDisposing) return;
-    if (mounted) setState(() => _isDisposing = true);
+    // ✅ نضع _isDisposing = true أولاً قبل أي await لمنع listeners من إطلاق
+    // callbacks على متحكمات يتم التخلص منها (مصدر "[Player] has been disposed")
+    _isDisposing = true;
+    if (mounted) setState(() {});
 
     try {
       _watermarkTimer?.cancel();
       await _recordingSubscription?.cancel();
-      _chewieController?.dispose();
-      await _videoController?.dispose();
+
+      // ✅ نأخذ مرجعاً محلياً ونُفرغ المتغيرات الأصلية قبل dispose()
+      // حتى لو أُطلق listener أثناء dispose لن يجد شيئاً يستدعيه
+      final chewieToDispose = _chewieController;
+      final videoToDispose = _videoController;
+      _chewieController = null;
+      _videoController = null;
+
+      chewieToDispose?.dispose();
+      await videoToDispose?.dispose();
+
       await WakelockPlus.disable();
       await FlutterWindowManagerPlus.clearFlags(
           FlutterWindowManagerPlus.FLAG_SECURE);
@@ -388,10 +538,16 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _isDisposing = true;
     _watermarkTimer?.cancel();
     _recordingSubscription?.cancel();
-    _chewieController?.dispose();
-    _videoController?.dispose();
+    // ✅ نفس النهج: نُفرغ المتغيرات أولاً ثم نستدعي dispose
+    final c = _chewieController;
+    final v = _videoController;
+    _chewieController = null;
+    _videoController = null;
+    c?.dispose();
+    v?.dispose();
     WakelockPlus.disable();
     super.dispose();
   }
@@ -434,10 +590,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     ],
                   ),
                 )
-              else
+              else if (_videoController != null && _chewieController != null)
                 Center(
                   child: AspectRatio(
-                    aspectRatio: _videoController!.value.aspectRatio == 0
+                    // ✅ نتحقق من القيمة بأمان: aspectRatio == 0 يعني لم يكتمل
+                    // initialize بعد، نستخدم 16:9 كقيمة افتراضية آمنة
+                    aspectRatio: (_videoController!.value.aspectRatio <= 0)
                         ? 16 / 9
                         : _videoController!.value.aspectRatio,
                     child: Chewie(controller: _chewieController!),
