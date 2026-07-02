@@ -94,7 +94,28 @@ class _EduVantageAppState extends State<EduVantageApp>
                       listenable: FloatingVideoController.instance,
                       builder: (context, _) {
                         if (FloatingVideoController.instance.isFloating) {
-                          return const FloatingVideoOverlay();
+                          // ✅ الفيديو العائم موضوع فوق الـ Navigator وليس من
+                          // ذريته (انظر الملاحظة أعلاه)، لذا فإن BetterPlayer
+                          // بداخله لا يجد أي Navigator كسلف. مكتبة
+                          // better_player تستدعي Navigator.of(context) داخلياً
+                          // بشكل غير مشروط عند didChangeDependencies (حتى مع
+                          // enableFullscreen: false)، مما يسبب:
+                          // "Navigator operation requested with a context
+                          // that does not include a Navigator" فور الضغط على
+                          // زر PIP. نلف الطبقة بـ Navigator محلي معزول تماماً
+                          // عن تنقل التطبيق الفعلي — فقط ليوفر سلف Navigator
+                          // صالح لِـ BetterPlayer.
+                          return Navigator(
+                            onGenerateRoute: (settings) => PageRouteBuilder(
+                              settings: settings,
+                              opaque: false,
+                              transitionDuration: Duration.zero,
+                              reverseTransitionDuration: Duration.zero,
+                              pageBuilder: (context, animation,
+                                      secondaryAnimation) =>
+                                  const FloatingVideoOverlay(),
+                            ),
+                          );
                         }
                         return const SizedBox.shrink();
                       },
