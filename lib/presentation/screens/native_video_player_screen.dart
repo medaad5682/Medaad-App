@@ -199,21 +199,31 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   }
 
   void _loadUserData() {
+    // ✅ Priority chain: phone → name → email → username (AppState first, then Hive)
+    // Phone is preferred for accountability; name/email are used when phone is absent.
     String displayText = '';
-    if (AppState().userData != null) {
-      displayText = AppState().userData!['phone'] ?? '';
+
+    final userData = AppState().userData;
+    if (userData != null) {
+      displayText = (userData['phone'] as String? ?? '').trim();
+      if (displayText.isEmpty) displayText = (userData['name'] as String? ?? '').trim();
+      if (displayText.isEmpty) displayText = (userData['email'] as String? ?? '').trim();
+      if (displayText.isEmpty) displayText = (userData['username'] as String? ?? '').trim();
     }
+
     if (displayText.isEmpty) {
       try {
         if (Hive.isBoxOpen('auth_box')) {
-          var box = Hive.box('auth_box');
-          displayText = box.get('phone') ?? box.get('username') ?? '';
+          final box = Hive.box('auth_box');
+          displayText = (box.get('phone') as String? ?? '').trim();
+          if (displayText.isEmpty) displayText = (box.get('name') as String? ?? '').trim();
+          if (displayText.isEmpty) displayText = (box.get('email') as String? ?? '').trim();
+          if (displayText.isEmpty) displayText = (box.get('username') as String? ?? '').trim();
         }
       } catch (_) {}
     }
-    _watermarkText = displayText.isNotEmpty
-        ? displayText
-        : (AppState().userData?['username'] ?? 'Unknown User');
+
+    _watermarkText = displayText.isNotEmpty ? displayText : 'Unknown User';
   }
 
   void _startWatermarkAnimation() {
@@ -317,14 +327,25 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         controlsConfiguration: BetterPlayerControlsConfiguration(
           enableFullscreen: false,
           enablePip: false,
-          enableQualities: false, // بنستخدم قائمة الجودة المخصصة في الشريط العلوي
+          enableQualities: false,
           enableSubtitles: false,
           enableAudioTracks: false,
-          enableSkips: false, // ✅ removed default 10s skip buttons — double-tap handles seeking
+          enableSkips: false,
           enableMute: true,
-          // ✅ بنستخدم قائمة السرعة المخصصة في الشريط العلوي (0.25× إلى 2×)
-          // بدل القائمة الداخلية المحدودة في المكتبة
           enablePlaybackSpeed: false,
+          // ✅ Hide the three-dot overflow menu button (top-right corner)
+          enableOverflowMenu: false,
+          // ✅ Larger control bar so the seek bar and duration text are easier to read
+          controlBarHeight: 52,
+          // ✅ Thicker progress bar + larger handle for easier scrubbing
+          progressBarHeight: 6,
+          progressBarHandleSize: 18,
+          // ✅ Larger duration / position text
+          textStyle: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
           loadingColor: AppColors.accentYellow,
           progressBarPlayedColor: AppColors.accentYellow,
           progressBarHandleColor: AppColors.accentYellow,
@@ -845,13 +866,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── مناطق الدبل تاب + الضغط المطوّل (يمين/يسار) ──────────
-              // ✅ RTL FIX: wrap in LTR Directionality so the physical left half
-              // is always rewind and physical right half is always forward,
-              // regardless of whether the app locale is Arabic (RTL) or English (LTR).
-              // Without this, Flutter's Row reverses child order in RTL mode,
-              // making the Arabic user tap right to rewind and left to forward —
-              // the opposite of every video player convention.
+              // ── مناطق الإيماءات: يسار / وسط / يمين ─────────────────────
+              // ✅ RTL FIX: forced LTR so physical left = rewind, right = forward
+              //    in both Arabic and English.
+              // ✅ PLAY/PAUSE: central zone handles single-tap toggle only;
+              //    peripheral zones (left/right) handle double-tap seek + long-press ×2
+              //    but do NOT toggle play/pause on a plain tap.
               if (!_isRecordingDetected &&
                   !_isError &&
                   !_isInitializing &&
@@ -861,8 +881,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     textDirection: TextDirection.ltr,
                     child: Row(
                       children: [
-                        // Physical left zone → rewind (same in Arabic & English)
+                        // ── Left zone: double-tap rewind + long-press ×2 ──────
                         Expanded(
+                          flex: 3,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: false),
@@ -871,8 +892,25 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                             onLongPressCancel: _onHoldEnd,
                           ),
                         ),
-                        // Physical right zone → forward (same in Arabic & English)
+                        // ── Centre zone: single-tap toggles play/pause ────────
                         Expanded(
+                          flex: 2,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: () {
+                              final ctrl = _betterPlayerController;
+                              if (ctrl == null || _isDisposing) return;
+                              if (ctrl.isPlaying() == true) {
+                                ctrl.pause();
+                              } else {
+                                ctrl.play();
+                              }
+                            },
+                          ),
+                        ),
+                        // ── Right zone: double-tap forward + long-press ×2 ────
+                        Expanded(
+                          flex: 3,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: true),
@@ -886,28 +924,31 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── مؤشر الضغط المطوّل 2× ──────────────────────────────────
+              // ── مؤشر الضغط المطوّل 2× (أعلى الشاشة وسطها) ────────────
               if (_isHolding2x)
-                Positioned.fill(
+                Positioned(
+                  top: 56,   // below the top bar
+                  left: 0,
+                  right: 0,
                   child: IgnorePointer(
                     child: Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.65),
-                          borderRadius: BorderRadius.circular(30),
+                          color: Colors.black.withOpacity(0.70),
+                          borderRadius: BorderRadius.circular(24),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: const [
-                            Icon(Icons.fast_forward, color: Colors.white, size: 22),
+                            Icon(Icons.fast_forward, color: Colors.white, size: 18),
                             SizedBox(width: 6),
                             Text(
                               '×2',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                                fontSize: 14,
                                 decoration: TextDecoration.none,
                               ),
                             ),
