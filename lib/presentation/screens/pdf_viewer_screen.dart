@@ -39,9 +39,6 @@ import '../widgets/pdf_tools/movable_text_note.dart';
 import '../widgets/pdf_tools/movable_resizable_image.dart';
 import '../widgets/pdf_tools/color_palette_row.dart';
 
-import '../../core/services/floating_video_controller.dart';
-import '../widgets/floating_video_overlay.dart';
-
 class PdfViewerScreen extends StatefulWidget {
   final String pdfId;
   final String title;
@@ -392,16 +389,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           _buildWatermark(),
           if (_isDrawingMode)
             Positioned(bottom: 40, left: 20, right: 20, child: _buildToolbar()),
-          // 2. الطبقة العلوية: الفيديو العائم
-          ListenableBuilder(
-            listenable: FloatingVideoController.instance,
-            builder: (context, child) {
-              if (FloatingVideoController.instance.isFloating) {
-                return const FloatingVideoOverlay();
-              }
-              return const SizedBox.shrink();
-            },
-          ),
         ],
       ),
     );
@@ -1858,8 +1845,8 @@ class _CombinedOverlayPainter extends CustomPainter {
       final p3 = i + 2 < scaled.length ? scaled[i + 2] : scaled.last;
 
       // Catmull-Rom → cubic Bézier conversion:
-      //    cp1 = p1 + (p2 - p0) * tension / 3
-      //    cp2 = p2 - (p3 - p1) * tension / 3
+      //   cp1 = p1 + (p2 - p0) * tension / 3
+      //   cp2 = p2 - (p3 - p1) * tension / 3
       final cp1 = Offset(
         p1.dx + (p2.dx - p0.dx) * tension / 3,
         p1.dy + (p2.dy - p0.dy) * tension / 3,
