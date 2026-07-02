@@ -13,6 +13,7 @@ import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
+import '../../core/services/floating_video_controller.dart'; // إضافة متحكم الفيديو العائم
 
 class NativeVideoPlayerScreen extends StatefulWidget {
   final Map<String, String> streams;
@@ -1000,18 +1001,18 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── Top bar: back + title + fit + speed + quality ─────────
+              // ── Top bar: back + title + fit + speed + quality + PIP ─────────
               if (!_isRecordingDetected && !_isDisposing)
                 Positioned(
                   top: 4,
                   left: 4,
                   right: 4,
                   child: SafeArea(
-                    child: AnimatedOpacity( // إضافة Animation للبار العلوي ليختفي مع الأزرار
+                    child: AnimatedOpacity(
                       opacity: _controlsVisible ? 1.0 : 0.0,
                       duration: const Duration(milliseconds: 200),
                       child: IgnorePointer(
-                        ignoring: !_controlsVisible, // يمنع النقر عند الاختفاء
+                        ignoring: !_controlsVisible,
                         child: Row(
                           children: [
                             IconButton(
@@ -1053,6 +1054,23 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 icon: const Icon(LucideIcons.settings, color: Colors.white),
                                 onPressed: _showQualitySheet,
                                 tooltip: _currentQuality,
+                              ),
+                            
+                            // ── PIP (Floating Video) Button ──
+                            if (!_isError && _betterPlayerController != null)
+                              IconButton(
+                                icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
+                                tooltip: 'تشغيل كنافذة عائمة',
+                                onPressed: () {
+                                  // 1. تفعيل وضع الفيديو العائم وتمرير الروابط
+                                  FloatingVideoController.instance.startFloating(
+                                    streams: widget.streams,
+                                    title: widget.title,
+                                    watermarkText: _watermarkText,
+                                  );
+                                  // 2. الخروج من المشغل الحالي (بأمان)
+                                  _safeExit();
+                                },
                               ),
                           ],
                         ),
