@@ -14,6 +14,7 @@ import 'package:Medaad/l10n/generated/app_localizations.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/floating_video_controller.dart'; // إضافة متحكم الفيديو العائم
+import '../../main.dart' show navigatorKey;
 
 class NativeVideoPlayerScreen extends StatefulWidget {
   final Map<String, String> streams;
@@ -818,7 +819,23 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           .recordError(e, null, reason: 'Native Player Exit Error');
     }
 
-    if (mounted) Navigator.of(context).pop();
+    // ✅ نستخدم navigatorKey العام بدلاً من الـ context المحلي للشاشة.
+    // السبب: عند تفعيل الفيديو العائم، يتم إدراج FloatingVideoOverlay في
+    // Stack عالمي فوق الـ MaterialApp.builder (انظر app.dart)، وهذا قد
+    // يترافق مع rebuild لأعلى الشجرة في نفس لحظة إغلاق هذه الشاشة.
+    // الاعتماد على context محلي هنا هو ما يسبب خطأ:
+    // "Navigator operation requested with a context that does not include
+    // a Navigator". navigatorKey.currentState يشير دائمًا مباشرة إلى
+    // الـ NavigatorState الجذري المرفق بـ MaterialApp بغض النظر عن حالة أي
+    // شجرة فرعية أخرى — نفس النمط المستخدم في
+    // FloatingVideoOverlay._expandToFullScreen().
+    final nav = navigatorKey.currentState;
+    if (nav != null && nav.canPop()) {
+      nav.pop();
+    } else if (mounted && Navigator.of(context).canPop()) {
+      // احتياط إضافي نادر إن كان الـ context المحلي هو المتاح فعلاً
+      Navigator.of(context).pop();
+    }
   }
 
   @override
