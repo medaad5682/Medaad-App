@@ -10,6 +10,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/teacher_service.dart';
 import 'video_player_screen.dart';
+import 'native_video_player_screen.dart';
 import 'youtube_player_screen.dart';
 import 'pdf_viewer_screen.dart';
 import 'teacher/manage_content_screen.dart';
@@ -182,9 +183,10 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                  ),
               ...players.map((player) {
                 IconData icon = LucideIcons.playCircle;
-                if (player.id == 'player_1') icon = LucideIcons.rocket;
-                if (player.id == 'player_2') icon = LucideIcons.server;
-                if (player.id == 'player_3') icon = LucideIcons.playSquare; 
+                if (player.engine == PlayerEngine.explodeDirect) icon = LucideIcons.rocket;
+                if (player.engine == PlayerEngine.bunnyHls) icon = LucideIcons.server;
+                if (player.engine == PlayerEngine.bunnyNative) icon = LucideIcons.shieldCheck;
+                if (player.engine == PlayerEngine.youtube) icon = LucideIcons.playSquare;
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 16.0),
@@ -194,12 +196,13 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                     subtitle: player.description,
                     onTap: () {
                       Navigator.pop(context);
-                      if (player.id == 'player_1') {
+                      if (player.engine == PlayerEngine.explodeDirect) {
                         _fetchAndPlayWithExplode(video);
-                      } else if (player.id == 'player_2') {
-                        _fetchAndPlayVideo(video, useYoutube: false);
-                      } else if (player.id == 'player_3') {
-                        _fetchAndPlayVideo(video, useYoutube: true);
+                      } else {
+                        // bunny_hls / bunny_native / youtube جميعها تعتمد
+                        // على نفس نقطة النهاية get-video-id، وتختلف فقط في
+                        // شاشة العرض التي يفتحها التطبيق بعد جلب البيانات.
+                        _fetchAndPlayVideo(video, engine: player.engine);
                       }
                     },
                   ),
@@ -212,7 +215,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     );
   }
 
-  Future<void> _fetchAndPlayVideo(Map<String, dynamic> video, {required bool useYoutube}) async {
+  Future<void> _fetchAndPlayVideo(Map<String, dynamic> video, {required String engine}) async {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -235,7 +238,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
         final data = res.data;
         final String videoTitle = data['db_video_title'] ?? video['title'];
 
-        if (useYoutube) {
+        if (engine == PlayerEngine.youtube) {
           String? youtubeId = data['youtube_video_id'];
           if (youtubeId != null && youtubeId.isNotEmpty) {
             Navigator.push(
@@ -249,6 +252,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
             _showErrorSnackBar("Not a YouTube video or ID missing.");
           }
         } else {
+          // engine == bunny_hls أو bunny_native: نفس بيانات الجودات القادمة
+          // من get-video-id، الفرق فقط في شاشة العرض المستخدَمة.
           Map<String, String> qualities = {};
           if (data['availableQualities'] != null) {
             for (var q in data['availableQualities']) {
@@ -262,12 +267,23 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
           }
 
           if (qualities.isNotEmpty) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => VideoPlayerScreen(streams: qualities, title: videoTitle),
-              ),
-            );
+            if (engine == PlayerEngine.bunnyNative) {
+              // ✅ المشغل البديل: لا يعتمد على media_kit (مفيد للأجهزة التي
+              // تواجه مشاكل توافق معه)
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => NativeVideoPlayerScreen(streams: qualities, title: videoTitle),
+                ),
+              );
+            } else {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => VideoPlayerScreen(streams: qualities, title: videoTitle),
+                ),
+              );
+            }
           } else {
             FirebaseCrashlytics.instance.log("No streamable URLs found for lesson: ${video['id']}");
             _showErrorSnackBar("No playable stream found.");
