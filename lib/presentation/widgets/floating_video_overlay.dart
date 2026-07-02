@@ -44,11 +44,23 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     with WidgetsBindingObserver {
   // ── Geometry ────────────────────────────────────────────────
   static const double _minW = 180.0;
-  static const double _maxW = 340.0;
+  // ✅ لا يوجد حد أقصى ثابت بعد الآن — يُحسب الحد الأقصى ديناميكيًا من
+  // مقاس الشاشة في _maxWidthForScreen() بحيث تكبر النافذة العائمة حتى
+  // حواف الشاشة (مع هامش صغير) على أي جهاز، بما في ذلك الأجهزة اللوحية.
+  static const double _screenMargin = 16.0;
   static const double _aspectRatio = 16 / 9;
 
   double _width = 240.0;
   double get _height => _width / _aspectRatio;
+
+  /// أقصى عرض ممكن للنافذة العائمة بناءً على مقاس الشاشة الحالي، بحيث لا
+  /// يتجاوز عرض أو ارتفاع النافذة حدود الشاشة (مع هامش [_screenMargin]).
+  double _maxWidthForScreen(Size screen) {
+    final maxByWidth = screen.width - (_screenMargin * 2);
+    final maxByHeight = (screen.height - (_screenMargin * 2)) * _aspectRatio;
+    final maxW = maxByWidth < maxByHeight ? maxByWidth : maxByHeight;
+    return maxW < _minW ? _minW : maxW;
+  }
 
   late Offset _position; // top-left of the floating window
   bool _isDragging = false;
@@ -429,6 +441,15 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
   Widget build(BuildContext context) {
     final screen = MediaQuery.of(context).size;
 
+    // ✅ إعادة ضبط العرض إذا تغيّر مقاس الشاشة (تدوير الجهاز، أو فتح
+    // النافذة على شاشة أصغر) بحيث لا تبقى النافذة العائمة أكبر من المسموح.
+    final maxW = _maxWidthForScreen(screen);
+    if (_width > maxW) {
+      _width = maxW;
+    } else if (_width < _minW) {
+      _width = _minW;
+    }
+
     // On first build, snap to bottom-right
     if (_position == const Offset(16, 400)) {
       _position = Offset(
@@ -571,8 +592,11 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                   child: GestureDetector(
                     onPanUpdate: (d) {
                       setState(() {
+                        // ✅ الحد الأقصى أصبح ديناميكيًا (maxW) بدلاً من رقم
+                        // ثابت، فيسمح بتكبير النافذة حتى حواف الشاشة على
+                        // الأجهزة اللوحية والشاشات الكبيرة.
                         _width = (_width + d.delta.dx)
-                            .clamp(_minW, _maxW);
+                            .clamp(_minW, maxW);
                         // Re-clamp position so we don't go off-screen
                         _position =
                             _clampPosition(_position, screen);
