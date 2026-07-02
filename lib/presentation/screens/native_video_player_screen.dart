@@ -79,33 +79,37 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   };
 
   // -----------------------------------------------------------------------
-  // ✅ FIX: Show built-in controls and auto-hide after 3 seconds.
-  // Called on any single tap anywhere on the player surface.
+  // ✅ FIX: Single tap ANYWHERE on the player (left / centre / right zones)
+  // toggles the built-in controls + seek bar:
+  //   - If hidden  -> show them (with a 3s auto-hide timer).
+  //   - If visible -> hide them immediately.
+  // The centre zone uses this exact same function, so tapping it reveals
+  // the play/pause button together with the seek bar instead of silently
+  // pausing the video - the user then taps the visible play/pause button
+  // (part of the seek bar) to actually control playback.
   // -----------------------------------------------------------------------
-  void _showControls() {
+  void _toggleControls() {
     if (_betterPlayerController == null || _isDisposing) return;
 
     _controlsHideTimer?.cancel();
 
-    if (!_controlsVisible) {
-      setState(() => _controlsVisible = true);
-      _betterPlayerController?.setControlsEnabled(true);
-      _betterPlayerController?.setControlsAlwaysVisible(true);
+    if (_controlsVisible) {
+      // Already visible -> hide immediately on this tap.
+      setState(() => _controlsVisible = false);
+      _betterPlayerController?.setControlsAlwaysVisible(false);
+      return;
     }
 
-    // Auto-hide after 3 seconds of inactivity
+    // Hidden -> show now and schedule auto-hide after 3s of inactivity.
+    setState(() => _controlsVisible = true);
+    _betterPlayerController?.setControlsEnabled(true);
+    _betterPlayerController?.setControlsAlwaysVisible(true);
+
     _controlsHideTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted || _isDisposing) return;
       setState(() => _controlsVisible = false);
       _betterPlayerController?.setControlsAlwaysVisible(false);
     });
-  }
-
-  void _hideControls() {
-    _controlsHideTimer?.cancel();
-    if (!mounted || _isDisposing) return;
-    setState(() => _controlsVisible = false);
-    _betterPlayerController?.setControlsAlwaysVisible(false);
   }
 
   @override
@@ -763,10 +767,14 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
               // ── Gesture layer ────────────────────────────────────────────
               // ✅ FIX: All three zones use HitTestBehavior.translucent so
               // BetterPlayer's internal hit-test still fires (enabling seek-bar
-              // drag). Single tap on left/right now calls _showControls() to
-              // reveal the seek bar and controls instead of a no-op.
-              // Double tap still seeks. Centre tap toggles play/pause AND shows
-              // controls. Long press anywhere triggers ×2 speed.
+              // drag).
+              // Single tap ANYWHERE (left / centre / right) toggles the same
+              // controls + seek bar via _toggleControls(): first tap shows
+              // them (revealing the play/pause button and seek bar), a
+              // second tap hides them again.
+              // Double tap on the left/right (peripheral) zones seeks ±10s.
+              // Long press on the left/right zones triggers ×2 speed,
+              // unchanged from before.
               if (!_isRecordingDetected &&
                   !_isError &&
                   !_isInitializing &&
@@ -776,43 +784,32 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     textDirection: TextDirection.ltr,
                     child: Row(
                       children: [
-                        // ── Left zone: single-tap shows controls, double-tap rewinds ──
+                        // ── Left (peripheral) zone: tap toggles controls, double-tap rewinds 10s ──
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: _showControls,
+                            onTap: _toggleControls,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: false),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
                             onLongPressCancel: _onHoldEnd,
                           ),
                         ),
-                        // ── Centre zone: single-tap toggles play/pause + shows controls ──
+                        // ── Centre zone: tap toggles controls (shows play/pause button + seek bar) ──
                         Expanded(
                           flex: 2,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: () {
-                              final ctrl = _betterPlayerController;
-                              if (ctrl == null || _isDisposing) return;
-                              // Show controls first so user sees the seek bar
-                              _showControls();
-                              // Then toggle play/pause
-                              if (ctrl.isPlaying() == true) {
-                                ctrl.pause();
-                              } else {
-                                ctrl.play();
-                              }
-                            },
+                            onTap: _toggleControls,
                           ),
                         ),
-                        // ── Right zone: single-tap shows controls, double-tap forwards ──
+                        // ── Right (peripheral) zone: tap toggles controls, double-tap forwards 10s ──
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: _showControls,
+                            onTap: _toggleControls,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: true),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
@@ -869,14 +866,17 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 48),
                     child: IgnorePointer(
                       child: AnimatedOpacity(
-                        opacity: _showSeekIndicator ? 1.0 : 0.0,
+                        // ✅ FIX: overall indicator is more translucent now (0.55 vs 1.0)
+                        opacity: _showSeekIndicator ? 0.55 : 0.0,
                         duration: const Duration(milliseconds: 200),
                         child: Container(
+                          // ✅ FIX: smaller padding -> smaller pill
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 14),
+                              horizontal: 12, vertical: 9),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.65),
-                            borderRadius: BorderRadius.circular(50),
+                            // ✅ FIX: lighter/more translucent background
+                            color: Colors.black.withOpacity(0.35),
+                            borderRadius: BorderRadius.circular(40),
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
@@ -885,15 +885,18 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 _seekIndicatorIsForward
                                     ? Icons.fast_forward
                                     : Icons.fast_rewind,
-                                color: Colors.white,
-                                size: 28,
+                                // ✅ FIX: more translucent icon color
+                                color: Colors.white.withOpacity(0.75),
+                                // ✅ FIX: smaller icon (was 28)
+                                size: 18,
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 2),
                               Text(
                                 '${_pendingSeekDelta.abs()} ث',
-                                style: const TextStyle(
-                                  color: Colors.white,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.75),
                                   fontWeight: FontWeight.bold,
+                                  fontSize: 11,
                                   decoration: TextDecoration.none,
                                 ),
                               ),
