@@ -81,9 +81,20 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   //   - Second tap → hide controls immediately
   // No manual state, no competing Timer — one system owns the lifecycle.
   // -----------------------------------------------------------------------
+  // 1. أعد إضافة هذا المتغير البسيط لتتبع حالة الأزرار
+  bool _controlsVisible = false;
+
+  // -----------------------------------------------------------------------
+  // FIX: Delegate all controls show/hide to BetterPlayer's built-in system.
+  // -----------------------------------------------------------------------
   void _toggleControls() {
     if (_betterPlayerController == null || _isDisposing) return;
-    _betterPlayerController?.toggleControlsVisibility();
+
+    // 2. عكس الحالة مع كل نقرة
+    _controlsVisible = !_controlsVisible; 
+
+    // 3. تمرير الحالة الجديدة للدالة (هذا ما كان ينقص الكود ويسبب الخطأ)
+    _betterPlayerController?.toggleControlsVisibility(_controlsVisible);
   }
 
   @override
