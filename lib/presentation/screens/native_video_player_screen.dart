@@ -318,30 +318,40 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   }
 
   void _onPlayerEvent(BetterPlayerEvent event) {
-    if (!mounted || _isDisposing) return;
+  if (!mounted || _isDisposing) return;
 
-    switch (event.betterPlayerEventType) {
-      case BetterPlayerEventType.exception:
-        final errMsg = (event.parameters?['exception'] ??
-                event.parameters?['error'] ??
-                'Unknown player exception')
-            .toString();
-        FirebaseCrashlytics.instance.log(
-          '⚠️ Native Player (better_player) exception: $errMsg (quality: $_currentQuality)',
-        );
-        _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
-        break;
-      case BetterPlayerEventType.initialized:
-        if (_isError) {
-          setState(() {
-            _isError = false;
-          });
-        }
-        break;
-      default:
-        break;
-    }
+  switch (event.betterPlayerEventType) {
+    case BetterPlayerEventType.exception:
+      final errMsg = (event.parameters?['exception'] ??
+              event.parameters?['error'] ??
+              'Unknown player exception')
+          .toString();
+      FirebaseCrashlytics.instance.log(
+        '⚠️ Native Player (better_player) exception: $errMsg (quality: $_currentQuality)',
+      );
+      _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
+      break;
+    case BetterPlayerEventType.initialized:
+      if (_isError) {
+        setState(() {
+          _isError = false;
+        });
+      }
+      break;
+
+    // NEW: keep our local flag in sync with what BetterPlayer is actually
+    // doing internally (including its own 3s auto-hide timer).
+    case BetterPlayerEventType.controlsVisible:
+      _controlsVisible = true;
+      break;
+    case BetterPlayerEventType.controlsHiddenStart:
+      _controlsVisible = false;
+      break;
+
+    default:
+      break;
   }
+}
 
   void _handlePlayerError(String errorDescription, {required bool isCodecRelated}) {
     if (!mounted || _isDisposing) return;
