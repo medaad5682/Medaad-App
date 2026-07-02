@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
+import 'package:better_player_plus/better_player_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -19,8 +18,11 @@ import '../../core/services/app_state.dart';
 // ===========================================================================
 // ✅ [NATIVE PLAYER] مشغل بديل لا يعتمد على media_kit
 // ---------------------------------------------------------------------------
-// يستخدم حزمة video_player الرسمية من Flutter (ExoPlayer على أندرويد و
-// AVPlayer على آيفون) بدلاً من مكتبة media_kit (المبنية على libmpv).
+// يستخدم حزمة better_player_plus (المبنية فوق video_player الرسمية / ExoPlayer
+// على أندرويد و AVPlayer على آيفون) بدلاً من مكتبة media_kit (المبنية على
+// libmpv). تدعم better_player_plus روابط MPEG-TS HLS بشكل كامل، وتوفر تبديل
+// جودة أصلي (native resolution switching) يحافظ على موضع التشغيل تلقائياً
+// دون الحاجة لإعادة بناء المشغل بالكامل في كل مرة.
 // الهدف: توفير خيار تشغيل بديل للأجهزة التي تواجه مشاكل في فك التشفير أو
 // الاستقرار مع media_kit (شاشة سوداء، تهنيج، تعطل...)، دون التأثير على
 // المشغلات الحالية.
@@ -47,8 +49,7 @@ class NativeVideoPlayerScreen extends StatefulWidget {
 
 class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     with WidgetsBindingObserver {
-  VideoPlayerController? _videoController;
-  ChewieController? _chewieController;
+  BetterPlayerController? _betterPlayerController;
 
   // ✅ خدمة الحماية (كشف تسجيل الشاشة) - نفس الخدمة المستخدمة في المشغل الأساسي
   final AudioProtectionService _protectionService = AudioProtectionService();
@@ -133,8 +134,8 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   void _handleRecordingDetected() {
     if (!mounted) return;
     setState(() => _isRecordingDetected = true);
-    _videoController?.setVolume(0.0);
-    _videoController?.pause();
+    _betterPlayerController?.setVolume(0.0);
+    _betterPlayerController?.pause();
     FirebaseCrashlytics.instance.log(
         "🚨 Security: Screen Recording Detected! Native Player Muted & Paused.");
   }
@@ -142,12 +143,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
-      _videoController?.pause();
+      _betterPlayerController?.pause();
     } else if (state == AppLifecycleState.resumed) {
       _protectionService.blockAudioCapture();
       if (_isRecordingDetected) {
-        _videoController?.setVolume(0.0);
-        _videoController?.pause();
+        _betterPlayerController?.setVolume(0.0);
+        _betterPlayerController?.pause();
       }
     }
   }
@@ -200,7 +201,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         throw Exception("No playable stream available");
       }
 
-      await _initializePlayer(widget.streams[_currentQuality]!);
+      _initializePlayer();
       _startWatermarkAnimation();
     } catch (e, stack) {
       FirebaseCrashlytics.instance
@@ -216,7 +217,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   }
 
   // ---------------------------------------------------------------------
-  // تهيئة/تبديل المشغل
+  // تهيئة المشغل (مرة واحدة فقط) وتبديل الجودة عبر setResolution
   // ---------------------------------------------------------------------
 
   // -----------------------------------------------------------------------
@@ -235,125 +236,101 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   }
 
   // -----------------------------------------------------------------------
-  // يحاول تشغيل رابط محدد، وإذا فشل بخطأ codec يتراجع للجودة التالية.
-  // startAt: موضع التشغيل عند تبديل الجودة
-  // isAutoFallback: true عندما نستدعيها داخلياً (لا نغلق loading spinner)
+  // ينشئ BetterPlayerController مرة واحدة، ويمرر كل الجودات كـ resolutions
+  // حتى يستطيع المشغل التبديل بينها داخلياً (setResolution) مع الحفاظ على
+  // موضع التشغيل الحالي تلقائياً، دون الحاجة لإعادة بناء المشغل بالكامل.
   // -----------------------------------------------------------------------
-  Future<void> _initializePlayer(String url,
-      {Duration? startAt, bool isAutoFallback = false}) async {
+  void _initializePlayer() {
     if (!mounted || _isDisposing) return;
 
-    if (!isAutoFallback) {
-      setState(() {
-        _isInitializing = true;
-        _isError = false;
-      });
-    }
+    final initialUrl = widget.streams[_currentQuality]!;
 
-    final oldController = _videoController;
-    final oldChewie = _chewieController;
+    final dataSource = BetterPlayerDataSource(
+      BetterPlayerDataSourceType.network,
+      initialUrl,
+      headers: _headers,
+      // ✅ formatHint: hls — ضروري لروابط Bunny المُوقَّعة التي لا تنتهي
+      // بـ .m3u8 بشكل صريح بسبب query params الطويلة.
+      videoFormat: BetterPlayerVideoFormat.hls,
+      // ✅ نمرر كل الجودات المتاحة حتى يدعم المشغل التبديل الأصلي بينها
+      resolutions: widget.streams,
+      cacheConfiguration: const BetterPlayerCacheConfiguration(useCache: false),
+      notificationConfiguration: const BetterPlayerNotificationConfiguration(
+        showNotification: false,
+      ),
+    );
 
-    VideoPlayerController? controller;
-
-    try {
-      // ✅ formatHint: VideoFormat.hls — ضروري لروابط Bunny المُوقَّعة التي
-      // لا تنتهي بـ .m3u8 بشكل صريح بسبب query params الطويلة.
-      controller = VideoPlayerController.networkUrl(
-        Uri.parse(url),
-        httpHeaders: _headers,
-        formatHint: VideoFormat.hls,
-      );
-
-      // ✅ نُسجّل listener للأخطاء قبل initialize() لاصطياد أخطاء
-      // MediaCodec التي تظهر أثناء التشغيل لا أثناء التهيئة.
-      controller.addListener(() {
-        if (!mounted || _isDisposing) return;
-        final value = controller?.value;
-        if (value == null) return;
-        if (value.hasError && !_isError) {
-          final errMsg = value.errorDescription ?? '';
-          FirebaseCrashlytics.instance.log(
-            '⚠️ Native Player listener error: $errMsg (quality: $_currentQuality)',
-          );
-          _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
-        }
-      });
-
-      await controller.initialize();
-
-      if (!mounted || _isDisposing) {
-        controller.dispose();
-        return;
-      }
-
-      if (startAt != null) {
-        await controller.seekTo(startAt);
-      }
-      await controller.play();
-
-      final chewie = ChewieController(
-        videoPlayerController: controller,
+    final controller = BetterPlayerController(
+      BetterPlayerConfiguration(
         autoPlay: true,
         looping: false,
-        allowFullScreen: false,
-        allowMuting: true,
-        showControls: true,
-        materialProgressColors: ChewieProgressColors(
-          playedColor: AppColors.accentYellow,
-          handleColor: AppColors.accentYellow,
-          bufferedColor: Colors.white24,
-          backgroundColor: Colors.white10,
+        // ✅ الشاشة نفسها بتشتغل بملء الشاشة (اتجاه أفقي مثبّت + immersive)
+        // فمفيش داعي لفل سكرين خاص بالمشغل نفسه
+        fullScreenByDefault: false,
+        allowedScreenSleep: true, // بنتحكم في الـ Wakelock يدوياً بالفعل
+        autoDetectFullscreenDeviceOrientation: false,
+        controlsConfiguration: BetterPlayerControlsConfiguration(
+          enableFullscreen: false,
+          enablePip: false,
+          enableQualities: false, // بنستخدم قائمة الجودة المخصصة في الشريط العلوي
+          enableSubtitles: false,
+          enableAudioTracks: false,
+          enableSkips: true,
+          enableMute: true,
+          enablePlaybackSpeed: true,
+          loadingColor: AppColors.accentYellow,
+          progressBarPlayedColor: AppColors.accentYellow,
+          progressBarHandleColor: AppColors.accentYellow,
+          progressBarBufferedColor: Colors.white24,
+          progressBarBackgroundColor: Colors.white10,
         ),
-        // ✅ errorBuilder لـ Chewie يحسّن رسالة الخطأ المعروضة للمستخدم
         errorBuilder: (context, errorMessage) {
-          final isCodec = _isCodecError(errorMessage);
-          return _buildErrorWidget(
-            isCodec
-                ? 'جهازك لا يدعم هذه الجودة. جرّب جودة أقل من أيقونة الإعدادات.'
-                : 'تعذر تشغيل الفيديو. تحقق من اتصال الإنترنت.',
-          );
+          // ✅ بنتعامل مع الأخطاء بنفس الـ overlay المخصص عبر مستمع الأحداث
+          // بدل الاعتماد على واجهة الخطأ الداخلية للمكتبة
+          return const SizedBox.shrink();
         },
-      );
+      ),
+      betterPlayerDataSource: dataSource,
+    );
 
-      if (!mounted || _isDisposing) {
-        chewie.dispose();
-        controller.dispose();
-        return;
-      }
+    controller.addEventsListener(_onPlayerEvent);
 
-      setState(() {
-        _videoController = controller;
-        _chewieController = chewie;
-        _isInitializing = false;
-        _isError = false;
-      });
+    setState(() {
+      _betterPlayerController = controller;
+      _isInitializing = false;
+      _isError = false;
+    });
+  }
 
-      // ✅ نتخلص من المتحكمات القديمة بعد نجاح التبديل
-      // نؤخّر قليلاً لتجنب race condition أثناء إعادة البناء
-      Future.delayed(const Duration(milliseconds: 300), () {
-        oldChewie?.dispose();
-        oldController?.dispose();
-      });
-    } catch (e, stack) {
-      // تأكد من تنظيف المتحكم الجديد الفاشل
-      try {
-        controller?.dispose();
-      } catch (_) {}
+  void _onPlayerEvent(BetterPlayerEvent event) {
+    if (!mounted || _isDisposing) return;
 
-      FirebaseCrashlytics.instance.recordError(
-        e,
-        stack,
-        reason: 'Native Player Init Error: $url (quality: $_currentQuality)',
-      );
-
-      final isCodec = _isCodecError(e);
-      _handlePlayerError(e.toString(), isCodecRelated: isCodec);
+    switch (event.betterPlayerEventType) {
+      case BetterPlayerEventType.exception:
+        final errMsg = (event.parameters?['exception'] ??
+                event.parameters?['error'] ??
+                'Unknown player exception')
+            .toString();
+        FirebaseCrashlytics.instance.log(
+          '⚠️ Native Player (better_player) exception: $errMsg (quality: $_currentQuality)',
+        );
+        _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
+        break;
+      case BetterPlayerEventType.initialized:
+        if (_isError) {
+          setState(() {
+            _isError = false;
+          });
+        }
+        break;
+      default:
+        break;
     }
   }
 
   // -----------------------------------------------------------------------
-  // معالجة الخطأ: إذا كان خطأ codec نحاول الجودة التالية الأقل تلقائياً،
-  // وإذا لم يكن أو نفدت الخيارات نعرض رسالة خطأ واضحة.
+  // معالجة الخطأ: إذا كان خطأ codec نحاول الجودة التالية الأقل تلقائياً
+  // عبر setResolution، وإذا لم يكن أو نفدت الخيارات نعرض رسالة خطأ واضحة.
   // -----------------------------------------------------------------------
   void _handlePlayerError(String errorDescription, {required bool isCodecRelated}) {
     if (!mounted || _isDisposing) return;
@@ -384,7 +361,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           // إعادة المحاولة بالجودة الأقل بعد تأخير قصير
           Future.delayed(const Duration(milliseconds: 500), () {
             if (mounted && !_isDisposing) {
-              _initializePlayer(fallbackUrl, isAutoFallback: true);
+              try {
+                _betterPlayerController?.setResolution(fallbackUrl);
+              } catch (e) {
+                FirebaseCrashlytics.instance.recordError(e, null,
+                    reason: 'Native Player setResolution fallback error');
+              }
             }
           });
           return;
@@ -417,46 +399,94 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (quality == _currentQuality || !widget.streams.containsKey(quality)) {
       return;
     }
-    final position = _videoController?.value.position ?? Duration.zero;
     final newIndex = _sortedQualities.indexOf(quality);
     setState(() {
       _currentQuality = quality;
       if (newIndex != -1) _currentQualityIndex = newIndex;
     });
-    await _initializePlayer(widget.streams[quality]!, startAt: position);
+    try {
+      // ✅ setResolution بيحافظ على موضع التشغيل وحالة التشغيل تلقائياً
+      _betterPlayerController?.setResolution(widget.streams[quality]!);
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance
+          .recordError(e, stack, reason: 'Native Player setResolution Error');
+      _handlePlayerError(e.toString(), isCodecRelated: _isCodecError(e));
+    }
   }
 
   void _retryCurrentQuality() {
     if (_currentQuality.isNotEmpty && widget.streams[_currentQuality] != null) {
-      _initializePlayer(widget.streams[_currentQuality]!);
+      setState(() {
+        _isError = false;
+      });
+      try {
+        _betterPlayerController?.retryDataSource();
+      } catch (_) {
+        try {
+          _betterPlayerController?.setResolution(widget.streams[_currentQuality]!);
+        } catch (e) {
+          FirebaseCrashlytics.instance
+              .recordError(e, null, reason: 'Native Player Retry Error');
+        }
+      }
     }
   }
 
+  // -----------------------------------------------------------------------
+  // ✅ قائمة اختيار الجودة — bottom sheet قابل للتمرير (ListView) داخل حاوية
+  // بارتفاع محدود (isScrollControlled + ConstrainedBox) بدل Column غير قابل
+  // للتمرير. هذا يمنع مشكلة "pixels overflowed" التي كانت تظهر في الوضع
+  // الأفقي (landscape) حين يكون ارتفاع الشاشة صغيراً وعدد الجودات كبيراً.
+  // -----------------------------------------------------------------------
   void _showQualitySheet() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: AppColors.backgroundSecondary,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
+      builder: (sheetContext) {
+        final maxSheetHeight = MediaQuery.of(sheetContext).size.height * 0.7;
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: _sortedQualities.map((q) {
-              final selected = q == _currentQuality;
-              return ListTile(
-                leading: Icon(
-                  selected ? LucideIcons.checkCircle2 : LucideIcons.circle,
-                  color: selected ? AppColors.accentYellow : Colors.white54,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxSheetHeight),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
-                title: Text(q, style: TextStyle(color: AppColors.textPrimary)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _switchQuality(q);
-                },
-              );
-            }).toList(),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _sortedQualities.length,
+                    itemBuilder: (context, index) {
+                      final q = _sortedQualities[index];
+                      final selected = q == _currentQuality;
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(
+                          selected ? LucideIcons.checkCircle2 : LucideIcons.circle,
+                          color: selected ? AppColors.accentYellow : Colors.white54,
+                        ),
+                        title: Text(q, style: TextStyle(color: AppColors.textPrimary)),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _switchQuality(q);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -513,15 +543,11 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       _watermarkTimer?.cancel();
       await _recordingSubscription?.cancel();
 
-      // ✅ نأخذ مرجعاً محلياً ونُفرغ المتغيرات الأصلية قبل dispose()
+      // ✅ نأخذ مرجعاً محلياً ونُفرغ المتغير الأصلي قبل dispose()
       // حتى لو أُطلق listener أثناء dispose لن يجد شيئاً يستدعيه
-      final chewieToDispose = _chewieController;
-      final videoToDispose = _videoController;
-      _chewieController = null;
-      _videoController = null;
-
-      chewieToDispose?.dispose();
-      await videoToDispose?.dispose();
+      final controllerToDispose = _betterPlayerController;
+      _betterPlayerController = null;
+      controllerToDispose?.dispose(forceDispose: true);
 
       await WakelockPlus.disable();
       await FlutterWindowManagerPlus.clearFlags(
@@ -541,13 +567,10 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _isDisposing = true;
     _watermarkTimer?.cancel();
     _recordingSubscription?.cancel();
-    // ✅ نفس النهج: نُفرغ المتغيرات أولاً ثم نستدعي dispose
-    final c = _chewieController;
-    final v = _videoController;
-    _chewieController = null;
-    _videoController = null;
-    c?.dispose();
-    v?.dispose();
+    // ✅ نفس النهج: نُفرغ المتغير أولاً ثم نستدعي dispose
+    final c = _betterPlayerController;
+    _betterPlayerController = null;
+    c?.dispose(forceDispose: true);
     WakelockPlus.disable();
     super.dispose();
   }
@@ -575,7 +598,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                 _buildSecurityAlert()
               else if (_isError)
                 _buildErrorWidget(_errorMessage)
-              else if (_isInitializing || _chewieController == null)
+              else if (_isInitializing || _betterPlayerController == null)
                 Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -590,16 +613,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     ],
                   ),
                 )
-              else if (_videoController != null && _chewieController != null)
+              else
                 Center(
-                  child: AspectRatio(
-                    // ✅ نتحقق من القيمة بأمان: aspectRatio == 0 يعني لم يكتمل
-                    // initialize بعد، نستخدم 16:9 كقيمة افتراضية آمنة
-                    aspectRatio: (_videoController!.value.aspectRatio <= 0)
-                        ? 16 / 9
-                        : _videoController!.value.aspectRatio,
-                    child: Chewie(controller: _chewieController!),
-                  ),
+                  child: BetterPlayer(controller: _betterPlayerController!),
                 ),
 
               // ── شريط علوي: رجوع + عنوان + زر الجودة ──────────────────
