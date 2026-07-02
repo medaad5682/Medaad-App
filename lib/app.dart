@@ -1,11 +1,13 @@
 import 'package:Medaad/core/services/app_state.dart';
 import 'package:Medaad/core/services/audio_protection_service.dart';
+import 'package:Medaad/core/services/floating_video_controller.dart';
 import 'package:Medaad/core/services/screens/security_alert_screen.dart';
 import 'package:Medaad/core/services/security_manager.dart';
 import 'package:Medaad/core/theme/app_theme.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
 import 'package:Medaad/main.dart';
 import 'package:Medaad/presentation/screens/splash_screen.dart';
+import 'package:Medaad/presentation/widgets/floating_video_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -84,6 +86,19 @@ class _EduVantageAppState extends State<EduVantageApp>
                   textDirection: overlayDirection,
                   children: [
                     if (child != null) child, // التطبيق الطبيعي
+
+                    // ✅ الفيديو العائم: طبقة عالمية فوق كل شاشات التطبيق،
+                    // تبقى ظاهرة أثناء التنقل بين الشاشات (push/pop) لأنها
+                    // مثبّتة هنا فوق الـ Navigator وليس داخل شاشة واحدة.
+                    ListenableBuilder(
+                      listenable: FloatingVideoController.instance,
+                      builder: (context, _) {
+                        if (FloatingVideoController.instance.isFloating) {
+                          return const FloatingVideoOverlay();
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
 
                     // ✅ التعديل: الاستماع لمتغير النص (String?) بدلاً من البوليان
                     ValueListenableBuilder<String?>(
