@@ -7,30 +7,12 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-// ✅ مكتبات الحماية (نفس المكتبات المستخدمة في المشغل الأساسي)
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import '../../core/services/audio_protection_service.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
-
-// ===========================================================================
-// ✅ [NATIVE PLAYER] مشغل بديل لا يعتمد على media_kit
-// ---------------------------------------------------------------------------
-// يستخدم حزمة better_player_plus (المبنية فوق video_player الرسمية / ExoPlayer
-// على أندرويد و AVPlayer على آيفون) بدلاً من مكتبة media_kit (المبنية على
-// libmpv). تدعم better_player_plus روابط MPEG-TS HLS بشكل كامل، وتوفر تبديل
-// جودة أصلي (native resolution switching) يحافظ على موضع التشغيل تلقائياً
-// دون الحاجة لإعادة بناء المشغل بالكامل في كل مرة.
-// الهدف: توفير خيار تشغيل بديل للأجهزة التي تواجه مشاكل في فك التشفير أو
-// الاستقرار مع media_kit (شاشة سوداء، تهنيج، تعطل...)، دون التأثير على
-// المشغلات الحالية.
-//
-// يستقبل نفس شكل البيانات الذي يستقبله VideoPlayerScreen: خريطة
-// {"360p": "https://...m3u8", "720p": "https://...m3u8", ...} القادمة من
-// get-video-id (engine: "bunny_native" في إعدادات المشغلات بالباك إند).
-// ===========================================================================
 
 class NativeVideoPlayerScreen extends StatefulWidget {
   final Map<String, String> streams;
@@ -51,7 +33,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     with WidgetsBindingObserver {
   BetterPlayerController? _betterPlayerController;
 
-  // ✅ خدمة الحماية (كشف تسجيل الشاشة) - نفس الخدمة المستخدمة في المشغل الأساسي
   final AudioProtectionService _protectionService = AudioProtectionService();
   StreamSubscription? _recordingSubscription;
   bool _isRecordingDetected = false;
@@ -64,49 +45,68 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   bool _isInitializing = true;
   bool _isDisposing = false;
 
-  // ✅ نتذكر فهرس الجودة الحالية في القائمة المرتبة حتى نستطيع
-  // الانتقال تلقائياً للجودة الأقل عند خطأ فك ترميز MediaCodec
   int _currentQualityIndex = 0;
 
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
   String _watermarkText = "";
 
-  // ✅ سرعة التشغيل — من 0.25× إلى 2×
   double _currentSpeed = 1.0;
   static const List<double> _speedOptions = [
-    0.25,
-    0.5,
-    0.75,
-    1.0,
-    1.25,
-    1.5,
-    1.75,
-    2.0,
+    0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0,
   ];
 
-  // ✅ حالة التقديم/الترجيع التراكمي بالدبل تاب (double-tap) — كل نقرتين
-  // متتاليتين على نفس الجهة تضيف 10 ثواني فوق سابقتها بدل عمل seek منفصل
-  // في كل مرة، ويظهر مؤشر بصري بالمجموع الكلي (مثل يوتيوب).
-  int _pendingSeekDelta = 0; // موجب = تقديم، سالب = ترجيع
+  int _pendingSeekDelta = 0;
   Duration _seekBaseline = Duration.zero;
   Timer? _seekIndicatorTimer;
   bool _showSeekIndicator = false;
   bool _seekIndicatorIsForward = true;
 
-  // ✅ Video fit/size mode: fill (fullscreen crop), contain (16:9 letterbox), cover with black sides
-  BoxFit _videoFit = BoxFit.contain; // default: 16:9 with black sides
+  BoxFit _videoFit = BoxFit.contain;
   static const List<BoxFit> _fitCycle = [BoxFit.contain, BoxFit.fill, BoxFit.fitWidth];
   static const List<String> _fitLabels = ['16:9', 'Full', 'Wide'];
   int _fitIndex = 0;
 
-  // ✅ Hold-to-2× speed: track long-press state
   bool _isHolding2x = false;
   double _speedBeforeHold = 1.0;
+
+  // ✅ FIX: track whether built-in controls are currently visible
+  bool _controlsVisible = false;
+  Timer? _controlsHideTimer;
 
   final Map<String, String> _headers = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
+
+  // -----------------------------------------------------------------------
+  // ✅ FIX: Show built-in controls and auto-hide after 3 seconds.
+  // Called on any single tap anywhere on the player surface.
+  // -----------------------------------------------------------------------
+  void _showControls() {
+    if (_betterPlayerController == null || _isDisposing) return;
+
+    _controlsHideTimer?.cancel();
+
+    if (!_controlsVisible) {
+      setState(() => _controlsVisible = true);
+      _betterPlayerController?.setControlsEnabled(true);
+      _betterPlayerController?.setControlsAlwaysVisible(true);
+    }
+
+    // Auto-hide after 3 seconds of inactivity
+    _controlsHideTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted || _isDisposing) return;
+      setState(() => _controlsVisible = false);
+      _betterPlayerController?.setControlsAlwaysVisible(false);
+    });
+  }
+
+  void _hideControls() {
+    _controlsHideTimer?.cancel();
+    if (!mounted || _isDisposing) return;
+    setState(() => _controlsVisible = false);
+    _betterPlayerController?.setControlsAlwaysVisible(false);
+  }
 
   @override
   void initState() {
@@ -118,23 +118,14 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _setupScreen();
   }
 
-  // ---------------------------------------------------------------------
-  // تهيئة أولية
-  // ---------------------------------------------------------------------
-
   void _sortQualities() {
     _sortedQualities = widget.streams.keys.toList();
-    // ✅ نرتب من الأعلى جودةً للأقل حتى يظهر للمستخدم الأعلى جودةً أولاً في
-    // قائمة الاختيار، لكن عند بدء التشغيل نبدأ من منتصف القائمة (جودة متوسطة)
-    // لتجنب خطأ MediaCodecVideoRenderer على الأجهزة الضعيفة بالجودة العالية.
     _sortedQualities.sort((a, b) {
       final numA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       final numB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-      return numB.compareTo(numA); // من الأعلى جودة للأقل: [720p, 480p, 360p, 240p]
+      return numB.compareTo(numA);
     });
     if (_sortedQualities.isNotEmpty) {
-      // ✅ أولوية اختيار الجودة الافتراضية: 360p ثم 480p ثم 240p ثم 720p.
-      // نجرب كل جودة بالترتيب ونختار أول واحدة موجودة فعلياً في الستريمز.
       const priorityOrder = ['360', '480', '240', '720'];
       int chosenIndex = -1;
       for (final p in priorityOrder) {
@@ -146,10 +137,8 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           break;
         }
       }
-      // لو مفيش أي من الجودات دي متاحة، ارجع لمنطق منتصف القائمة كاحتياطي آمن
       _currentQualityIndex =
           chosenIndex != -1 ? chosenIndex : (_sortedQualities.length / 2).floor();
-
       _currentQuality = _sortedQualities[_currentQualityIndex];
     }
   }
@@ -185,9 +174,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (state == AppLifecycleState.paused) {
       _betterPlayerController?.pause();
     } else if (state == AppLifecycleState.resumed) {
-      // ✅ FIX: Re-apply FLAG_SECURE every time the screen comes back to foreground.
-      // Without this, returning from PiP, external app, or system overlay can
-      // drop the secure flag and expose the video in the task switcher.
       FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
           .catchError((_) {});
       _protectionService.blockAudioCapture();
@@ -199,8 +185,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   }
 
   void _loadUserData() {
-    // ✅ Priority chain: phone → name → email → username (AppState first, then Hive)
-    // Phone is preferred for accountability; name/email are used when phone is absent.
     String displayText = '';
 
     final userData = AppState().userData;
@@ -271,15 +255,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     }
   }
 
-  // ---------------------------------------------------------------------
-  // تهيئة المشغل (مرة واحدة فقط) وتبديل الجودة عبر setResolution
-  // ---------------------------------------------------------------------
-
-  // -----------------------------------------------------------------------
-  // هل الخطأ ناتج عن MediaCodec (مشكلة فك ترميز hardware)؟
-  // ExoPlaybackException مع "MediaCodecVideoRenderer" أو "video/mp2t"
-  // يعني الجهاز لا يستطيع فك تشفير هذه الجودة — نحاول جودة أقل.
-  // -----------------------------------------------------------------------
   bool _isCodecError(dynamic e) {
     final msg = e.toString().toLowerCase();
     return msg.contains('mediacodec') ||
@@ -290,11 +265,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         msg.contains('mediacodecvideorenderererror');
   }
 
-  // -----------------------------------------------------------------------
-  // ينشئ BetterPlayerController مرة واحدة، ويمرر كل الجودات كـ resolutions
-  // حتى يستطيع المشغل التبديل بينها داخلياً (setResolution) مع الحفاظ على
-  // موضع التشغيل الحالي تلقائياً، دون الحاجة لإعادة بناء المشغل بالكامل.
-  // -----------------------------------------------------------------------
   void _initializePlayer() {
     if (!mounted || _isDisposing) return;
 
@@ -304,10 +274,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       BetterPlayerDataSourceType.network,
       initialUrl,
       headers: _headers,
-      // ✅ formatHint: hls — ضروري لروابط Bunny المُوقَّعة التي لا تنتهي
-      // بـ .m3u8 بشكل صريح بسبب query params الطويلة.
       videoFormat: BetterPlayerVideoFormat.hls,
-      // ✅ نمرر كل الجودات المتاحة حتى يدعم المشغل التبديل الأصلي بينها
       resolutions: widget.streams,
       cacheConfiguration: const BetterPlayerCacheConfiguration(useCache: false),
       notificationConfiguration: const BetterPlayerNotificationConfiguration(
@@ -317,14 +284,14 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
     final controller = BetterPlayerController(
       BetterPlayerConfiguration(
-        fit: _videoFit, // ✅ تم إضافة مقاس الفيديو هنا
+        fit: _videoFit,
         autoPlay: true,
         looping: false,
-        // ✅ الشاشة نفسها بتشتغل بملء الشاشة (اتجاه أفقي مثبّت + immersive)
-        // فمفيش داعي لفل سكرين خاص بالمشغل نفسه
         fullScreenByDefault: false,
-        allowedScreenSleep: true, // بنتحكم في الـ Wakelock يدوياً بالفعل
+        allowedScreenSleep: true,
         autoDetectFullscreenDeviceOrientation: false,
+        // ✅ FIX: controls start hidden; we manage visibility manually
+        showControlsOnInitialize: false,
         controlsConfiguration: BetterPlayerControlsConfiguration(
           enableFullscreen: false,
           enablePip: false,
@@ -334,21 +301,18 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           enableSkips: false,
           enableMute: true,
           enablePlaybackSpeed: false,
-          // ✅ Hide the three-dot overflow menu button (top-right corner)
           enableOverflowMenu: false,
-          // ✅ Taller control bar gives more room to the seek bar and labels
           controlBarHeight: 52,
           loadingColor: AppColors.accentYellow,
           progressBarPlayedColor: AppColors.accentYellow,
           progressBarHandleColor: AppColors.accentYellow,
           progressBarBufferedColor: Colors.white24,
           progressBarBackgroundColor: Colors.white10,
-          // ✅ Larger duration / position text colour (size is controlled by the theme)
           textColor: Colors.white,
+          // ✅ FIX: controls hide after 3s of inactivity automatically via BetterPlayer
+          controlsHideTime: const Duration(seconds: 3),
         ),
         errorBuilder: (context, errorMessage) {
-          // ✅ بنتعامل مع الأخطاء بنفس الـ overlay المخصص عبر مستمع الأحداث
-          // بدل الاعتماد على واجهة الخطأ الداخلية للمكتبة
           return const SizedBox.shrink();
         },
       ),
@@ -390,15 +354,10 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     }
   }
 
-  // -----------------------------------------------------------------------
-  // معالجة الخطأ: إذا كان خطأ codec نحاول الجودة التالية الأقل تلقائياً
-  // عبر setResolution، وإذا لم يكن أو نفدت الخيارات نعرض رسالة خطأ واضحة.
-  // -----------------------------------------------------------------------
   void _handlePlayerError(String errorDescription, {required bool isCodecRelated}) {
     if (!mounted || _isDisposing) return;
 
     if (isCodecRelated) {
-      // ابحث عن الجودة التالية الأقل في القائمة المرتبة (الفهرس الأكبر = جودة أقل)
       final nextIndex = _sortedQualities.indexWhere((q) {
         final qNum = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
         final curNum = int.tryParse(
@@ -420,7 +379,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
             _currentQuality = fallbackQuality;
             _currentQualityIndex = nextIndex;
           });
-          // إعادة المحاولة بالجودة الأقل بعد تأخير قصير
           Future.delayed(const Duration(milliseconds: 500), () {
             if (mounted && !_isDisposing) {
               try {
@@ -436,7 +394,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         }
       }
 
-      // نفدت الجودات الأقل → أخبر المستخدم بالتبديل يدوياً
       if (mounted) {
         setState(() {
           _isError = true;
@@ -446,7 +403,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         });
       }
     } else {
-      // خطأ شبكة أو خطأ غير معروف
       if (mounted) {
         setState(() {
           _isError = true;
@@ -468,7 +424,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       if (newIndex != -1) _currentQualityIndex = newIndex;
     });
     try {
-      // ✅ setResolution بيحافظ على موضع التشغيل وحالة التشغيل تلقائياً
       _betterPlayerController?.setResolution(widget.streams[quality]!);
       _reapplySpeedAfterSourceChange();
     } catch (e, stack) {
@@ -478,11 +433,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     }
   }
 
-  // -----------------------------------------------------------------------
-  // ✅ setResolution بينشئ مصدر فيديو جديد داخلياً فبيرجع السرعة لـ 1× تلقائياً؛
-  // فلو المستخدم كان مختار سرعة مختلفة عن الافتراضي، نعيد تطبيقها بعد قصير
-  // من تبديل الجودة حتى يكتمل تحميل المصدر الجديد.
-  // -----------------------------------------------------------------------
   void _reapplySpeedAfterSourceChange() {
     if (_currentSpeed == 1.0) return;
     Future.delayed(const Duration(milliseconds: 400), () {
@@ -493,21 +443,14 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     });
   }
 
-  // -----------------------------------------------------------------------
-  // ✅ دورة أحجام الفيديو: 16:9 (contain) → Full (fill) → Wide (fitWidth)
-  // -----------------------------------------------------------------------
   void _cycleVideoFit() {
     setState(() {
       _fitIndex = (_fitIndex + 1) % _fitCycle.length;
       _videoFit = _fitCycle[_fitIndex];
     });
-    // ✅ تحديث مقاس الفيديو الداخلي دون تغيير واجهة المشغل
     _betterPlayerController?.setOverriddenFit(_videoFit);
   }
 
-  // -----------------------------------------------------------------------
-  // ✅ الضغط المطوّل = 2× سرعة مؤقتة؛ رفع الإصبع يعيد السرعة السابقة
-  // -----------------------------------------------------------------------
   void _onHoldStart() {
     if (_betterPlayerController == null || _isDisposing) return;
     _speedBeforeHold = _currentSpeed;
@@ -527,9 +470,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (mounted) setState(() {});
   }
 
-  // -----------------------------------------------------------------------
-  // ✅ سرعة التشغيل
-  // -----------------------------------------------------------------------
   void _setSpeed(double speed) {
     setState(() => _currentSpeed = speed);
     try {
@@ -598,12 +538,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     );
   }
 
-  // -----------------------------------------------------------------------
-  // ✅ التقديم/الترجيع التراكمي بالدبل تاب: نقرتان متتاليتان على يمين
-  // الشاشة تقدّم 10 ثواني، وأي نقرتين إضافيتين خلال نفس السلسلة (قبل
-  // انتهاء المؤقّت) يضيفوا 10 ثواني تانية فوق نفس نقطة البداية بدل عمل
-  // seek منفصل غير مستقر في كل مرة — مطابق لسلوك يوتيوب.
-  // -----------------------------------------------------------------------
   void _handleDoubleTapSeek({required bool forward}) {
     if (_betterPlayerController == null || _isDisposing) return;
 
@@ -617,7 +551,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         (!forward && _pendingSeekDelta > 0);
 
     if (isNewBurst) {
-      // بداية سلسلة جديدة أو تغيير الاتجاه: خد الموضع الحالي كنقطة انطلاق
       _seekBaseline = currentPosition;
       _pendingSeekDelta = forward ? stepSeconds : -stepSeconds;
     } else {
@@ -667,12 +600,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     }
   }
 
-  // -----------------------------------------------------------------------
-  // ✅ قائمة اختيار الجودة — bottom sheet قابل للتمرير (ListView) داخل حاوية
-  // بارتفاع محدود (isScrollControlled + ConstrainedBox) بدل Column غير قابل
-  // للتمرير. هذا يمنع مشكلة "pixels overflowed" التي كانت تظهر في الوضع
-  // الأفقي (landscape) حين يكون ارتفاع الشاشة صغيراً وعدد الجودات كبيراً.
-  // -----------------------------------------------------------------------
   void _showQualitySheet() {
     showModalBottomSheet(
       context: context,
@@ -757,10 +684,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     );
   }
 
-  // ---------------------------------------------------------------------
-  // الخروج والتنظيف
-  // ---------------------------------------------------------------------
-
   Future<void> _resetSystemChrome() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
         overlays: SystemUiOverlay.values);
@@ -769,30 +692,20 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
   Future<void> _safeExit() async {
     if (_isDisposing) return;
-    // ✅ نضع _isDisposing = true أولاً قبل أي await لمنع listeners من إطلاق
-    // callbacks على متحكمات يتم التخلص منها (مصدر "[Player] has been disposed")
     _isDisposing = true;
     if (mounted) setState(() {});
 
     try {
       _watermarkTimer?.cancel();
       _seekIndicatorTimer?.cancel();
+      _controlsHideTimer?.cancel();
       await _recordingSubscription?.cancel();
 
-      // ✅ نأخذ مرجعاً محلياً ونُفرغ المتغير الأصلي قبل dispose()
-      // حتى لو أُطلق listener أثناء dispose لن يجد شيئاً يستدعيه
       final controllerToDispose = _betterPlayerController;
       _betterPlayerController = null;
       controllerToDispose?.dispose(forceDispose: true);
 
       await WakelockPlus.disable();
-      // ✅ FLAG_SECURE: do NOT clear the flag here.
-      // MainActivity.onResume() calls window.addFlags(FLAG_SECURE) every time
-      // the activity comes to the foreground, so the flag is always present on
-      // the parent screen without any intervention from this screen.
-      // Calling clearFlags here was the root cause of the FLAG_SECURE bug:
-      // clearFlags wiped it globally, and the parent's initState had already
-      // run so it never re-applied it.
       await _resetSystemChrome();
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -808,27 +721,16 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _isDisposing = true;
     _watermarkTimer?.cancel();
     _seekIndicatorTimer?.cancel();
+    _controlsHideTimer?.cancel();
     _recordingSubscription?.cancel();
-    // ✅ Stop the audio-recording monitor (mirrors video_player_screen.dart).
-    // Without this the background polling timer keeps firing after the screen
-    // is gone, leaking resources and potentially invoking callbacks on a dead
-    // widget tree.
     _protectionService.stopMonitoring();
-    // ✅ نفس النهج: نُفرغ المتغير أولاً ثم نستدعي dispose
     final c = _betterPlayerController;
     _betterPlayerController = null;
     c?.dispose(forceDispose: true);
     WakelockPlus.disable();
-    // ✅ Reset orientation + system UI bars so the parent screen is never left
-    // stuck in landscape/immersive if Flutter disposes this widget without
-    // going through _safeExit (e.g. OS kills the route from the back-stack).
     _resetSystemChrome();
     super.dispose();
   }
-
-  // ---------------------------------------------------------------------
-  // البناء
-  // ---------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -850,23 +752,21 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
               else if (_isError)
                 _buildErrorWidget(_errorMessage)
               else if (_isInitializing || _betterPlayerController == null)
-                // ✅ removed "videoReadyStabilizing" text — show spinner only
                 Center(
                   child: CircularProgressIndicator(color: AppColors.accentYellow),
                 )
               else
-                // ✅ جعل المشغل يملأ الشاشة لتثبيت شريط التحكم
-                // وتغيير مقاس الفيديو سيتم داخلياً عبر setOverriddenFit
                 Positioned.fill(
                   child: BetterPlayer(controller: _betterPlayerController!),
                 ),
 
-              // ── مناطق الإيماءات: يسار / وسط / يمين ─────────────────────
-              // ✅ RTL FIX: forced LTR so physical left = rewind, right = forward
-              //    in both Arabic and English.
-              // ✅ PLAY/PAUSE: central zone handles single-tap toggle only;
-              //    peripheral zones (left/right) handle double-tap seek + long-press ×2
-              //    but do NOT toggle play/pause on a plain tap.
+              // ── Gesture layer ────────────────────────────────────────────
+              // ✅ FIX: All three zones use HitTestBehavior.translucent so
+              // BetterPlayer's internal hit-test still fires (enabling seek-bar
+              // drag). Single tap on left/right now calls _showControls() to
+              // reveal the seek bar and controls instead of a no-op.
+              // Double tap still seeks. Centre tap toggles play/pause AND shows
+              // controls. Long press anywhere triggers ×2 speed.
               if (!_isRecordingDetected &&
                   !_isError &&
                   !_isInitializing &&
@@ -876,24 +776,19 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     textDirection: TextDirection.ltr,
                     child: Row(
                       children: [
-                        // ── Left zone: double-tap rewind + long-press ×2 ──────
-                        // ✅ FIX PLAY/PAUSE BLEED-THROUGH:
-                        //   - HitTestBehavior.opaque: this zone owns the hit-test area;
-                        //     taps no longer fall through to BetterPlayer's built-in controls.
-                        //   - onTap: () {}: explicit no-op absorbs single taps so they
-                        //     don't toggle play/pause via the underlying player UI.
+                        // ── Left zone: single-tap shows controls, double-tap rewinds ──
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () {},
+                            behavior: HitTestBehavior.translucent,
+                            onTap: _showControls,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: false),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
                             onLongPressCancel: _onHoldEnd,
                           ),
                         ),
-                        // ── Centre zone: single-tap toggles play/pause ────────
+                        // ── Centre zone: single-tap toggles play/pause + shows controls ──
                         Expanded(
                           flex: 2,
                           child: GestureDetector(
@@ -901,6 +796,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                             onTap: () {
                               final ctrl = _betterPlayerController;
                               if (ctrl == null || _isDisposing) return;
+                              // Show controls first so user sees the seek bar
+                              _showControls();
+                              // Then toggle play/pause
                               if (ctrl.isPlaying() == true) {
                                 ctrl.pause();
                               } else {
@@ -909,13 +807,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                             },
                           ),
                         ),
-                        // ── Right zone: double-tap forward + long-press ×2 ────
-                        // ✅ Same opaque + no-op fix as left zone above.
+                        // ── Right zone: single-tap shows controls, double-tap forwards ──
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () {},
+                            behavior: HitTestBehavior.translucent,
+                            onTap: _showControls,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: true),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
@@ -927,12 +824,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── مؤشر الضغط المطوّل 2× (أعلى الشاشة وسطها) ────────────
-              // ✅ ×2 INDICATOR POLISH:
-              //   - top: 12 → hugs the top bar (was 56, too far down)
-              //   - padding reduced → smaller pill footprint
-              //   - opacity 0.45 → more transparent, less intrusive
-              //   - icon size 14, font size 12 → visually lighter
+              // ── ×2 speed indicator ────────────────────────────────────
               if (_isHolding2x)
                 Positioned(
                   top: 12,
@@ -967,11 +859,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── مؤشر التقديم/الترجيع التراكمي ──────────────────────────
-              // ✅ RTL FIX: use absolute Alignment(x, 0) instead of
-              // Alignment.centerRight/Left — the named alignments are
-              // direction-aware and would flip in Arabic, showing the
-              // forward indicator on the left and rewind on the right.
+              // ── Seek indicator ────────────────────────────────────────
               if (_showSeekIndicator)
                 Align(
                   alignment: _seekIndicatorIsForward
@@ -1017,7 +905,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── شريط علوي: رجوع + عنوان + زر السرعة + زر الجودة ──────
+              // ── Top bar: back + title + fit + speed + quality ─────────
               if (!_isRecordingDetected && !_isDisposing)
                 Positioned(
                   top: 4,
@@ -1042,7 +930,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                           ),
                         ),
                         if (!_isError && _betterPlayerController != null) ...[
-                          // ✅ Video size / fit mode toggle button
                           IconButton(
                             icon: Icon(
                               _fitIndex == 0
@@ -1072,7 +959,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── العلامة المائية ────────────────────────────────────────
+              // ── Watermark ─────────────────────────────────────────────
               if (!_isDisposing && !_isError && !_isInitializing)
                 AnimatedAlign(
                   alignment: _watermarkAlignment,
