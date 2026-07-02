@@ -335,22 +335,15 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           enablePlaybackSpeed: false,
           // ✅ Hide the three-dot overflow menu button (top-right corner)
           enableOverflowMenu: false,
-          // ✅ Larger control bar so the seek bar and duration text are easier to read
+          // ✅ Taller control bar gives more room to the seek bar and labels
           controlBarHeight: 52,
-          // ✅ Thicker progress bar + larger handle for easier scrubbing
-          progressBarHeight: 6,
-          progressBarHandleSize: 18,
-          // ✅ Larger duration / position text
-          textStyle: const TextStyle(
-            color: Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
           loadingColor: AppColors.accentYellow,
           progressBarPlayedColor: AppColors.accentYellow,
           progressBarHandleColor: AppColors.accentYellow,
           progressBarBufferedColor: Colors.white24,
           progressBarBackgroundColor: Colors.white10,
+          // ✅ Larger duration / position text colour (size is controlled by the theme)
+          textColor: Colors.white,
         ),
         errorBuilder: (context, errorMessage) {
           // ✅ بنتعامل مع الأخطاء بنفس الـ overlay المخصص عبر مستمع الأحداث
