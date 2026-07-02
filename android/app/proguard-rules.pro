@@ -28,3 +28,18 @@
     public void println(...);
     public void print(...);
 }
+
+# ==========================================
+# --- Media3 / ExoPlayer HLS Fix ---
+# ==========================================
+# نمنع ProGuard من حذف كلاسات Media3 أثناء التصغير (minification).
+# بدون هذه القواعد قد يُحذف MediaCodecVideoRenderer أو HlsMediaSource
+# في نسخة الـ Release وهو ما يسبب فشل تشغيل HLS MPEG-TS.
+-keep class androidx.media3.** { *; }
+-keep interface androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+
+# الحفاظ على فئات ExoPlayer القديمة (com.google.android.exoplayer2)
+# التي قد تستخدمها مكتبات أخرى كـ youtube_player_flutter
+-keep class com.google.android.exoplayer2.** { *; }
+-dontwarn com.google.android.exoplayer2.**
