@@ -725,7 +725,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                 bottom: 20,
                 left: 4,
                 child: GestureDetector(
-                  onTap: () => _showQualityPicker(context),
+                  onTap: () => _showQualityPicker(),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 5, vertical: 2),
@@ -873,14 +873,23 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     );
   }
 
-  void _showQualityPicker(BuildContext context) {
+  void _showQualityPicker() {
+    // ✅ لا نستخدم context الخاص بـ FloatingVideoOverlay هنا لأنه لا يملك
+    // Navigator كسلف (النافذة العائمة موضوعة فوق الـ Navigator داخل
+    // MaterialApp.builder، وليست من ذريته — انظر app.dart). استخدام هذا
+    // الـ context مباشرةً مع showModalBottomSheet هو بالضبط ما كان يسبب
+    // خطأ: "Navigator operation requested with a context that does not
+    // include a Navigator". لذلك نستخدم navigatorKey.currentContext الذي
+    // يشير دائمًا إلى سياق متصل فعليًا بجذر الـ Navigator.
+    final sheetContext = navigatorKey.currentContext;
+    if (sheetContext == null) return;
     showModalBottomSheet(
-      context: context,
+      context: sheetContext,
       backgroundColor: AppColors.backgroundSecondary,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => SafeArea(
+      builder: (sheetBuilderContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -907,7 +916,10 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                   title: Text(q,
                       style: TextStyle(color: AppColors.textPrimary)),
                   onTap: () {
-                    Navigator.pop(context);
+                    // ✅ نستخدم context الخاص ببناء الـ sheet نفسه (وهو من
+                    // ذرية الـ Navigator الذي فُتحت عليه الورقة فعليًا)
+                    // بدلاً من context الخارجي الخاص بالنافذة العائمة.
+                    Navigator.pop(sheetBuilderContext);
                     _switchQuality(q);
                   },
                 )),
