@@ -70,47 +70,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   bool _isHolding2x = false;
   double _speedBeforeHold = 1.0;
 
-  // ✅ FIX: track whether built-in controls are currently visible
-  bool _controlsVisible = false;
-  Timer? _controlsHideTimer;
-
   final Map<String, String> _headers = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
-
-  // -----------------------------------------------------------------------
-  // ✅ FIX: Single tap ANYWHERE on the player (left / centre / right zones)
-  // toggles the built-in controls + seek bar:
-  //   - If hidden  -> show them (with a 3s auto-hide timer).
-  //   - If visible -> hide them immediately.
-  // The centre zone uses this exact same function, so tapping it reveals
-  // the play/pause button together with the seek bar instead of silently
-  // pausing the video - the user then taps the visible play/pause button
-  // (part of the seek bar) to actually control playback.
-  // -----------------------------------------------------------------------
-  void _toggleControls() {
-    if (_betterPlayerController == null || _isDisposing) return;
-
-    _controlsHideTimer?.cancel();
-
-    if (_controlsVisible) {
-      // Already visible -> hide immediately on this tap.
-      setState(() => _controlsVisible = false);
-      _betterPlayerController?.setControlsAlwaysVisible(false);
-      return;
-    }
-
-    // Hidden -> show now and schedule auto-hide after 3s of inactivity.
-    setState(() => _controlsVisible = true);
-    _betterPlayerController?.setControlsEnabled(true);
-    _betterPlayerController?.setControlsAlwaysVisible(true);
-
-    _controlsHideTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted || _isDisposing) return;
-      setState(() => _controlsVisible = false);
-      _betterPlayerController?.setControlsAlwaysVisible(false);
-    });
-  }
 
   @override
   void initState() {
@@ -294,7 +256,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         fullScreenByDefault: false,
         allowedScreenSleep: true,
         autoDetectFullscreenDeviceOrientation: false,
-        
         controlsConfiguration: BetterPlayerControlsConfiguration(
           showControlsOnInitialize: false,
           enableFullscreen: false,
@@ -313,7 +274,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           progressBarBufferedColor: Colors.white24,
           progressBarBackgroundColor: Colors.white10,
           textColor: Colors.white,
-          // ✅ FIX: controls hide after 3s of inactivity automatically via BetterPlayer
           controlsHideTime: const Duration(seconds: 3),
         ),
         errorBuilder: (context, errorMessage) {
@@ -342,7 +302,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                 'Unknown player exception')
             .toString();
         FirebaseCrashlytics.instance.log(
-          '⚠️ Native Player (better_player) exception: $errMsg (quality: $_currentQuality)',
+          '⚠️ Native Player exception: $errMsg (quality: $_currentQuality)',
         );
         _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
         break;
@@ -702,7 +662,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     try {
       _watermarkTimer?.cancel();
       _seekIndicatorTimer?.cancel();
-      _controlsHideTimer?.cancel();
       await _recordingSubscription?.cancel();
 
       final controllerToDispose = _betterPlayerController;
@@ -710,6 +669,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       controllerToDispose?.dispose(forceDispose: true);
 
       await WakelockPlus.disable();
+      
+      try {
+        await FlutterWindowManagerPlus.clearFlags(
+            FlutterWindowManagerPlus.FLAG_SECURE);
+      } catch (_) {}
+      
       await _resetSystemChrome();
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -725,14 +690,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _isDisposing = true;
     _watermarkTimer?.cancel();
     _seekIndicatorTimer?.cancel();
-    _controlsHideTimer?.cancel();
     _recordingSubscription?.cancel();
     _protectionService.stopMonitoring();
     final c = _betterPlayerController;
     _betterPlayerController = null;
     c?.dispose(forceDispose: true);
     WakelockPlus.disable();
-    _resetSystemChrome();
     super.dispose();
   }
 
@@ -764,17 +727,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   child: BetterPlayer(controller: _betterPlayerController!),
                 ),
 
-              // ── Gesture layer ────────────────────────────────────────────
-              // ✅ FIX: All three zones use HitTestBehavior.translucent so
-              // BetterPlayer's internal hit-test still fires (enabling seek-bar
-              // drag).
-              // Single tap ANYWHERE (left / centre / right) toggles the same
-              // controls + seek bar via _toggleControls(): first tap shows
-              // them (revealing the play/pause button and seek bar), a
-              // second tap hides them again.
-              // Double tap on the left/right (peripheral) zones seeks ±10s.
-              // Long press on the left/right zones triggers ×2 speed,
-              // unchanged from before.
+              // ── منطقة الإيماءات الأساسية المستعادة من الكود القديم ────────
               if (!_isRecordingDetected &&
                   !_isError &&
                   !_isInitializing &&
@@ -784,32 +737,38 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     textDirection: TextDirection.ltr,
                     child: Row(
                       children: [
-                        // ── Left (peripheral) zone: tap toggles controls, double-tap rewinds 10s ──
+                        // ── اليسار: دبل تاب للتأخير + ضغط مطول للتسريع ──────
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: _toggleControls,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: false),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
                             onLongPressCancel: _onHoldEnd,
                           ),
                         ),
-                        // ── Centre zone: tap toggles controls (shows play/pause button + seek bar) ──
+                        // ── المنتصف: نقرة واحدة للإيقاف والتشغيل ──────────
                         Expanded(
                           flex: 2,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: _toggleControls,
+                            onTap: () {
+                              final ctrl = _betterPlayerController;
+                              if (ctrl == null || _isDisposing) return;
+                              if (ctrl.isPlaying() == true) {
+                                ctrl.pause();
+                              } else {
+                                ctrl.play();
+                              }
+                            },
                           ),
                         ),
-                        // ── Right (peripheral) zone: tap toggles controls, double-tap forwards 10s ──
+                        // ── اليمين: دبل تاب للتقديم + ضغط مطول للتسريع ─────
                         Expanded(
                           flex: 3,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: _toggleControls,
                             onDoubleTap: () => _handleDoubleTapSeek(forward: true),
                             onLongPressStart: (_) => _onHoldStart(),
                             onLongPressEnd: (_) => _onHoldEnd(),
@@ -821,31 +780,31 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── ×2 speed indicator ────────────────────────────────────
+              // ── مؤشر الضغط المطول لتسريع الفيديو ────────────
               if (_isHolding2x)
                 Positioned(
-                  top: 12,
+                  top: 56,
                   left: 0,
                   right: 0,
                   child: IgnorePointer(
                     child: Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.45),
-                          borderRadius: BorderRadius.circular(16),
+                          color: Colors.black.withOpacity(0.70),
+                          borderRadius: BorderRadius.circular(24),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: const [
-                            Icon(Icons.fast_forward, color: Colors.white70, size: 14),
-                            SizedBox(width: 4),
+                            Icon(Icons.fast_forward, color: Colors.white, size: 18),
+                            SizedBox(width: 6),
                             Text(
                               '×2',
                               style: TextStyle(
-                                color: Colors.white70,
+                                color: Colors.white,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 12,
+                                fontSize: 14,
                                 decoration: TextDecoration.none,
                               ),
                             ),
@@ -856,7 +815,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── Seek indicator ────────────────────────────────────────
+              // ── مؤشر التقديم/الترجيع التراكمي ──────────────────────────
               if (_showSeekIndicator)
                 Align(
                   alignment: _seekIndicatorIsForward
@@ -866,17 +825,14 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 48),
                     child: IgnorePointer(
                       child: AnimatedOpacity(
-                        // ✅ FIX: overall indicator is more translucent now (0.55 vs 1.0)
-                        opacity: _showSeekIndicator ? 0.55 : 0.0,
+                        opacity: _showSeekIndicator ? 1.0 : 0.0,
                         duration: const Duration(milliseconds: 200),
                         child: Container(
-                          // ✅ FIX: smaller padding -> smaller pill
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 9),
+                              horizontal: 18, vertical: 14),
                           decoration: BoxDecoration(
-                            // ✅ FIX: lighter/more translucent background
-                            color: Colors.black.withOpacity(0.35),
-                            borderRadius: BorderRadius.circular(40),
+                            color: Colors.black.withOpacity(0.65),
+                            borderRadius: BorderRadius.circular(50),
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
@@ -885,18 +841,15 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 _seekIndicatorIsForward
                                     ? Icons.fast_forward
                                     : Icons.fast_rewind,
-                                // ✅ FIX: more translucent icon color
-                                color: Colors.white.withOpacity(0.75),
-                                // ✅ FIX: smaller icon (was 28)
-                                size: 18,
+                                color: Colors.white,
+                                size: 28,
                               ),
-                              const SizedBox(height: 2),
+                              const SizedBox(height: 4),
                               Text(
                                 '${_pendingSeekDelta.abs()} ث',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.75),
+                                style: const TextStyle(
+                                  color: Colors.white,
                                   fontWeight: FontWeight.bold,
-                                  fontSize: 11,
                                   decoration: TextDecoration.none,
                                 ),
                               ),
@@ -908,7 +861,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── Top bar: back + title + fit + speed + quality ─────────
+              // ── الشريط العلوي ────────────────────────────────────────
               if (!_isRecordingDetected && !_isDisposing)
                 Positioned(
                   top: 4,
@@ -962,7 +915,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
-              // ── Watermark ─────────────────────────────────────────────
+              // ── العلامة المائية ────────────────────────────────────────
               if (!_isDisposing && !_isError && !_isInitializing)
                 AnimatedAlign(
                   alignment: _watermarkAlignment,
