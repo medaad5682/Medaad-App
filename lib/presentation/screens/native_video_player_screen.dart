@@ -72,6 +72,28 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   Alignment _watermarkAlignment = Alignment.topRight;
   String _watermarkText = "";
 
+  // ✅ سرعة التشغيل — من 0.25× إلى 2×
+  double _currentSpeed = 1.0;
+  static const List<double> _speedOptions = [
+    0.25,
+    0.5,
+    0.75,
+    1.0,
+    1.25,
+    1.5,
+    1.75,
+    2.0,
+  ];
+
+  // ✅ حالة التقديم/الترجيع التراكمي بالدبل تاب (double-tap) — كل نقرتين
+  // متتاليتين على نفس الجهة تضيف 10 ثواني فوق سابقتها بدل عمل seek منفصل
+  // في كل مرة، ويظهر مؤشر بصري بالمجموع الكلي (مثل يوتيوب).
+  int _pendingSeekDelta = 0; // موجب = تقديم، سالب = ترجيع
+  Duration _seekBaseline = Duration.zero;
+  Timer? _seekIndicatorTimer;
+  bool _showSeekIndicator = false;
+  bool _seekIndicatorIsForward = true;
+
   final Map<String, String> _headers = {
     'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
   };
@@ -101,14 +123,22 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       return numB.compareTo(numA); // من الأعلى جودة للأقل: [720p, 480p, 360p, 240p]
     });
     if (_sortedQualities.isNotEmpty) {
-      // ابدأ من المنتصف: جودة "360p" أو "480p" أكثر أماناً من "720p" على أجهزة
-      // تعاني من مشكلة MediaCodec مع MPEG-TS High Profile
-      _currentQualityIndex = (_sortedQualities.length / 2).floor();
-      // لكن لو فيه جودة 360p بالضبط نفضّلها كنقطة بداية
-      final idx360 = _sortedQualities.indexWhere(
-        (q) => q.replaceAll(RegExp(r'[^0-9]'), '') == '360',
-      );
-      if (idx360 != -1) _currentQualityIndex = idx360;
+      // ✅ أولوية اختيار الجودة الافتراضية: 360p ثم 480p ثم 240p ثم 720p.
+      // نجرب كل جودة بالترتيب ونختار أول واحدة موجودة فعلياً في الستريمز.
+      const priorityOrder = ['360', '480', '240', '720'];
+      int chosenIndex = -1;
+      for (final p in priorityOrder) {
+        final idx = _sortedQualities.indexWhere(
+          (q) => q.replaceAll(RegExp(r'[^0-9]'), '') == p,
+        );
+        if (idx != -1) {
+          chosenIndex = idx;
+          break;
+        }
+      }
+      // لو مفيش أي من الجودات دي متاحة، ارجع لمنطق منتصف القائمة كاحتياطي آمن
+      _currentQualityIndex =
+          chosenIndex != -1 ? chosenIndex : (_sortedQualities.length / 2).floor();
 
       _currentQuality = _sortedQualities[_currentQualityIndex];
     }
@@ -277,7 +307,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           enableAudioTracks: false,
           enableSkips: true,
           enableMute: true,
-          enablePlaybackSpeed: true,
+          // ✅ بنستخدم قائمة السرعة المخصصة في الشريط العلوي (0.25× إلى 2×)
+          // بدل القائمة الداخلية المحدودة في المكتبة
+          enablePlaybackSpeed: false,
+          // ✅ نفس مقدار القفزة المستخدم في التقديم/الترجيع بالدبل تاب (10 ثواني)
+          forwardSkipTimeInMilliseconds: 10000,
+          backwardSkipTimeInMilliseconds: 10000,
           loadingColor: AppColors.accentYellow,
           progressBarPlayedColor: AppColors.accentYellow,
           progressBarHandleColor: AppColors.accentYellow,
@@ -363,6 +398,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
             if (mounted && !_isDisposing) {
               try {
                 _betterPlayerController?.setResolution(fallbackUrl);
+                _reapplySpeedAfterSourceChange();
               } catch (e) {
                 FirebaseCrashlytics.instance.recordError(e, null,
                     reason: 'Native Player setResolution fallback error');
@@ -407,11 +443,149 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     try {
       // ✅ setResolution بيحافظ على موضع التشغيل وحالة التشغيل تلقائياً
       _betterPlayerController?.setResolution(widget.streams[quality]!);
+      _reapplySpeedAfterSourceChange();
     } catch (e, stack) {
       FirebaseCrashlytics.instance
           .recordError(e, stack, reason: 'Native Player setResolution Error');
       _handlePlayerError(e.toString(), isCodecRelated: _isCodecError(e));
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // ✅ setResolution بينشئ مصدر فيديو جديد داخلياً فبيرجع السرعة لـ 1× تلقائياً؛
+  // فلو المستخدم كان مختار سرعة مختلفة عن الافتراضي، نعيد تطبيقها بعد قصير
+  // من تبديل الجودة حتى يكتمل تحميل المصدر الجديد.
+  // -----------------------------------------------------------------------
+  void _reapplySpeedAfterSourceChange() {
+    if (_currentSpeed == 1.0) return;
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (!mounted || _isDisposing) return;
+      try {
+        _betterPlayerController?.setSpeed(_currentSpeed);
+      } catch (_) {}
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // ✅ سرعة التشغيل
+  // -----------------------------------------------------------------------
+  void _setSpeed(double speed) {
+    setState(() => _currentSpeed = speed);
+    try {
+      _betterPlayerController?.setSpeed(speed);
+    } catch (e) {
+      FirebaseCrashlytics.instance
+          .recordError(e, null, reason: 'Native Player setSpeed Error');
+    }
+  }
+
+  void _showSpeedSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.backgroundSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        final maxSheetHeight = MediaQuery.of(sheetContext).size.height * 0.7;
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxSheetHeight),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _speedOptions.length,
+                    itemBuilder: (context, index) {
+                      final speed = _speedOptions[index];
+                      final selected = speed == _currentSpeed;
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(
+                          selected ? LucideIcons.checkCircle2 : LucideIcons.circle,
+                          color: selected ? AppColors.accentYellow : Colors.white54,
+                        ),
+                        title: Text(
+                          speed == 1.0 ? 'عادي (×1)' : '×${speed.toString()}',
+                          style: TextStyle(color: AppColors.textPrimary),
+                        ),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _setSpeed(speed);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // ✅ التقديم/الترجيع التراكمي بالدبل تاب: نقرتان متتاليتان على يمين
+  // الشاشة تقدّم 10 ثواني، وأي نقرتين إضافيتين خلال نفس السلسلة (قبل
+  // انتهاء المؤقّت) يضيفوا 10 ثواني تانية فوق نفس نقطة البداية بدل عمل
+  // seek منفصل غير مستقر في كل مرة — مطابق لسلوك يوتيوب.
+  // -----------------------------------------------------------------------
+  void _handleDoubleTapSeek({required bool forward}) {
+    if (_betterPlayerController == null || _isDisposing) return;
+
+    final videoValue = _betterPlayerController!.videoPlayerController?.value;
+    final currentPosition = videoValue?.position ?? Duration.zero;
+    final duration = videoValue?.duration ?? Duration.zero;
+    const stepSeconds = 10;
+
+    final isNewBurst = _pendingSeekDelta == 0 ||
+        (forward && _pendingSeekDelta < 0) ||
+        (!forward && _pendingSeekDelta > 0);
+
+    if (isNewBurst) {
+      // بداية سلسلة جديدة أو تغيير الاتجاه: خد الموضع الحالي كنقطة انطلاق
+      _seekBaseline = currentPosition;
+      _pendingSeekDelta = forward ? stepSeconds : -stepSeconds;
+    } else {
+      _pendingSeekDelta += forward ? stepSeconds : -stepSeconds;
+    }
+
+    var target = _seekBaseline + Duration(seconds: _pendingSeekDelta);
+    if (target < Duration.zero) target = Duration.zero;
+    if (duration > Duration.zero && target > duration) target = duration;
+
+    try {
+      _betterPlayerController?.seekTo(target);
+    } catch (e) {
+      FirebaseCrashlytics.instance
+          .recordError(e, null, reason: 'Native Player Double-Tap Seek Error');
+    }
+
+    _seekIndicatorTimer?.cancel();
+    setState(() {
+      _showSeekIndicator = true;
+      _seekIndicatorIsForward = forward;
+    });
+    _seekIndicatorTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted) return;
+      setState(() {
+        _showSeekIndicator = false;
+        _pendingSeekDelta = 0;
+      });
+    });
   }
 
   void _retryCurrentQuality() {
@@ -541,6 +715,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
     try {
       _watermarkTimer?.cancel();
+      _seekIndicatorTimer?.cancel();
       await _recordingSubscription?.cancel();
 
       // ✅ نأخذ مرجعاً محلياً ونُفرغ المتغير الأصلي قبل dispose()
@@ -566,6 +741,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _isDisposing = true;
     _watermarkTimer?.cancel();
+    _seekIndicatorTimer?.cancel();
     _recordingSubscription?.cancel();
     // ✅ نفس النهج: نُفرغ المتغير أولاً ثم نستدعي dispose
     final c = _betterPlayerController;
@@ -618,7 +794,77 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   child: BetterPlayer(controller: _betterPlayerController!),
                 ),
 
-              // ── شريط علوي: رجوع + عنوان + زر الجودة ──────────────────
+              // ── مناطق الدبل تاب للتقديم/الترجيع التراكمي (يمين/يسار) ──
+              if (!_isRecordingDetected &&
+                  !_isError &&
+                  !_isInitializing &&
+                  _betterPlayerController != null)
+                Positioned.fill(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onDoubleTap: () => _handleDoubleTapSeek(forward: false),
+                        ),
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onDoubleTap: () => _handleDoubleTapSeek(forward: true),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // ── مؤشر التقديم/الترجيع التراكمي ──────────────────────────
+              if (_showSeekIndicator)
+                Align(
+                  alignment: _seekIndicatorIsForward
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 48),
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        opacity: _showSeekIndicator ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 18, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.65),
+                            borderRadius: BorderRadius.circular(50),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _seekIndicatorIsForward
+                                    ? Icons.fast_forward
+                                    : Icons.fast_rewind,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${_pendingSeekDelta.abs()} ث',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  decoration: TextDecoration.none,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // ── شريط علوي: رجوع + عنوان + زر السرعة + زر الجودة ──────
               if (!_isRecordingDetected && !_isDisposing)
                 Positioned(
                   top: 4,
@@ -642,6 +888,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        if (!_isError && _betterPlayerController != null)
+                          IconButton(
+                            icon: const Icon(Icons.speed, color: Colors.white),
+                            onPressed: _showSpeedSheet,
+                            tooltip: '×$_currentSpeed',
+                          ),
                         if (_sortedQualities.length > 1 && !_isError)
                           IconButton(
                             icon: const Icon(LucideIcons.settings, color: Colors.white),
