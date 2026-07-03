@@ -1041,12 +1041,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: const [
-                            Icon(Icons.fast_forward, color: Colors.white70, size: 14),
+                            Icon(Icons.fast_forward, color: AppColors.accentYellow, size: 14),
                             SizedBox(width: 4),
                             Text(
                               '×2',
                               style: TextStyle(
-                                color: Colors.white70,
+                                color: AppColors.accentYellow,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,
                                 decoration: TextDecoration.none,
@@ -1069,13 +1069,13 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 48),
                     child: IgnorePointer(
                       child: AnimatedOpacity(
-                        opacity: _showSeekIndicator ? 0.55 : 0.0,
+                        opacity: _showSeekIndicator ? 0.95 : 0.0,
                         duration: const Duration(milliseconds: 200),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 9),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.35),
+                            color: Colors.black.withOpacity(0.65),
                             borderRadius: BorderRadius.circular(40),
                           ),
                           child: Column(
@@ -1085,14 +1085,14 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 _seekIndicatorIsForward
                                     ? Icons.fast_forward
                                     : Icons.fast_rewind,
-                                color: Colors.white.withOpacity(0.75),
+                                color: Colors.white,
                                 size: 18,
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 '${_pendingSeekDelta.abs()} ث',
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.75),
+                                  color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 11,
                                   decoration: TextDecoration.none,
