@@ -87,6 +87,18 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
   Timer? _seekBubbleTimer;
   static const Duration _doubleTapSeekStep = Duration(seconds: 10);
 
+  // ✅ التراكم عند النقر المزدوج المتكرر (Cumulative seek):
+  // _seekBurstBase هو الموضع الذي بدأت عنده "الدفعة" الحالية من النقرات
+  // المتتالية، و _seekBurstSteps هو عدد خطوات الـ 10 ثوانٍ المتراكمة
+  // (موجب للأمام، سالب للخلف) ضمن هذه الدفعة. _seekBubbleSeconds تُستخدم
+  // فقط لعرض الرقم التراكمي في فقاعة الـ UI. _seekCommitTimer يؤجل
+  // استدعاء seekTo() الفعلي حتى تهدأ سلسلة النقرات، حتى لا تتنافس عدة
+  // أوامر seek غير متزامنة مع بعضها وتكسر التراكم.
+  Duration _seekBurstBase = Duration.zero;
+  int _seekBurstSteps = 0;
+  int _seekBubbleSeconds = 0;
+  Timer? _seekCommitTimer;
+
   // ── Watermark ───────────────────────────────────────────────
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
@@ -302,23 +314,37 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
 
   // ── Dispose ──────────────────────────────────────────────────
 
-  void _disposePlayer() {
+  // ✅ إصلاح Crash فادح: "'_lifecycleState != _ElementLifecycle.defunct':
+  // is not true". السبب: عند استدعاء _disposePlayer() من داخل
+  // State.dispose() نفسها (كما كان يحدث سابقًا)، فإن "mounted" لا يزال
+  // true في تلك اللحظة تحديدًا (الـ framework لا يصفّر الـ Element إلا
+  // بعد عودة dispose())، لكن الـ Element يكون قد انتقل داخليًا بالفعل
+  // إلى الحالة "defunct" أثناء تسلسل الـ unmount. لذلك يمر فحص mounted
+  // بنجاح، لكن استدعاء setState() بعده يصطدم بتأكيد داخلي في
+  // markNeedsBuild() ويرمي استثناءً فادحًا يوقف الـ widget tree بالكامل.
+  // القاعدة العامة في Flutter: لا يجوز أبدًا استدعاء setState() من داخل
+  // dispose(). الحل: فصل "تنظيف الموارد" عن "إشعار الواجهة بإعادة البناء"
+  // عبر معامل [notify]، بحيث يمرر dispose() القيمة false دائمًا.
+  void _disposePlayer({bool notify = true}) {
     _controller?.videoPlayerController
         ?.removeListener(_onVideoValueChanged);
     _controlsTimer?.cancel();
     _watermarkTimer?.cancel();
     _seekBubbleTimer?.cancel();
+    _seekCommitTimer?.cancel();
     final c = _controller;
     _controller = null;
     c?.dispose(forceDispose: true);
-    if (mounted) setState(() {});
+    if (notify && mounted) setState(() {});
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _fvc.removeListener(_onControllerChanged);
-    _disposePlayer();
+    // ⚠️ notify: false — لا يجوز استدعاء setState() من dispose()، انظر
+    // الشرح أعلاه.
+    _disposePlayer(notify: false);
     super.dispose();
   }
 
@@ -377,31 +403,57 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
 
   /// Double-tap the left half to rewind, right half to fast-forward —
   /// same convention as the full-screen player — without leaving the
-  /// floating window.
+  /// floating window. Consecutive double-taps in the same direction, made
+  /// while the seek bubble is still showing, accumulate into one burst
+  /// (10s, 20s, 30s...) instead of each tap fighting the previous one.
   void _handleDoubleTap() {
     final tapX = _lastTapLocalPos?.dx ?? (_width / 2);
     final forward = tapX >= _width / 2;
-    final current = _controller?.videoPlayerController?.value.position ??
-        _videoPosition;
+
+    // ✅ إذا كانت دفعة النقرات الحالية لا تزال جارية (الفقاعة ظاهرة) وبنفس
+    // الاتجاه، نضيف هذه النقرة لنفس نقطة الانطلاق (_seekBurstBase) بدلاً
+    // من إعادة قراءة موضع المشغل من جديد — لأن الموضع الفعلي قد لا يكون قد
+    // استقر بعد من آخر seekTo غير المتزامن. تغيير الاتجاه أو انقضاء وقت
+    // الفقاعة يبدأ دفعة جديدة من موضع المشغل الحالي.
+    final isSameBurst = _showSeekBubble && _seekBubbleForward == forward;
+    if (!isSameBurst) {
+      _seekBurstBase = _controller?.videoPlayerController?.value.position ??
+          _videoPosition;
+      _seekBurstSteps = 0;
+    }
+    _seekBurstSteps += forward ? 1 : -1;
+
     final total = _videoDuration;
-    Duration target = forward
-        ? current + _doubleTapSeekStep
-        : current - _doubleTapSeekStep;
+    Duration target = _seekBurstBase + (_doubleTapSeekStep * _seekBurstSteps);
     if (target < Duration.zero) target = Duration.zero;
     if (total > Duration.zero && target > total) target = total;
-
-    try {
-      _controller?.seekTo(target);
-    } catch (_) {}
 
     setState(() {
       _videoPosition = target;
       _seekBubbleForward = forward;
+      _seekBubbleSeconds = _doubleTapSeekStep.inSeconds * _seekBurstSteps.abs();
       _showSeekBubble = true;
     });
+
+    // ✅ نؤجل استدعاء seekTo() الفعلي 350ms بعد آخر نقرة بدلاً من إرسال أمر
+    // seek منفصل مع كل نقرة على حدة. عدة أوامر seek متتالية بسرعة كانت
+    // تتنافس مع بعضها داخل المشغل (كل seekTo جديد يُلغي/يتجاوز السابق قبل
+    // اكتماله)، فيظهر التراكم صحيحًا في الواجهة لكن الفيديو الفعلي لا
+    // يصل إلا لجزء من المسافة المطلوبة.
+    _seekCommitTimer?.cancel();
+    _seekCommitTimer = Timer(const Duration(milliseconds: 350), () {
+      try {
+        _controller?.seekTo(target);
+      } catch (_) {}
+    });
+
     _seekBubbleTimer?.cancel();
-    _seekBubbleTimer = Timer(const Duration(milliseconds: 500), () {
-      if (mounted) setState(() => _showSeekBubble = false);
+    _seekBubbleTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted) return;
+      setState(() {
+        _showSeekBubble = false;
+        _seekBurstSteps = 0;
+      });
     });
   }
 
@@ -561,6 +613,9 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                   _buildControls(screen),
 
                 // ── Double-tap seek indicator ─────────────────
+                // ✅ يعرض الآن الرقم التراكمي (10/20/30...) وليس أيقونة
+                // ثابتة فقط، حتى يرى المستخدم مقدار القفزة الفعلية عند
+                // النقر المزدوج المتكرر بسرعة.
                 if (_showSeekBubble)
                   Align(
                     alignment: _seekBubbleForward
@@ -569,17 +624,32 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                     child: IgnorePointer(
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 4),
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.45),
-                          shape: BoxShape.circle,
+                          color: Colors.black.withOpacity(0.55),
+                          borderRadius: BorderRadius.circular(20),
                         ),
-                        child: Icon(
-                          _seekBubbleForward
-                              ? Icons.fast_forward
-                              : Icons.fast_rewind,
-                          color: Colors.white.withOpacity(0.85),
-                          size: 16,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _seekBubbleForward
+                                  ? Icons.fast_forward
+                                  : Icons.fast_rewind,
+                              color: Colors.white.withOpacity(0.9),
+                              size: 14,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${_seekBubbleSeconds}s',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
