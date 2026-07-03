@@ -981,40 +981,49 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 color: Colors.black.withOpacity(0.55), 
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    _formatDuration(_position),
-                                    // 👈 جعل وقت الفيديو باللون الأصفر
-                                    style: TextStyle(color: AppColors.accentYellow, fontSize: 12, decoration: TextDecoration.none),
-                                  ),
-                                  Expanded(
-                                    child: SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        trackHeight: 2.5,
-                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                      ),
-                                      child: Slider(
-                                        value: _position.inMilliseconds
-                                            .clamp(0, _videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds)
-                                            .toDouble(),
-                                        min: 0,
-                                        max: (_videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds).toDouble(),
-                                        activeColor: AppColors.accentYellow,
-                                        inactiveColor: Colors.white54,
-                                        onChangeStart: _onSeekStart,
-                                        onChanged: _onSeekChanged,
-                                        onChangeEnd: _onSeekEnd,
+                              // ✅ نجبر اتجاه هذا الشريط على LTR دائمًا. الـ Slider في فلاتر
+                              // يقرأ Directionality.of(context) ليقرر اتجاه الزيادة، فإذا كان
+                              // التطبيق بالعربية (RTL) ينعكس اتجاه شريط التقديم تلقائيًا
+                              // (اليسار = تقديم بدل الترجيع). شريط تشغيل الفيديو يجب أن يبقى
+                              // بنفس الاتجاه دائمًا (يسار = بداية) بغض النظر عن لغة الواجهة،
+                              // تمامًا مثل منطقة اللمس للتقديم/الترجيع أعلاه.
+                              child: Directionality(
+                                textDirection: TextDirection.ltr,
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      _formatDuration(_position),
+                                      // 👈 جعل وقت الفيديو باللون الأصفر
+                                      style: TextStyle(color: AppColors.accentYellow, fontSize: 12, decoration: TextDecoration.none),
+                                    ),
+                                    Expanded(
+                                      child: SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 2.5,
+                                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                        ),
+                                        child: Slider(
+                                          value: _position.inMilliseconds
+                                              .clamp(0, _videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds)
+                                              .toDouble(),
+                                          min: 0,
+                                          max: (_videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds).toDouble(),
+                                          activeColor: AppColors.accentYellow,
+                                          inactiveColor: Colors.white54,
+                                          onChangeStart: _onSeekStart,
+                                          onChanged: _onSeekChanged,
+                                          onChangeEnd: _onSeekEnd,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  Text(
-                                    _formatDuration(_videoDuration),
-                                    // 👈 جعل وقت الفيديو الكلي باللون الأصفر
-                                    style: TextStyle(color: AppColors.accentYellow, fontSize: 12, decoration: TextDecoration.none),
-                                  ),
-                                ],
+                                    Text(
+                                      _formatDuration(_videoDuration),
+                                      // 👈 جعل وقت الفيديو الكلي باللون الأصفر
+                                      style: TextStyle(color: AppColors.accentYellow, fontSize: 12, decoration: TextDecoration.none),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
