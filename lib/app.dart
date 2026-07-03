@@ -113,7 +113,22 @@ class _EduVantageAppState extends State<EduVantageApp>
                               reverseTransitionDuration: Duration.zero,
                               pageBuilder: (context, animation,
                                       secondaryAnimation) =>
-                                  const FloatingVideoOverlay(),
+                                  // ✅ ModalRoute يلف محتوى الصفحة تلقائياً بـ
+                                  // Positioned.fill داخل الـ Overlay الخاص بهذا
+                                  // الـ Navigator المحلي. ولأن FloatingVideoOverlay
+                                  // يُرجع AnimatedPositioned كجذر (يتوقع أن يكون
+                                  // ابنًا مباشرًا لِـ Stack)، فإن هذا يخلق
+                                  // ParentDataWidget متعارضين (Positioned.fill من
+                                  // الطريق + AnimatedPositioned من الودجت) يتنافسان
+                                  // على نفس الـ RenderObject — وهو ما كان يجعل
+                                  // الفيديو يملأ الشاشة كاملة بدلاً من التموضع
+                                  // الصغير المطلوب. نضيف Stack خاص بنا هنا حتى
+                                  // يجد AnimatedPositioned سلف Stack صحيح يتموضع
+                                  // بالنسبة له، بمعزل عن Positioned.fill الخاص
+                                  // بالـ Navigator.
+                                  Stack(
+                                children: const [FloatingVideoOverlay()],
+                              ),
                             ),
                           );
                         }
