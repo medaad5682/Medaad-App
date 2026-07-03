@@ -117,8 +117,26 @@ class DownloadManager with WidgetsBindingObserver {
   }
 
   void _startBackgroundService() async {
+    // ✅ [CRASH-FIX] Guard against ForegroundServiceStartNotAllowedException /
+    // MissingForegroundServiceTypeException. If the plugin ever surfaces
+    // these as a catchable PlatformException (rather than a raw native
+    // crash), we don't want it hitting the top-level runZonedGuarded
+    // handler in main.dart, which records everything as fatal:true.
+    // Downloads simply won't show a progress notification in that rare
+    // case — non-fatal, and still logged for visibility.
     final service = FlutterBackgroundService();
-    if (!await service.isRunning()) await service.startService();
+    try {
+      if (!await service.isRunning()) await service.startService();
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        stack,
+        reason: 'BackgroundService failed to start (non-fatal, download continues)',
+        fatal: false,
+      );
+      // Don't return early — downloads still work without the FGS
+      // notification, they just won't show background progress.
+    }
 
     _keepAliveTimer?.cancel();
     _keepAliveTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -126,7 +144,12 @@ class DownloadManager with WidgetsBindingObserver {
         _stopBackgroundService();
         return;
       }
-      service.invoke('keepAlive');
+      try {
+        service.invoke('keepAlive');
+      } catch (_) {
+        // Service may not be running if startService() failed above —
+        // don't let a missing service kill the download loop.
+      }
 
       try {
         NotificationService().showProgressNotification(
@@ -147,8 +170,14 @@ class DownloadManager with WidgetsBindingObserver {
     } catch (e) {}
 
     final service = FlutterBackgroundService();
-    if (await service.isRunning()) {
-      service.invoke('stopService');
+    try {
+      if (await service.isRunning()) {
+        service.invoke('stopService');
+      }
+    } catch (e) {
+      // Non-fatal: service may already be gone (e.g. killed by the OS
+      // due to the same FGS restrictions) — nothing to clean up then.
+      debugPrint("⚠️ stopService guard: $e");
     }
   }
 
