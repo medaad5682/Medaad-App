@@ -11,6 +11,36 @@ import 'package:Medaad/presentation/widgets/floating_video_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+// ============================================================
+// ✅ إصلاح: النافذة العائمة كانت تمنع أي لمسة من الوصول للشاشة التي
+// تطفو فوقها (تعذّر الضغط على أي زر آخر أو الانتقال بين الشاشات).
+//
+// السبب: كنا نستخدم PageRouteBuilder كمسار للـ Navigator المحلي الذي
+// يوفر سلف Navigator صالح لِـ BetterPlayer فقط. لكن PageRouteBuilder
+// يرث من ModalRoute، وModalRoute — بغض النظر عن opaque أو barrierColor
+// أو barrierDismissible — يُنشئ دائمًا "ModalBarrier" خفي بحجم الشاشة
+// كاملة (MouseRegion بخاصية opaque=true) يمتص كل لمسة موجهة لأي شيء
+// خلفه. بما أن هذا الـ Navigator المحلي يُرسم فوق شجرة التطبيق الحقيقية
+// في app.dart، فإن هذا الحاجز غير المرئي كان يمتص كل اللمسات المتجهة
+// للشاشة الأصلية (باستثناء منطقة النافذة العائمة نفسها التي تُرسم فوقه).
+//
+// الحل: استبدال PageRouteBuilder بمسار مخصص خفيف الوزن يرث مباشرة من
+// OverlayRoute (الأب الحقيقي لِـ ModalRoute) دون المرور بـ ModalRoute
+// إطلاقًا — وبالتالي لا يتم إنشاء أي ModalBarrier من الأساس.
+// ============================================================
+class _NoBarrierOverlayRoute extends OverlayRoute<void> {
+  _NoBarrierOverlayRoute({required this.pageBuilder});
+
+  final WidgetBuilder pageBuilder;
+
+  @override
+  Iterable<OverlayEntry> createOverlayEntries() {
+    return <OverlayEntry>[
+      OverlayEntry(builder: pageBuilder, maintainState: true),
+    ];
+  }
+}
+
 class EduVantageApp extends StatefulWidget {
   const EduVantageApp({super.key});
 
@@ -105,44 +135,29 @@ class _EduVantageAppState extends State<EduVantageApp>
                           // زر PIP. نلف الطبقة بـ Navigator محلي معزول تماماً
                           // عن تنقل التطبيق الفعلي — فقط ليوفر سلف Navigator
                           // صالح لِـ BetterPlayer.
-                          // ✅ إصلاح Crash فادح: "A HeroController can not be
-                          // shared by multiple Navigators". السبب: MaterialApp
-                          // ينشر HeroControllerScope فوق مخرجات builder، وبما
-                          // أن هذا الـ Navigator المحلي (المخصص فقط لتوفير
-                          // سلف Navigator لِـ better_player) يقع داخل نفس
-                          // الشجرة، فهو يرث تلقائيًا HeroController الجذر
-                          // نفسه المستخدم من قبل Navigator الرئيسي للتطبيق.
-                          // عندما يحدث انتقال (pop) على كلا الـ Navigator-ين
-                          // في نفس اللحظة (كما يحصل عند _safeExit بعد الضغط
-                          // على زر PIP)، يرمي Flutter استثناءً فادحًا يوقف
-                          // الـ rendering بالكامل — وهو بالضبط ما كان يسبب
-                          // "تجمد الشاشة" بعد ظهور النافذة العائمة بلحظات.
-                          // الحل الموصى به من Flutter نفسه في رسالة الخطأ:
-                          // عزل هذا الـ Navigator تمامًا عبر
-                          // HeroControllerScope.none حتى لا يشارك أي
-                          // HeroController مع أي Navigator آخر.
+                          // ✅ إصلاح: منع اللمسات من الوصول للشاشة أسفل النافذة
+                          // العائمة. نستخدم الآن _NoBarrierOverlayRoute بدلاً من
+                          // PageRouteBuilder — انظر التعليق التوضيحي أعلى الملف
+                          // بجانب تعريف الكلاس لشرح السبب الكامل (ModalBarrier
+                          // خفي بحجم الشاشة كان يمتص كل اللمسات).
                           return HeroControllerScope.none(
                             child: Navigator(
-                            onGenerateRoute: (settings) => PageRouteBuilder(
-                              settings: settings,
-                              opaque: false,
-                              transitionDuration: Duration.zero,
-                              reverseTransitionDuration: Duration.zero,
-                              pageBuilder: (context, animation,
-                                      secondaryAnimation) =>
-                                  // ✅ ModalRoute يلف محتوى الصفحة تلقائياً بـ
-                                  // Positioned.fill داخل الـ Overlay الخاص بهذا
-                                  // الـ Navigator المحلي. ولأن FloatingVideoOverlay
+                            onGenerateRoute: (settings) =>
+                                _NoBarrierOverlayRoute(
+                              pageBuilder: (context) =>
+                                  // ✅ الـ Overlay يلف محتوى الـ OverlayEntry تلقائياً بـ
+                                  // Positioned.fill (سلوك خاص بـ Overlay/Theatre نفسه،
+                                  // مستقل عن نوع الـ Route). ولأن FloatingVideoOverlay
                                   // يُرجع AnimatedPositioned كجذر (يتوقع أن يكون
                                   // ابنًا مباشرًا لِـ Stack)، فإن هذا يخلق
                                   // ParentDataWidget متعارضين (Positioned.fill من
-                                  // الطريق + AnimatedPositioned من الودجت) يتنافسان
+                                  // الـ Overlay + AnimatedPositioned من الودجت) يتنافسان
                                   // على نفس الـ RenderObject — وهو ما كان يجعل
                                   // الفيديو يملأ الشاشة كاملة بدلاً من التموضع
                                   // الصغير المطلوب. نضيف Stack خاص بنا هنا حتى
                                   // يجد AnimatedPositioned سلف Stack صحيح يتموضع
                                   // بالنسبة له، بمعزل عن Positioned.fill الخاص
-                                  // بالـ Navigator.
+                                  // بالـ Overlay.
                                   Stack(
                                 children: const [FloatingVideoOverlay()],
                               ),
