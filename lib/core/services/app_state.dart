@@ -63,19 +63,38 @@ class AppState {
   // ============================================================
 
   // ✅ 1. متغير لمراقبة اللغة الحالية (ValueNotifier) لتحديث الواجهة فورياً
-  //    اللغة الافتراضية: العربية (اللغة الأساسية الفعلية للتطبيق حالياً)
+  //    اللغة الافتراضية: الإنجليزية إلى أن يتم تحديد لغة النظام في initLocale()
   final ValueNotifier<Locale> localeNotifier =
-      ValueNotifier(const Locale('ar'));
+      ValueNotifier(const Locale('en'));
 
   // ✅ 2. دالة ثابتة لمعرفة هل اللغة الحالية عربية (RTL)
   static bool get isArabic => _instance.localeNotifier.value.languageCode == 'ar';
 
+  // ✅ اللغات المدعومة فعلياً في التطبيق (يجب أن تطابق AppLocalizations.supportedLocales)
+  static const List<String> _supportedLanguageCodes = ['en', 'ar'];
+
   // ✅ 3. دالة تهيئة اللغة عند فتح التطبيق (تستدعى في main.dart)
+  //    - إن كان المستخدم قد اختار لغة من قبل، نستخدمها.
+  //    - وإلا، نعتمد لغة نظام الجهاز إن كانت مدعومة (عربي أو إنجليزي).
+  //    - وإن لم تكن لغة النظام مدعومة، تكون الإنجليزية هي الافتراضية.
   Future<void> initLocale() async {
     var box = await StorageService.openBox('settings_box');
-    // القيمة الافتراضية هي العربية
-    String storedLanguageCode = box.get('language_code', defaultValue: 'ar');
-    localeNotifier.value = Locale(storedLanguageCode);
+    String? storedLanguageCode = box.get('language_code');
+
+    if (storedLanguageCode != null &&
+        _supportedLanguageCodes.contains(storedLanguageCode)) {
+      localeNotifier.value = Locale(storedLanguageCode);
+      return;
+    }
+
+    // لا يوجد تفضيل محفوظ بعد → استخدم لغة النظام إن كانت مدعومة
+    final systemLanguageCode =
+        WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+    final resolvedCode = _supportedLanguageCodes.contains(systemLanguageCode)
+        ? systemLanguageCode
+        : 'en';
+
+    localeNotifier.value = Locale(resolvedCode);
   }
 
   // ✅ 4. دالة تغيير اللغة (تستدعى من شاشة الإعدادات/البروفايل)
