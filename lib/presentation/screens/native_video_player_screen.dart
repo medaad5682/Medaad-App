@@ -1136,9 +1136,11 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                               IconButton(
                                 icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
                                 tooltip: 'تشغيل كنافذة عائمة',
-                                onPressed: () {
+                                onPressed: () async {
                                   // 1. التقاط حالة التشغيل الحالية (الموضع/السرعة/الجودة)
                                   //    حتى يستأنف المشغل العائم من نفس النقطة تمامًا.
+                                  //    (يجب التقاطها قبل استدعاء _safeExit لأنها
+                                  //    ستُصفّر _betterPlayerController).
                                   final currentPosition =
                                       _betterPlayerController
                                               ?.videoPlayerController
@@ -1148,19 +1150,45 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                   final wasPlaying = _betterPlayerController
                                           ?.isPlaying() ??
                                       _isPlaying;
+                                  final streams = widget.streams;
+                                  final title = widget.title;
+                                  final watermarkText = _watermarkText;
+                                  final speed = _currentSpeed;
+                                  final quality = _currentQuality;
 
-                                  // 2. تفعيل وضع الفيديو العائم وتمرير الروابط + حالة التشغيل
+                                  // 2. ✅ أغلق المشغل الحالي أولاً وانتظر تحرره فعليًا
+                                  //    (بما فيها dispose() الخاص بـ ExoPlayer على الجانب
+                                  //    الأصلي) قبل إنشاء أي مشغل جديد. إنشاء BetterPlayerController
+                                  //    ثانٍ (للنافذة العائمة) بينما المشغل الأول لا يزال
+                                  //    يحرر الـ MediaCodec/Surface الخاص به هو ما كان يسبب
+                                  //    تنافسًا على مورد فك التشفير (decoder) في نفس اللحظة،
+                                  //    وينتج عنه تجمّد الواجهة (ANR) بعد نحو ثانية من الضغط
+                                  //    على الزر — بالضبط ما كان يظهر كـ "تجمد الشاشة بعد
+                                  //    اختفاء النافذة العائمة".
+                                  await _safeExit();
+
+                                  // ✅ هامش أمان بسيط يعطي الجانب الأصلي وقتًا كافيًا
+                                  // لإتمام تحرير الـ MediaCodec قبل إنشاء مشغل جديد.
+                                  await Future.delayed(
+                                      const Duration(milliseconds: 150));
+
+                                  // 3. الآن فعّل وضع الفيديو العائم بعد تحرر المشغل القديم
+                                  //    بالكامل (الشاشة السابقة أصبحت ظاهرة خلف النافذة
+                                  //    العائمة تمامًا كما كان مخططًا).
+                                  //    ⚠️ لا نتحقق من mounted هنا: بحلول هذه اللحظة تكون
+                                  //    هذه الشاشة قد أُزيلت فعليًا من الشجرة (لأن _safeExit
+                                  //    نفّذ الـ pop)، لكن FloatingVideoController هو
+                                  //    Singleton مستقل تمامًا عن حالة هذه الشاشة — استدعاؤه
+                                  //    بعد التخلص من الشاشة آمن تمامًا ولا يلمس أي context.
                                   FloatingVideoController.instance.startFloating(
-                                    streams: widget.streams,
-                                    title: widget.title,
-                                    watermarkText: _watermarkText,
+                                    streams: streams,
+                                    title: title,
+                                    watermarkText: watermarkText,
                                     initialPosition: currentPosition,
-                                    playbackSpeed: _currentSpeed,
-                                    initialQuality: _currentQuality,
+                                    playbackSpeed: speed,
+                                    initialQuality: quality,
                                     wasPlaying: wasPlaying,
                                   );
-                                  // 3. الخروج من المشغل الحالي (بأمان)
-                                  _safeExit();
                                 },
                               ),
                           ],
