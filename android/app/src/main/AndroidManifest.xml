@@ -13,7 +13,10 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- ✅ [CRASH-FIX] RECEIVE_BOOT_COMPLETED removed: BootReceiver is disabled
+         below (autoStartOnBoot is false), so this permission is unused. An
+         unused dangerous-adjacent permission is also a Play Console review
+         flag worth avoiding. -->
 
     <application
         android:label="مــــداد"
@@ -58,9 +61,23 @@
             android:exported="false"
             tools:replace="android:exported" />
             
+        <!-- ✅ [CRASH-FIX] Disabled: main.dart sets autoStartOnBoot: false, so the
+             app never intends to restart the download service on boot. This
+             receiver was firing anyway on some OEMs/older cached installs and
+             calling startForeground() from a BOOT_COMPLETED context, which
+             Android 12+ blocks (ForegroundServiceStartNotAllowedException) and
+             Android 14 additionally rejects for missing a runtime service type
+             (MissingForegroundServiceTypeException — open upstream bug in
+             flutter_background_service, see plugin issue #426). Disabling the
+             receiver removes the trigger entirely instead of chasing the
+             plugin's Android 14 type-declaration bug.
+             If a future feature genuinely needs boot-time resume, re-enable
+             this AND set autoStartOnBoot: true AND confirm the plugin version
+             has fixed #426 first. -->
         <receiver
             android:name="id.flutter.flutter_background_service.BootReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:enabled="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
