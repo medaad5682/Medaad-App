@@ -934,6 +934,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                   ),
                 ),
 
+              
               // ── Custom Controls Stack ────────────────────────────────────────
               if (!_isRecordingDetected && !_isError && !_isInitializing && _betterPlayerController != null)
                 IgnorePointer(
@@ -943,49 +944,70 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                     duration: const Duration(milliseconds: 200),
                     child: Stack(
                       children: [
+                        // زر التشغيل والإيقاف في المنتصف
                         Center(
                           child: IconButton(
                             iconSize: 56,
                             icon: Icon(
                               _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                              color: Colors.white,
+                              color: AppColors.accentYellow, // 👈 تعديل اللون للأصفر
+                              shadows: const [
+                                // 👈 إضافة ظل داكن لضمان الوضوح التام على الخلفية البيضاء
+                                Shadow(color: Colors.black87, blurRadius: 12),
+                              ],
                             ),
                             onPressed: _togglePlayPause,
                           ),
                         ),
+                        
+                        // الشريط السفلي
                         Positioned(
                           left: 12,
                           right: 12,
                           bottom: 8,
                           child: SafeArea(
-                            child: Row(
-                              children: [
-                                Text(_formatDuration(_position),
-                                    style: const TextStyle(color: Colors.white, fontSize: 12, decoration: TextDecoration.none)),
-                                Expanded(
-                                  child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 2.5,
-                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                    ),
-                                    child: Slider(
-                                      value: _position.inMilliseconds
-                                          .clamp(0, _videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds)
-                                          .toDouble(),
-                                      min: 0,
-                                      max: (_videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds).toDouble(),
-                                      activeColor: AppColors.accentYellow,
-                                      inactiveColor: Colors.white24,
-                                      onChangeStart: _onSeekStart,
-                                      onChanged: _onSeekChanged,
-                                      onChangeEnd: _onSeekEnd,
+                            child: Container(
+                              // 👈 خلفية شبه شفافة تحمي الشريط بالكامل من التداخل مع الفيديو الأبيض
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.55), 
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    _formatDuration(_position),
+                                    // 👈 جعل وقت الفيديو باللون الأصفر
+                                    style: TextStyle(color: AppColors.accentYellow, fontSize: 12, decoration: TextDecoration.none),
+                                  ),
+                                  Expanded(
+                                    child: SliderTheme(
+                                      data: SliderTheme.of(context).copyWith(
+                                        trackHeight: 2.5,
+                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                      ),
+                                      child: Slider(
+                                        value: _position.inMilliseconds
+                                            .clamp(0, _videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds)
+                                            .toDouble(),
+                                        min: 0,
+                                        max: (_videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds).toDouble(),
+                                        activeColor: AppColors.accentYellow,
+                                        inactiveColor: Colors.white54,
+                                        onChangeStart: _onSeekStart,
+                                        onChanged: _onSeekChanged,
+                                        onChangeEnd: _onSeekEnd,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                Text(_formatDuration(_videoDuration),
-                                    style: const TextStyle(color: Colors.white, fontSize: 12, decoration: TextDecoration.none)),
-                              ],
+                                  Text(
+                                    _formatDuration(_videoDuration),
+                                    // 👈 جعل وقت الفيديو الكلي باللون الأصفر
+                                    style: TextStyle(color: AppColors.accentYellow, fontSize: 12, decoration: TextDecoration.none),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
