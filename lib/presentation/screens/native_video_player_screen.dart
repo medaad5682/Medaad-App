@@ -1040,9 +1040,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
-                          children: const [
+                          children: [
                             Icon(Icons.fast_forward, color: AppColors.accentYellow, size: 14),
-                            SizedBox(width: 4),
+                            const SizedBox(width: 4),
                             Text(
                               '×2',
                               style: TextStyle(
