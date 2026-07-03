@@ -105,7 +105,24 @@ class _EduVantageAppState extends State<EduVantageApp>
                           // زر PIP. نلف الطبقة بـ Navigator محلي معزول تماماً
                           // عن تنقل التطبيق الفعلي — فقط ليوفر سلف Navigator
                           // صالح لِـ BetterPlayer.
-                          return Navigator(
+                          // ✅ إصلاح Crash فادح: "A HeroController can not be
+                          // shared by multiple Navigators". السبب: MaterialApp
+                          // ينشر HeroControllerScope فوق مخرجات builder، وبما
+                          // أن هذا الـ Navigator المحلي (المخصص فقط لتوفير
+                          // سلف Navigator لِـ better_player) يقع داخل نفس
+                          // الشجرة، فهو يرث تلقائيًا HeroController الجذر
+                          // نفسه المستخدم من قبل Navigator الرئيسي للتطبيق.
+                          // عندما يحدث انتقال (pop) على كلا الـ Navigator-ين
+                          // في نفس اللحظة (كما يحصل عند _safeExit بعد الضغط
+                          // على زر PIP)، يرمي Flutter استثناءً فادحًا يوقف
+                          // الـ rendering بالكامل — وهو بالضبط ما كان يسبب
+                          // "تجمد الشاشة" بعد ظهور النافذة العائمة بلحظات.
+                          // الحل الموصى به من Flutter نفسه في رسالة الخطأ:
+                          // عزل هذا الـ Navigator تمامًا عبر
+                          // HeroControllerScope.none حتى لا يشارك أي
+                          // HeroController مع أي Navigator آخر.
+                          return HeroControllerScope.none(
+                            child: Navigator(
                             onGenerateRoute: (settings) => PageRouteBuilder(
                               settings: settings,
                               opaque: false,
@@ -129,6 +146,7 @@ class _EduVantageAppState extends State<EduVantageApp>
                                   Stack(
                                 children: const [FloatingVideoOverlay()],
                               ),
+                            ),
                             ),
                           );
                         }
