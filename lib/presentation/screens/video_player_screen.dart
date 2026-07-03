@@ -724,10 +724,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       return valA.compareTo(valB);
     });
 
-    if (_sortedQualities.contains("480p")) {
-      _currentQuality = "480p";
-    } else if (_sortedQualities.contains("360p")) {
+    if (_sortedQualities.contains("360p")) {
       _currentQuality = "360p";
+    } else if (_sortedQualities.contains("480p")) {
+      _currentQuality = "480p";
     } else if (_sortedQualities.contains("720p")) {
       _currentQuality = "720p";
     } else if (_sortedQualities.isNotEmpty) {
