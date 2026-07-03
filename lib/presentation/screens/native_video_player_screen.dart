@@ -1113,20 +1113,20 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                       : _fitIndex == 1
                                           ? Icons.fit_screen
                                           : Icons.width_full,
-                                  color: Colors.white,
+                                  color: AppColors.accentYellow,
                                 ),
                                 onPressed: _cycleVideoFit,
                                 tooltip: _fitLabels[_fitIndex],
                               ),
                               IconButton(
-                                icon: const Icon(Icons.speed, color: Colors.white),
+                                icon: const Icon(Icons.speed, color: AppColors.accentYellow),
                                 onPressed: _showSpeedSheet,
                                 tooltip: '×$_currentSpeed',
                               ),
                             ],
                             if (_sortedQualities.length > 1 && !_isError)
                               IconButton(
-                                icon: const Icon(LucideIcons.settings, color: Colors.white),
+                                icon: const Icon(LucideIcons.settings, color: AppColors.accentYellow),
                                 onPressed: _showQualitySheet,
                                 tooltip: _currentQuality,
                               ),
@@ -1134,7 +1134,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                             // ── PIP (Floating Video) Button ──
                             if (!_isError && _betterPlayerController != null)
                               IconButton(
-                                icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
+                                icon: const Icon(Icons.picture_in_picture_alt, color: AppColors.accentYellow),
                                 tooltip: 'تشغيل كنافذة عائمة',
                                 onPressed: () async {
                                   // 1. التقاط حالة التشغيل الحالية (الموضع/السرعة/الجودة)
