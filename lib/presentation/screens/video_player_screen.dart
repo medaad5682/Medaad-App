@@ -19,6 +19,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/local_proxy.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
+import 'package:Medaad/presentation/widgets/safe_seek_bar.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
   final Map<String, String> streams;
@@ -251,13 +252,23 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _player.stream.error.listen((error) {
         final errorString = error.toString().toLowerCase();
 
-        if (errorString.contains('tcp') ||
+        // ✅ [CONSOLE-CLEANUP] Errors that are expected/transient on real
+        // mobile networks (dropped wifi, weak signal, DNS blips, CDN
+        // hiccups). These are handled gracefully in the UI below, so they
+        // are NOT real crashes — logging them via recordError() just fills
+        // the Crashlytics console with noise and can bury genuine bugs.
+        final isTransientNetworkError = errorString.contains('tcp') ||
             errorString.contains('timeout') ||
             errorString.contains('ffurl_read') ||
             errorString.contains('resolve hostname') ||
             errorString.contains('route to host') ||
-            errorString.contains('decoding audio')) {
-          
+            errorString.contains('handshake') ||
+            errorString.contains('connection terminated') ||
+            errorString.contains('decoding audio');
+
+        final isExpectedNonError = errorString.contains('failed to open');
+
+        if (isTransientNetworkError) {
           if (mounted && !_isDisposing) {
             final currentPos = _player.state.position;
             setState(() {
@@ -268,12 +279,23 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             });
             _player.pause();
           }
+          // Breadcrumb only — shows up attached to any *later* fatal event
+          // for context, but doesn't create its own console entry.
+          FirebaseCrashlytics.instance
+              .log('ℹ️ Transient network/stream error (handled): $error');
+          return;
         }
 
-        if (!errorString.contains("failed to open")) {
+        if (isExpectedNonError) {
           FirebaseCrashlytics.instance
-              .recordError(error, null, reason: 'MediaKit Stream Error');
+              .log('ℹ️ Media "failed to open" (expected, handled): $error');
+          return;
         }
+
+        // Anything else is a genuinely unexpected player error — worth
+        // keeping in Crashlytics so it's actually visible.
+        FirebaseCrashlytics.instance
+            .recordError(error, null, reason: 'MediaKit Stream Error', fatal: false);
       });
 
       _player.stream.buffering.listen((buffering) {
@@ -952,24 +974,20 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       bottomButtonBar: [
         const MaterialPositionIndicator(),
         const SizedBox(width: 10),
-        // ✅ [SEEK-LOCK] Mark intentional seeks on the progress bar so
-        // no interference occurs after the user lifts their finger.
+        // ✅ [CRASH-FIX] Replaced media_kit_video's MaterialSeekBar with
+        // SafeSeekBar. The package widget's internal onPointerMove/onPointerUp
+        // read State.context without a `mounted` check, which threw a FATAL
+        // "Null check operator used on a null value" if the screen was
+        // disposed mid-drag. SafeSeekBar guards every callback against
+        // dispose/unmount and never touches context after a gesture.
         Expanded(
-          child: GestureDetector(
-            onHorizontalDragStart: (_) {
-              _acquireSeekLock(const Duration(seconds: 2));
-            },
-            onHorizontalDragEnd: (_) {
-              _acquireSeekLock(const Duration(milliseconds: 1500));
-            },
-            onTapDown: (_) {
-              _acquireSeekLock(const Duration(seconds: 2));
-            },
-            onTapUp: (_) {
-              _acquireSeekLock(const Duration(milliseconds: 1500));
-            },
-            behavior: HitTestBehavior.translucent,
-            child: const MaterialSeekBar(),
+          child: SafeSeekBar(
+            player: _player,
+            onSeekStart: () => _acquireSeekLock(const Duration(seconds: 2)),
+            onSeekEnd: (_) =>
+                _acquireSeekLock(const Duration(milliseconds: 1500)),
+            activeColor: AppColors.accentYellow,
+            thumbColor: AppColors.accentYellow,
           ),
         ),
         const SizedBox(width: 10),
