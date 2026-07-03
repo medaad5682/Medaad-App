@@ -793,7 +793,15 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   Future<void> _resetSystemChrome() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
         overlays: SystemUiOverlay.values);
-    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    // ✅ استعادة كل الاتجاهات (وليس البورتريه فقط) حتى يتمكن المستخدم من
+    // تدوير الجهاز بحرية أثناء استخدام النافذة العائمة، بدلاً من تثبيت
+    // الشاشة على الوضع الرأسي فقط.
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
   }
 
   Future<void> _safeExit() async {
