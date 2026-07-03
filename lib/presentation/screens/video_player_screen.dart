@@ -964,7 +964,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     //   Seeking is now exclusively via left/right double-tap gestures.
     // • The progress bar + position indicator remain in the bottom bar.
     // ─────────────────────────────────────────────────────────────────────
-    final controlsTheme = MaterialVideoControlsThemeData(
+    // ✅ [CRASH-FIX] `_player` is a `late final` field only assigned inside
+    // the async `_initializePlayerScreen()` after several `await`s. Since
+    // `initState()` doesn't await that method, the very first build() calls
+    // can happen before `_player` exists. Building `controlsTheme` (which
+    // reads `_player` via SafeSeekBar) unconditionally used to throw
+    // LateInitializationError on those early frames. Guard it so we only
+    // construct it once the player is actually ready.
+    final controlsTheme = !_isInitialized
+        ? null
+        : MaterialVideoControlsThemeData(
       displaySeekBar: false,
       padding: EdgeInsets.only(
           top: padding.top > 0 ? padding.top : 20,
@@ -1082,7 +1091,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   child: Directionality(
                     textDirection: TextDirection.ltr,
                     child: MaterialVideoControlsTheme(
-                      normal: controlsTheme,
+                      // Safe: this branch only renders when _isInitialized
+                      // is true (see the enclosing if/else above), which is
+                      // exactly when controlsTheme is non-null.
+                      normal: controlsTheme!,
                       fullscreen: controlsTheme,
                       child: Video(controller: _controller, fit: BoxFit.contain),
                     ),
