@@ -785,8 +785,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Future<void> _resetSystemChrome() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
         overlays: SystemUiOverlay.values);
+    // ✅ استعادة كل الاتجاهات (رأسي وأفقي) بدلاً من تثبيت الشاشة على
+    // الوضع الرأسي فقط عند الخروج من مشغل الفيديو.
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
     ]);
     await Future.delayed(const Duration(milliseconds: 250));
   }
