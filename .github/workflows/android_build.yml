@@ -72,19 +72,19 @@ jobs:
             echo "$KEYSTORE_DATA" | tr -d '[:space:]' | base64 -d > android/app/keystore/upload-keystore.jks
           fi
 
-      # ✅ 3. بناء نسخة الـ Debug
-      - name: Build Debug APK
+      # ✅ 3. البناء الموحد (ملف واحد شامل للمعالجين)
+      - name: Build Fat APK (Universal)
         env:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           APP_SECRET: ${{ secrets.APP_SECRET }}
         run: |
-          # بناء APK نسخة الديباج (يقوم Flutter بدمج المعماريات تلقائياً في الديباج)
-          flutter build apk --debug --dart-define=APP_SECRET="$APP_SECRET" 
+          # بناء APK واحد يحتوي على كل المعماريات
+          flutter build apk --release --target-platform android-arm,android-arm64 --dart-define=APP_SECRET="$APP_SECRET" 
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
