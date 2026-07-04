@@ -140,16 +140,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Future<void> _initializeProtection() async {
     try {
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
-      await _protectionService.blockAudioCapture();
-      await _protectionService.startMonitoring();
-      _recordingSubscription =
-          _protectionService.recordingStateStream.listen((isRecording) {
-        if (isRecording) {
-          _handleRecordingDetected();
-        }
-      });
+     // await FlutterWindowManagerPlus.addFlags(
+     //     FlutterWindowManagerPlus.FLAG_SECURE);
+   //   await _protectionService.blockAudioCapture();
+  //    await _protectionService.startMonitoring();
+  //    _recordingSubscription =
+  //        _protectionService.recordingStateStream.listen((isRecording) {
+  //      if (isRecording) {
+   //       _handleRecordingDetected();
+  //            });
       debugPrint("🛡️ Protection Enabled in Video Player");
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -171,7 +170,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     if (state == AppLifecycleState.paused) {
       _player.pause();
     } else if (state == AppLifecycleState.resumed) {
-      _protectionService.blockAudioCapture();
+     // _protectionService.blockAudioCapture();
       if (_isRecordingDetected) {
         _player.setVolume(0.0);
         _player.pause();
