@@ -26,10 +26,12 @@ class MainActivity: FlutterActivity() {
 
         // ✅ 1. منع تسجيل الفيديو وأخذ لقطات الشاشة (FLAG_SECURE)
         // Applied in onCreate before first frame — consistent with FlutterWindowManagerPlus in Dart
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
+        
+        // ** تم التهميش مؤقتاً لتصوير الفيديو **
+        // window.setFlags(
+        //     WindowManager.LayoutParams.FLAG_SECURE,
+        //     WindowManager.LayoutParams.FLAG_SECURE
+        // )
 
         // ✅ 2. منع تسجيل الصوت الداخلي (Internal Audio) - Android 10+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -42,7 +44,8 @@ class MainActivity: FlutterActivity() {
         }
 
         // ✅ 3. بدء حلقة المراقبة المستمرة للتطبيقات الخارجية
-        startRecordingMonitoring()
+        // ** تم التهميش مؤقتاً لتصوير الفيديو **
+        // startRecordingMonitoring()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -167,7 +170,10 @@ class MainActivity: FlutterActivity() {
         // ✅ Re-apply FLAG_SECURE on every resume so it is never left stripped
         // after returning from a child route (e.g. NativeVideoPlayerScreen) that
         // may have called FlutterWindowManagerPlus.clearFlags before popping.
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        
+        // ** تم التهميش مؤقتاً لتصوير الفيديو **
+        // window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             audioManager?.allowedCapturePolicy = 3
         }
