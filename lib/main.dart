@@ -98,7 +98,8 @@ void main() async {
     // =========================================================
     // ✅ تم النقل هنا: تفعيل وضع الأمان فوراً قبل أي شيء (حل N-03)
     // =========================================================
-    await _enableSecureMode();
+    // ** تم التهميش مؤقتاً لتصوير الفيديو **
+    // await _enableSecureMode();
 
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -221,11 +222,10 @@ void main() async {
     // Locale (EN/AR)
     await AppState().initLocale();
 
+    // ** تم التعديل لتصوير الفيديو بإزالة SecureScreenWidget **
     runApp(
-      SecureScreenWidget(useBlur: true,
-        child: const RestartWidget(
-          child: EduVantageApp(),
-        ),
+      const RestartWidget(
+        child: EduVantageApp(),
       ),
     );
   }, (error, stack) async {
