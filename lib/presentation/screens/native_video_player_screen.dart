@@ -220,14 +220,14 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
   Future<void> _initializeProtection() async {
     try {
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
-      await _protectionService.blockAudioCapture();
-      await _protectionService.startMonitoring();
-      _recordingSubscription =
-          _protectionService.recordingStateStream.listen((isRecording) {
-        if (isRecording) _handleRecordingDetected();
-      });
+     // await FlutterWindowManagerPlus.addFlags(
+       //   FlutterWindowManagerPlus.FLAG_SECURE);
+ //     await _protectionService.blockAudioCapture();
+ //     await _protectionService.startMonitoring();
+//      _recordingSubscription =
+   //       _protectionService.recordingStateStream.listen((isRecording) {
+  //      if (isRecording) _handleRecordingDetected();
+ //     });
       debugPrint("🛡️ Protection Enabled in Native Video Player");
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -249,12 +249,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (state == AppLifecycleState.paused) {
       _betterPlayerController?.pause();
     } else if (state == AppLifecycleState.resumed) {
-      FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
-          .catchError((_) {});
-      _protectionService.blockAudioCapture();
-      if (_isRecordingDetected) {
-        _betterPlayerController?.setVolume(0.0);
-        _betterPlayerController?.pause();
+   //   FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
+  //        .catchError((_) {});
+   //   _protectionService.blockAudioCapture();
+     if (_isRecordingDetected) {
+       _betterPlayerController?.setVolume(0.0);
+       _betterPlayerController?.pause();
       }
     }
   }
