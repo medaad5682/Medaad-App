@@ -26,7 +26,9 @@ class _ScreenProtectWrapperState extends State<ScreenProtectWrapper>
     try {
       // هذا الأمر يمنع أخذ لقطات شاشة أو تصوير فيديو من الخلفية (App Switcher)
       // ويقضي على ثغرة الـ Race Condition الزمني تماماً
-      await FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE);
+      
+      // ** تم التهميش مؤقتاً لتصوير الفيديو **
+      // await FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE);
     } catch (e) {
       debugPrint("Failed to secure screen: $e");
     }
@@ -43,7 +45,10 @@ class _ScreenProtectWrapperState extends State<ScreenProtectWrapper>
     // لو التطبيق راح للخلفية
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      setState(() => _isProtected = true);
+          
+      // ** تم التهميش مؤقتاً لتصوير الفيديو لمنع الشاشة السوداء عند سحب الإشعارات **
+      // setState(() => _isProtected = true);
+      
     } else if (state == AppLifecycleState.resumed) {
       setState(() => _isProtected = false);
     }
