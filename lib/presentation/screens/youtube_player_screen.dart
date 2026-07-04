@@ -95,22 +95,22 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
   Future<void> _initializeProtection() async {
     try {
       // منع Screenshot & Screen Recording
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
+     // await FlutterWindowManagerPlus.addFlags(
+      //    FlutterWindowManagerPlus.FLAG_SECURE);
 
       // حظر التقاط الصوت
-      await _protectionService.blockAudioCapture();
+   //   await _protectionService.blockAudioCapture();
 
       // بدء مراقبة تطبيقات التسجيل
-      await _protectionService.startMonitoring();
+   //   await _protectionService.startMonitoring();
 
       // الاستماع لأي محاولة تسجيل
-      _recordingSubscription =
-          _protectionService.recordingStateStream.listen((isRecording) {
-        if (isRecording) {
-          _handleRecordingDetected();
-        }
-      });
+ //     _recordingSubscription =
+//       _protectionService.recordingStateStream.listen((isRecording) {
+    //    if (isRecording) {
+    //      _handleRecordingDetected();
+   //     }
+  //    });
     } catch (e) {
       FirebaseCrashlytics.instance
           .recordError(e, null, reason: 'Protection Init Error');
@@ -138,7 +138,7 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
     if (state == AppLifecycleState.paused) {
       _controller.pause();
     } else if (state == AppLifecycleState.resumed) {
-      _protectionService.blockAudioCapture();
+//   _protectionService.blockAudioCapture();
 
       // إذا كان هناك تسجيل، نعيد تطبيق الحظر (كتم وإيقاف)
       if (_isRecordingDetected) {
