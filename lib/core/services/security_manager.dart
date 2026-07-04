@@ -29,17 +29,19 @@ class SecurityManager {
   void initListeners() {
     _audioProtection.startMonitoring();
 
-    _audioProtection.recordingStateStream.listen((isRecording) {
-      if (isRecording) {
-        _triggerBreach("تم اكتشاف تسجيل للشاشة أو الصوت!");
-      }
-    });
+    // ** تم التهميش مؤقتاً لتصوير الفيديو (مستمع تسجيل الشاشة) **
+    // _audioProtection.recordingStateStream.listen((isRecording) {
+    //   if (isRecording) {
+    //     _triggerBreach("تم اكتشاف تسجيل للشاشة أو الصوت!");
+    //   }
+    // });
 
-    ScreenProtector.addListener(() {
-      // Screenshot callback
-    }, (isCapturing) {
-      if (isCapturing) _triggerBreach("تم اكتشاف تصوير للشاشة!");
-    });
+    // ** تم التهميش مؤقتاً لتصوير الفيديو (مستمع لقطة الشاشة) **
+    // ScreenProtector.addListener(() {
+    //   // Screenshot callback
+    // }, (isCapturing) {
+    //   if (isCapturing) _triggerBreach("تم اكتشاف تصوير للشاشة!");
+    // });
   }
 
   // [FIX F-14] Enhanced emulator detection using hardware-based signals:
@@ -151,6 +153,8 @@ class SecurityManager {
   }
 
   Future<bool> forceReCheck() async {
+    // ✅ ملاحظة: لم نقم بتهميش هذا السطر لأنه يتم تشغيله فقط عند الفحص اليدوي (زر إعادة المحاولة)، 
+    // ولكن إن واجهت رسالة "لا يزال تسجيل الشاشة قيد العمل" عند إعادة المحاولة، يمكنك جعل القيمة false مؤقتاً.
     bool isRecording = await _audioProtection.checkRecordingStatus();
     bool isDevMode = await SafeDevice.isDevelopmentModeEnable;
     bool isJailBroken = await SafeDevice.isJailBroken;
