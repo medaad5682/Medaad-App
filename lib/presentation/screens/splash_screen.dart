@@ -268,8 +268,38 @@ class _SplashScreenState extends State<SplashScreen>
           ElevatedButton(
             onPressed: () async {
               final uri = Uri.parse(result.storeUrl);
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri);
+              // ✅ إصلاح Crash فادح: launchUrl() على iOS يفتح الرابط
+              // افتراضيًا داخل SafariViewController مضمّن داخل التطبيق. إذا
+              // فشل تحميل الصفحة داخل هذا العرض المضمّن (لا يوجد اتصال،
+              // إعادة توجيه غير متوقعة، إلخ)، يرمي url_launcher_ios
+              // استثناءً. بما أن هذا الاستدعاء يقع داخل onPressed غير
+              // منتظر (unawaited) بلا try/catch، كان الاستثناء يهرب إلى
+              // معالج الأخطاء غير الملتقطة في الـ Zone ويُسقط التطبيق
+              // بالكامل (Fatal Exception كما ظهر في Crashlytics).
+              //
+              // الحل: (1) استخدام LaunchMode.externalApplication لأن رابط
+              // المتجر (App Store / Play Store) يجب أن يفتح التطبيق
+              // الأصلي للمتجر مباشرة وليس متصفحًا مضمّنًا — وهو الأنسب هنا
+              // على أي حال، و(2) لف الاستدعاء بـ try/catch حتى لا يسقط أي
+              // فشل غير متوقع التطبيق، مع تسجيله كخطأ غير فادح وإعلام
+              // المستخدم بدلاً من ذلك.
+              try {
+                final launched = await canLaunchUrl(uri) &&
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                if (!launched && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(AppLocalizations.of(context)!
+                            .couldNotOpenStoreLink)),
+                  );
+                }
+              } catch (e, stack) {
+                FirebaseCrashlytics.instance.recordError(
+                  e,
+                  stack,
+                  reason: 'Update store link launch failed',
+                  fatal: false,
+                );
               }
             },
             child: Text(AppLocalizations.of(context)!.updateNow),
