@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:Medaad/app.dart';
 import 'package:Medaad/core/services/security_manager.dart';
 import 'package:Medaad/core/services/widgets/restart_widget.dart';
@@ -133,57 +134,87 @@ void main() async {
     await StorageService.openBox('pdf_drawings_db');
 
     // ✅ طلب إذن الإشعارات من المستخدم وجلب التوكن وحفظه في Hive
-    FirebaseMessaging messaging = FirebaseMessaging.instance;
-    NotificationSettings settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    // ⚠️ [FIX] Everything in this block is now wrapped in try/catch so that a
+    // push-notification failure (e.g. missing APNS token, no network, denied
+    // permission) can NEVER stop the rest of main() from running / block runApp().
+    try {
+      FirebaseMessaging messaging = FirebaseMessaging.instance;
+      NotificationSettings settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      debugPrint("🔔 Notification permission status: ${settings.authorizationStatus}");
 
-    // ✅ مهم جداً لـ iOS: السماح بعرض الإشعارات والتطبيق مفتوح (Foreground)
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+      // ✅ مهم جداً لـ iOS: السماح بعرض الإشعارات والتطبيق مفتوح (Foreground)
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
 
-    // [FIX F-07] FCM token log is now debug-only (stripped in release builds)
-    String? fcmToken = await messaging.getToken();
-    assert(() {
-      debugPrint("🔥 FCM Token: $fcmToken");
-      return true;
-    }());
+      // ✅ [FIX] iOS requires the APNS token to be registered with the OS
+      // BEFORE getToken() can fetch an FCM token. Without this wait,
+      // getToken() throws "APNS token has not been set yet", which was
+      // crashing the app before runApp() was ever reached.
+      if (!kIsWeb && Platform.isIOS) {
+        String? apnsToken = await messaging.getAPNSToken();
+        int attempts = 0;
+        while (apnsToken == null && attempts < 10) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          apnsToken = await messaging.getAPNSToken();
+          attempts++;
+        }
+        if (apnsToken == null) {
+          debugPrint("⚠️ APNS token still null after waiting — skipping FCM token fetch.");
+        }
+      }
 
-    if (fcmToken != null) {
-      await authBox.put('fcm_token', fcmToken);
+      // [FIX F-07] FCM token log is now debug-only (stripped in release builds)
+      String? fcmToken = await messaging.getToken();
+      assert(() {
+        debugPrint("🔥 FCM Token: $fcmToken");
+        return true;
+      }());
+
+      if (fcmToken != null) {
+        await authBox.put('fcm_token', fcmToken);
+      }
+
+      // =========================================================================
+      // ✅ إضافة كود التوجيه عند الضغط على الإشعار (Notification Click Handling)
+      // =========================================================================
+
+      // 1. إذا كان التطبيق مغلقاً تماماً (Terminated) وتم فتحه عن طريق الضغط على الإشعار
+      FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+        if (message != null) {
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            if (navigatorKey.currentState != null) {
+              navigatorKey.currentState!.push(
+                MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+              );
+            }
+          });
+        }
+      });
+
+      // 2. إذا كان التطبيق يعمل في الخلفية (Background) وتم الضغط على الإشعار
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        if (navigatorKey.currentState != null) {
+          navigatorKey.currentState!.push(
+            MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+          );
+        }
+      });
+      // =========================================================================
+    } catch (e, st) {
+      // Push notifications failing to set up should degrade gracefully —
+      // never take down the whole app launch.
+      debugPrint("⚠️ FCM setup failed (non-fatal): $e");
+      if (Firebase.apps.isNotEmpty) {
+        await FirebaseCrashlytics.instance.recordError(e, st, fatal: false);
+      }
     }
-
-    // =========================================================================
-    // ✅ إضافة كود التوجيه عند الضغط على الإشعار (Notification Click Handling)
-    // =========================================================================
-    
-    // 1. إذا كان التطبيق مغلقاً تماماً (Terminated) وتم فتحه عن طريق الضغط على الإشعار
-    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
-      if (message != null) {
-        Future.delayed(const Duration(milliseconds: 1500), () {
-          if (navigatorKey.currentState != null) {
-            navigatorKey.currentState!.push(
-              MaterialPageRoute(builder: (context) => const NotificationsScreen()),
-            );
-          }
-        });
-      }
-    });
-
-    // 2. إذا كان التطبيق يعمل في الخلفية (Background) وتم الضغط على الإشعار
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      if (navigatorKey.currentState != null) {
-        navigatorKey.currentState!.push(
-          MaterialPageRoute(builder: (context) => const NotificationsScreen()),
-        );
-      }
-    });
-    // =========================================================================
 
     MediaKit.ensureInitialized();
 
