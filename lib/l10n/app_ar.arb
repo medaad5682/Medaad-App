@@ -321,6 +321,7 @@
   "detailedAnalysisLabel": "تحليل مفصل",
   "writtenQuestionsPendingGrading": "الأسئلة المقالية بانتظار التصحيح",
   "couldNotOpenWhatsapp": "تعذر فتح واتساب",
+  "couldNotOpenStoreLink": "تعذر فتح رابط المتجر. يرجى تحديث التطبيق يدويًا.",
   "errorLoadingProfile": "حدث خطأ أثناء تحميل الملف الشخصي",
   "chatOnWhatsapp": "تواصل عبر واتساب",
   "noBioAvailable": "لا توجد نبذة تعريفية.",
