@@ -673,8 +673,8 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                       });
                     },
                     child: Container(
-                      width: 22,
-                      height: 22,
+                      width: 30,
+                      height: 30,
                       decoration: BoxDecoration(
                         color: Colors.black54,
                         borderRadius: const BorderRadius.only(
@@ -684,7 +684,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                       child: const Icon(
                         Icons.open_in_full,
                         color: Colors.white54,
-                        size: 12,
+                        size: 18,
                       ),
                     ),
                   ),
@@ -715,13 +715,13 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                   _fvc.stopFloating();
                 },
                 child: Container(
-                  padding: const EdgeInsets.all(3),
+                  padding: const EdgeInsets.all(5),
                   decoration: BoxDecoration(
                     color: Colors.black54,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.close,
-                      color: Colors.white, size: 14),
+                      color: Colors.white, size: 20),
                 ),
               ),
             ),
@@ -729,26 +729,26 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
             // ── Expand to full screen (top-right, next to close) ─
             Positioned(
               top: 4,
-              right: 28,
+              right: 38,
               child: GestureDetector(
                 onTap: _expandToFullScreen,
                 child: Container(
-                  padding: const EdgeInsets.all(3),
+                  padding: const EdgeInsets.all(5),
                   decoration: BoxDecoration(
                     color: Colors.black54,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.fullscreen,
-                      color: Colors.white, size: 15),
+                      color: Colors.white, size: 20),
                 ),
               ),
             ),
 
             // ── Title (top-left) ─────────────────────────────
             Positioned(
-              top: 6,
+              top: 8,
               left: 6,
-              right: 52,
+              right: 72,
               child: Text(
                 _fvc.videoState?.title ?? '',
                 overflow: TextOverflow.ellipsis,
@@ -773,7 +773,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                   _showControls();
                 },
                 child: Container(
-                  padding: const EdgeInsets.all(6),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: Colors.black45,
                     shape: BoxShape.circle,
@@ -783,7 +783,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                         ? Icons.pause
                         : Icons.play_arrow,
                     color: Colors.white,
-                    size: 22,
+                    size: 34,
                   ),
                 ),
               ),
