@@ -558,12 +558,32 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       _fitIndex = (_fitIndex + 1) % _fitCycle.length;
       _videoFit = _fitCycle[_fitIndex];
     });
-    // Dart-side BoxFit only repaints the Flutter FittedBox wrapper around the
-    // texture. On Android that's enough because ExoPlayer hands over the raw
-    // frame untouched. On iOS, better_player_plus's AVPlayerLayer already
-    // scales/crops the frame natively according to its own videoGravity
-    // setting *before* Flutter ever sees it — so changing BoxFit alone has no
-    // visible effect there. iOS needs its native gravity updated separately.
+
+    // ✅ إصلاح: أيقونة تغيير أبعاد الفيديو توقفت عن العمل.
+    //
+    // السبب: _videoFit كان يُمرَّر إلى BetterPlayerConfiguration.fit مرة
+    // واحدة فقط عند إنشاء الـ controller في _initializePlayer(). تغييره هنا
+    // كان يُحدّث حقل الحالة المحلي فقط ويستدعي setState() الخاص بهذه
+    // الشاشة — لكن هذا لا يجعل حزمة better_player_plus تعيد رسم الفيديو
+    // بأبعاد جديدة، لأن الحزمة لا "ترى" هذا الحقل إطلاقًا؛ هي تقرأ fit مرة
+    // واحدة من التهيئة الأصلية عند الإنشاء ولا تُعيد قراءته بعد ذلك. التعليق
+    // القديم أشار إلى وجود "FittedBox" يلتقط BoxFit بشكل تفاعلي، لكن لا يوجد
+    // مثل هذا الغلاف في الشجرة — BetterPlayer(controller: ...) هو نقطة
+    // الرسم الوحيدة، وليس هناك أي widget آخر يعتمد على _videoFit.
+    //
+    // الحل: استدعاء BetterPlayerController.setOverriddenFit() الذي توفره
+    // الحزمة تحديدًا لهذا الغرض — تغيير أبعاد الفيديو أثناء التشغيل دون
+    // إعادة إنشاء الـ controller بالكامل. هذا يعمل على أندرويد (حيث يُطبَّق
+    // عبر Flutter مباشرة) وعلى iOS ستبقى الحاجة أيضًا لتحديث الـ
+    // videoGravity الأصلي بشكل منفصل كما كان (انظر _applyIOSVideoGravity)
+    // لأن AVPlayerLayer يُقصّ/يُحجّم الإطار أصليًا قبل وصوله لِـ Flutter.
+    try {
+      _betterPlayerController?.setOverriddenFit(_videoFit);
+    } catch (e) {
+      FirebaseCrashlytics.instance
+          .recordError(e, null, reason: 'Native Player setOverriddenFit Error');
+    }
+
     _applyIOSVideoGravity();
   }
 
