@@ -508,6 +508,25 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
         screen.width - _width - widget.initialOffset.dx,
         screen.height - _height - widget.initialOffset.dy,
       );
+    } else {
+      // ✅ إصلاح: النافذة العائمة كانت "تختفي" عند تدوير الجهاز.
+      //
+      // السبب: _position (إحداثيات أعلى-يسار النافذة) كانت تُثبّت فقط داخل
+      // معالجات السحب (onPanUpdate) ومقبض التصغير، ولا يُعاد ضبطها إطلاقًا
+      // عند تغيّر *مقاس الشاشة نفسه* بسبب التدوير — فقط _width كانت تُعاد
+      // مطابقتها أعلاه. فمثلاً في الوضع الأفقي (812×375) قد تكون
+      // _position.dx ≈ 556 (بالقرب من الحافة اليمنى)، وهي قيمة صالحة تمامًا
+      // هناك. لكن عند التدوير للوضع الرأسي يصبح عرض الشاشة 375 فقط بينما
+      // تبقى dx=556 كما هي — أي خارج حدود الشاشة الجديدة تمامًا، فتُرسم
+      // النافذة العائمة فعليًا خارج الشاشة المرئية (لم تُغلق ولم تُتلف، لكنها
+      // غير مرئية فقط). عند العودة إلى الوضع الأفقي يتسع عرض الشاشة من جديد
+      // فتصبح dx=556 صالحة مجددًا، فتظهر النافذة كأنها "عادت" من العدم.
+      //
+      // الحل: إعادة تثبيت (clamp) _position ضمن حدود الشاشة الحالية في كل
+      // بناء (build)، وليس فقط داخل معالجات السحب/التصغير. العملية رخيصة
+      // (مجرد عمليتي clamp) ولا تؤثر على أي شيء إذا كانت النافذة أصلاً ضمن
+      // الحدود الصحيحة.
+      _position = _clampPosition(_position, screen);
     }
 
     return AnimatedPositioned(
@@ -636,14 +655,14 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                               _seekBubbleForward
                                   ? Icons.fast_forward
                                   : Icons.fast_rewind,
-                              color: Colors.white.withOpacity(0.9),
+                              color: AppColors.accentYellow,
                               size: 14,
                             ),
                             const SizedBox(width: 2),
                             Text(
                               '${_seekBubbleSeconds}s',
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
+                                color: AppColors.accentYellow,
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 decoration: TextDecoration.none,
@@ -681,9 +700,9 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                           bottomRight: Radius.circular(10),
                         ),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.open_in_full,
-                        color: Colors.white54,
+                        color: AppColors.accentYellow.withOpacity(0.85),
                         size: 18,
                       ),
                     ),
@@ -721,7 +740,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.close,
-                      color: Colors.white, size: 20),
+                      color: AppColors.accentYellow, size: 20),
                 ),
               ),
             ),
@@ -739,7 +758,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.fullscreen,
-                      color: Colors.white, size: 20),
+                      color: AppColors.accentYellow, size: 20),
                 ),
               ),
             ),
@@ -782,7 +801,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                     _isPlaying
                         ? Icons.pause
                         : Icons.play_arrow,
-                    color: Colors.white,
+                    color: AppColors.accentYellow,
                     size: 34,
                   ),
                 ),
