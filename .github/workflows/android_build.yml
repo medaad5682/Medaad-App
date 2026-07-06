@@ -72,19 +72,19 @@ jobs:
             echo "$KEYSTORE_DATA" | tr -d '[:space:]' | base64 -d > android/app/keystore/upload-keystore.jks
           fi
 
-      # ✅ 3. بناء نسخة App Bundle (AAB) مع تحديد رقم الإصدار
-      - name: Build App Bundle (AAB)
+      # ✅ 3. البناء الموحد (ملف واحد شامل للمعالجين)
+      - name: Build Fat APK (Universal)
         env:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           APP_SECRET: ${{ secrets.APP_SECRET }}
         run: |
-          # بناء AAB مع تحديد الإصدار 2.0.0 ورقم البناء 16
-          flutter build appbundle --release --build-name=2.0.0 --build-number=16 --dart-define=APP_SECRET="$APP_SECRET" 
+          # بناء APK واحد يحتوي على كل المعماريات
+          flutter build apk --release --target-platform android-arm,android-arm64 --dart-define=APP_SECRET="$APP_SECRET" 
 
-      - name: Upload AAB Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-aab
-          path: build/app/outputs/bundle/release/app-release.aab
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
