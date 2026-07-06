@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -78,15 +79,8 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   bool _seekIndicatorIsForward = true;
 
   BoxFit _videoFit = BoxFit.contain;
-  // [FIX] BoxFit.fitWidth was replaced with BoxFit.cover.
-  // On iOS, better_player_plus maps BoxFit to native AVLayerVideoGravity,
-  // and BOTH BoxFit.contain and BoxFit.fitWidth map to the same 'aspect'
-  // gravity — so the resize button looked broken on iOS (2 of 3 taps
-  // showed no visual change). BoxFit.cover maps to a distinct 'fill'
-  // (crop-to-fill) gravity on iOS, giving 3 genuinely different states
-  // on both Android and iOS.
-  static const List<BoxFit> _fitCycle = [BoxFit.contain, BoxFit.fill, BoxFit.cover];
-  static const List<String> _fitLabels = ['16:9', 'Full', 'Fill'];
+  static const List<BoxFit> _fitCycle = [BoxFit.contain, BoxFit.fill, BoxFit.fitWidth];
+  static const List<String> _fitLabels = ['16:9', 'Full', 'Wide'];
   int _fitIndex = 0;
 
   bool _isHolding2x = false;
@@ -430,6 +424,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         }
         _attachVideoListener(); // 🟢 ربط الـ Listener المخصص
         _applyHandoffStateIfNeeded();
+        // Sync iOS's native videoGravity with the current fit selection now
+        // that the player (and its platform view) actually exists.
+        _applyIOSVideoGravity();
         break;
       default:
         break;
@@ -561,7 +558,48 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       _fitIndex = (_fitIndex + 1) % _fitCycle.length;
       _videoFit = _fitCycle[_fitIndex];
     });
-    _betterPlayerController?.setOverriddenFit(_videoFit);
+    // Dart-side BoxFit only repaints the Flutter FittedBox wrapper around the
+    // texture. On Android that's enough because ExoPlayer hands over the raw
+    // frame untouched. On iOS, better_player_plus's AVPlayerLayer already
+    // scales/crops the frame natively according to its own videoGravity
+    // setting *before* Flutter ever sees it — so changing BoxFit alone has no
+    // visible effect there. iOS needs its native gravity updated separately.
+    _applyIOSVideoGravity();
+  }
+
+  /// Mirrors the current [_videoFit] selection to iOS's native AVPlayerLayer
+  /// videoGravity via the platform channel exposed on VideoPlayerController.
+  /// Safe to call on any platform — the underlying call is a no-op on Android.
+  void _applyIOSVideoGravity() {
+    if (!Platform.isIOS) return;
+    final vpc = _betterPlayerController?.videoPlayerController;
+    if (vpc == null) return;
+    // Maps our fit cycle to better_player_plus's iOS gravity strings:
+    // 'aspect'  -> AVLayerVideoGravityResizeAspect     (letterboxed, like BoxFit.contain)
+    // 'stretch' -> AVLayerVideoGravityResize           (non-uniform stretch, like BoxFit.fill)
+    // 'fill'    -> AVLayerVideoGravityResizeAspectFill (crop to fill, closest to BoxFit.fitWidth)
+    final String gravity;
+    switch (_videoFit) {
+      case BoxFit.fill:
+        gravity = 'stretch';
+        break;
+      case BoxFit.fitWidth:
+        gravity = 'fill';
+        break;
+      case BoxFit.contain:
+      default:
+        gravity = 'aspect';
+        break;
+    }
+    try {
+      vpc.setAspectRatio(gravity);
+    } catch (e) {
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        null,
+        reason: 'Native Player iOS setAspectRatio Error',
+      );
+    }
   }
 
   void _onHoldStart() {
@@ -1158,7 +1196,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                       ? Icons.crop_16_9
                                       : _fitIndex == 1
                                           ? Icons.fit_screen
-                                          : Icons.crop_free,
+                                          : Icons.width_full,
                                   color: AppColors.accentYellow,
                                 ),
                                 onPressed: _cycleVideoFit,
