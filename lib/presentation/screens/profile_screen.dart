@@ -1,0 +1,823 @@
+import 'package:Medaad/core/services/widgets/restart_widget.dart';
+import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import '../../core/constants/app_colors.dart';
+import '../../core/services/app_state.dart';
+import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
+import '../../core/constants/api_constants.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
+
+// ✅ استيراد main.dart للوصول لخاصية إعادة التشغيل
+import '../../main.dart';
+
+// شاشات الإعدادات العامة
+import 'edit_profile_screen.dart';
+import 'change_password_screen.dart';
+import 'dev_info_screen.dart';
+import 'login_screen.dart';
+
+// شاشات الطالب
+import 'my_requests_screen.dart';
+
+// شاشات المعلم
+import 'teacher/student_requests_screen.dart';
+import 'teacher/manage_students_screen.dart';
+import 'teacher/manage_team_screen.dart';
+import 'teacher/financial_stats_screen.dart';
+import 'package:Medaad/presentation/widgets/directional_icon.dart';
+
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final String _baseUrl = ApiConstants.baseUrl;
+  bool _isTeacher = false;
+  String? _profileImage; // ✅ متغير لتخزين رابط الصورة
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData(); // ✅ تحميل البيانات
+  }
+
+  // ✅ تحميل بيانات المستخدم والصلاحية والصورة
+  Future<void> _loadUserData() async {
+    var box = await StorageService.openBox('auth_box');
+    String? role = box.get('role');
+    String? image = box.get('profile_image'); // ✅ جلب الصورة المخزنة
+
+    if (mounted) {
+      setState(() {
+        _isTeacher = role == 'teacher';
+        _profileImage = image; // ✅ تعيين الصورة
+      });
+    }
+  }
+
+  // 🔥 دالة حذف الحساب (الجديدة)
+  Future<void> _deleteAccount() async {
+    // 1. إظهار نافذة تحذير (تأكيد الحذف)
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.backgroundSecondary,
+        title: Text(
+          AppLocalizations.of(context)!.deleteAccountTitle,
+          style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          AppLocalizations.of(context)!.deleteAccountConfirmMessage,
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(AppLocalizations.of(context)!.cancel,
+                style: TextStyle(color: AppColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(AppLocalizations.of(context)!.delete,
+                style: TextStyle(
+                    color: AppColors.error, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // 2. بدء عملية الحذف
+    try {
+      // إظهار مؤشر تحميل
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) =>
+              const Center(child: CircularProgressIndicator()),
+        );
+      }
+
+      var authBox = await StorageService.openBox('auth_box');
+      final token = authBox.get('jwt_token');
+
+      if (token != null) {
+        // استدعاء API الحذف بالاعتماد على ApiClient
+        await ApiClient.instance.delete(
+          '$_baseUrl/api/student/delete-account',
+          options: Options(
+            validateStatus: (status) => status! < 500,
+          ),
+        );
+      }
+
+      // 3. تنظيف البيانات محلياً والخروج
+      await authBox.clear();
+      AppState().clear();
+
+      if (mounted) {
+        Navigator.pop(context); // إغلاق مؤشر التحميل
+
+        // التوجيه لشاشة الدخول
+        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+          (route) => false,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.accountDeletedSuccessfully),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // إغلاق مؤشر التحميل
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.errorDeletingAccount(e.toString())),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  // دالة تسجيل الخروج
+  Future<void> _logout() async {
+    try {
+      var authBox = await StorageService.openBox('auth_box');
+      final token = authBox.get('jwt_token');
+
+      // 1. إرسال طلب للسيرفر لحذف التوكن
+      if (token != null) {
+        try {
+          // استدعاء API تسجيل الخروج بالاعتماد على ApiClient
+          await ApiClient.instance.post(
+            '$_baseUrl/api/auth/logout',
+            options: Options(
+              validateStatus: (status) => status! < 500,
+              sendTimeout: const Duration(seconds: 3),
+            ),
+          );
+        } catch (e) {
+          debugPrint("Server Logout Warning: $e");
+        }
+      }
+
+      // 2. مسح البيانات محلياً
+      await authBox.clear();
+
+      // 3. مسح الذاكرة
+      AppState().clear();
+
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      debugPrint("Local Logout Error: $e");
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+    }
+  }
+
+  // ✅ دالة لتغيير الثيم وإعادة تشغيل التطبيق
+  void _toggleThemeAndRestart() async {
+    await AppState().toggleTheme();
+
+    // تأخير بسيط لضمان حفظ الإعدادات في Hive
+    await Future.delayed(const Duration(milliseconds: 150));
+
+    if (mounted) {
+      // 🔄 إعادة تشغيل التطبيق بالكامل لإصلاح الألوان
+      RestartWidget.restartApp(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isGuest = AppState().isGuest;
+    final user = AppState().userData;
+
+    final String name = isGuest
+        ? AppLocalizations.of(context)!.guestUserName
+        : (user?['first_name'] ?? AppLocalizations.of(context)!.defaultUserNameLabel)
+            .toUpperCase();
+    final String username = isGuest
+        ? AppLocalizations.of(context)!.notLoggedInLabel
+        : (user?['username'] ?? "@user");
+    final String firstLetter =
+        isGuest ? "?" : (name.isNotEmpty ? name[0] : "U");
+
+    return Scaffold(
+      backgroundColor: AppColors.backgroundPrimary,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                AppLocalizations.of(context)!.myProfileTitle,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _isTeacher
+                    ? AppLocalizations.of(context)!.teacherDashboardSubtitle
+                    : AppLocalizations.of(context)!.manageYourAccountSubtitle,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.accentYellow,
+                  letterSpacing: 2.0,
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // --- User Info Card ---
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: AppColors.backgroundSecondary,
+                  borderRadius: BorderRadius.circular(24),
+                  // ✅ استخدام لون حدود ديناميكي
+                  border: Border.all(
+                      color: AppColors.textSecondary.withOpacity(0.1)),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black12, blurRadius: 8)
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    // ✅ Avatar
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: AppColors.backgroundPrimary,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: AppColors.accentYellow.withOpacity(0.5),
+                            width: 2),
+                        image: (_isTeacher &&
+                                _profileImage != null &&
+                                _profileImage!.isNotEmpty)
+                            ? DecorationImage(
+                                image: NetworkImage(_profileImage!
+                                        .startsWith('http')
+                                    ? _profileImage!
+                                    : '$_baseUrl/api/public/get-avatar?file=$_profileImage'),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
+                      ),
+                      child: (_isTeacher &&
+                              _profileImage != null &&
+                              _profileImage!.isNotEmpty)
+                          ? null
+                          : Center(
+                              child: Text(
+                                firstLetter,
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.accentYellow,
+                                ),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.backgroundPrimary,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              username,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    if (!isGuest)
+                      GestureDetector(
+                        onTap: () {
+                          // ✅ تحديث البيانات عند العودة من شاشة التعديل
+                          Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const EditProfileScreen()))
+                              .then((_) => _loadUserData());
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.backgroundPrimary,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                                color:
+                                    AppColors.textSecondary.withOpacity(0.1)),
+                          ),
+                          child: Icon(LucideIcons.edit2,
+                              size: 16, color: AppColors.accentYellow),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // ========================================================
+              // 🟢 قسم المعلم (يظهر فقط للمعلم)
+              // ========================================================
+              if (_isTeacher && !isGuest) ...[
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
+                  child: Text(
+                    AppLocalizations.of(context)!.teacherControlsSection,
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textSecondary,
+                        letterSpacing: 2.0),
+                  ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.backgroundSecondary,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: AppColors.accentYellow.withOpacity(0.2)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      // 1. طلبات الاشتراك
+                      _buildMenuItem(context,
+                          icon: LucideIcons.bellRing,
+                          title: AppLocalizations.of(context)!.incomingRequestsMenu,
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const StudentRequestsScreen()))),
+                      Divider(
+                          height: 1,
+                          color: AppColors.textSecondary.withOpacity(0.1)),
+
+                      // 2. إدارة الطلاب
+                      _buildMenuItem(context,
+                          icon: LucideIcons.users,
+                          title: AppLocalizations.of(context)!.myStudentsMenu,
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const ManageStudentsScreen()))),
+                      Divider(
+                          height: 1,
+                          color: AppColors.textSecondary.withOpacity(0.1)),
+
+                      // 3. فريق العمل
+                      _buildMenuItem(context,
+                          icon: LucideIcons.shieldCheck,
+                          title: AppLocalizations.of(context)!.manageTeamMenu,
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const ManageTeamScreen()))),
+                      Divider(
+                          height: 1,
+                          color: AppColors.textSecondary.withOpacity(0.1)),
+
+                      // 4. الإحصائيات المالية
+                      _buildMenuItem(context,
+                          icon: LucideIcons.barChart2,
+                          title: AppLocalizations.of(context)!.financialStatsMenu,
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const FinancialStatsScreen()))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+
+              // --- Account Settings (للجميع ما عدا الضيف) ---
+              if (!isGuest) ...[
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
+                  child: Text(
+                    AppLocalizations.of(context)!.accountSettingsSection,
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textSecondary,
+                        letterSpacing: 2.0),
+                  ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.backgroundSecondary,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: AppColors.textSecondary.withOpacity(0.1)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      _buildMenuItem(context,
+                          icon: LucideIcons.user,
+                          title: AppLocalizations.of(context)!.editProfileMenu,
+                          onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const EditProfileScreen()))
+                              .then((_) => _loadUserData())),
+                      Divider(
+                          height: 1,
+                          color: AppColors.textSecondary.withOpacity(0.1)),
+                      _buildMenuItem(context,
+                          icon: LucideIcons.lock,
+                          title: AppLocalizations.of(context)!.changePasswordMenu,
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const ChangePasswordScreen()))),
+
+                      // ⚠️ إظهار "طلباتي" فقط للطالب
+                      if (!_isTeacher) ...[
+                        Divider(
+                            height: 1,
+                            color: AppColors.textSecondary.withOpacity(0.1)),
+                        _buildMenuItem(context,
+                            icon: LucideIcons.clipboardList,
+                            title: AppLocalizations.of(context)!.myRequestsMenu,
+                            onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const MyRequestsScreen()))),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+
+              // --- General Settings ---
+              Padding(
+                padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
+                child: Text(
+                  AppLocalizations.of(context)!.generalSection,
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textSecondary,
+                      letterSpacing: 2.0),
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.backgroundSecondary,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                      color: AppColors.textSecondary.withOpacity(0.1)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    _buildMenuItem(context,
+                        icon: LucideIcons.info,
+                        title: AppLocalizations.of(context)!.appInformationMenu,
+                        onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const DevInfoScreen()))),
+                    Divider(
+                        height: 1,
+                        color: AppColors.textSecondary.withOpacity(0.1)),
+
+                    // ✅ زر تبديل لغة التطبيق (Language Switcher)
+                    _buildMenuItem(
+                      context,
+                      icon: LucideIcons.globe,
+                      title: AppLocalizations.of(context)!.languageMenu,
+                      onTap: () => _showLanguagePicker(context),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            AppState.isArabic
+                                ? AppLocalizations.of(context)!.arabicLanguageOption
+                                : AppLocalizations.of(context)!.englishLanguageOption,
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary),
+                          ),
+                          const SizedBox(width: 6),
+                          DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                              size: 18, color: AppColors.textSecondary)),
+                        ],
+                      ),
+                    ),
+                    Divider(
+                        height: 1,
+                        color: AppColors.textSecondary.withOpacity(0.1)),
+
+                    // ✅ زر التبديل بين الوضعين النهاري والليلي
+                    _buildMenuItem(
+                      context,
+                      icon:
+                          AppState.isDark ? LucideIcons.moon : LucideIcons.sun,
+                      title: AppState.isDark
+                          ? AppLocalizations.of(context)!.darkModeLabel
+                          : AppLocalizations.of(context)!.lightModeLabel,
+                      onTap: _toggleThemeAndRestart,
+                      trailing: Switch(
+                        value: AppState.isDark,
+                        // ✅ ألوان الوضع النشط (Dark Mode)
+                        activeColor: AppColors.accentYellow,
+                        activeTrackColor:
+                            AppColors.accentYellow.withOpacity(0.4),
+
+                        // ✅ ألوان الوضع غير النشط (Light Mode)
+                        inactiveThumbColor: Colors.grey.shade600,
+                        inactiveTrackColor: Colors.grey.shade300,
+
+                        onChanged: (val) {
+                          _toggleThemeAndRestart();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // ========================================================
+              // 🔴 Danger Zone (حذف الحساب) - تمت الإضافة هنا
+              // ========================================================
+              if (!isGuest) ...[
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 8, bottom: 12),
+                  child: Text(
+                    AppLocalizations.of(context)!.dangerZoneSection,
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.error,
+                        letterSpacing: 2.0),
+                  ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.error
+                        .withOpacity(0.05), // لون خلفية خفيف للأحمر
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.error.withOpacity(0.3)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      _buildMenuItem(
+                        context,
+                        icon: LucideIcons.trash2,
+                        title: AppLocalizations.of(context)!.deleteMyAccountMenu,
+                        // أيقونة حمراء لتمييز الخطر
+                        trailing: DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                            size: 18, color: AppColors.error)),
+                        onTap: _deleteAccount, // استدعاء دالة الحذف
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+
+              // --- Logout Button ---
+              GestureDetector(
+                onTap: _logout,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isGuest
+                        ? AppColors.accentYellow
+                        : AppColors.error.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                        color: isGuest
+                            ? AppColors.accentYellow
+                            : AppColors.error.withOpacity(0.2)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(isGuest ? LucideIcons.logIn : LucideIcons.logOut,
+                          color: isGuest
+                              ? AppColors.backgroundPrimary
+                              : AppColors.error,
+                          size: 18),
+                      const SizedBox(width: 12),
+                      Text(
+                          isGuest
+                              ? AppLocalizations.of(context)!.loginRegisterButton
+                              : AppLocalizations.of(context)!.logoutButton,
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: isGuest
+                                  ? AppColors.backgroundPrimary
+                                  : AppColors.error,
+                              letterSpacing: 1.5)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 100),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ دالة لاختيار لغة التطبيق (Language Picker)
+  void _showLanguagePicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.backgroundSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Text(
+                    AppLocalizations.of(context)!.selectLanguageTitle,
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _buildLanguageOption(
+                  context,
+                  label: AppLocalizations.of(context)!.englishLanguageOption,
+                  languageCode: 'en',
+                ),
+                _buildLanguageOption(
+                  context,
+                  label: AppLocalizations.of(context)!.arabicLanguageOption,
+                  languageCode: 'ar',
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLanguageOption(BuildContext context,
+      {required String label, required String languageCode}) {
+    final bool isSelected =
+        AppState().localeNotifier.value.languageCode == languageCode;
+    return ListTile(
+      title: Text(label,
+          style: TextStyle(
+              fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+      trailing: isSelected
+          ? Icon(LucideIcons.check, color: AppColors.accentYellow)
+          : null,
+      onTap: () async {
+        Navigator.pop(context);
+        if (!isSelected) {
+          await AppState().setLocale(Locale(languageCode));
+          // 🔄 إعادة تشغيل التطبيق لتطبيق اللغة الجديدة على كامل الواجهات
+          if (mounted) {
+            await Future.delayed(const Duration(milliseconds: 150));
+            if (mounted) RestartWidget.restartApp(context);
+          }
+        }
+      },
+    );
+  }
+
+  // ✅ دالة بناء العناصر
+  Widget _buildMenuItem(BuildContext context,
+      {required IconData icon,
+      required String title,
+      required VoidCallback onTap,
+      String? badge,
+      Widget? trailing}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.backgroundPrimary,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black26, blurRadius: 2)
+                  ],
+                ),
+                child: Icon(icon, size: 18, color: AppColors.accentYellow),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(title,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary)),
+              ),
+              if (trailing != null)
+                trailing
+              else ...[
+                if (badge != null)
+                  Container(
+                    margin: const EdgeInsetsDirectional.only(end: 12),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                        color: AppColors.accentOrange,
+                        borderRadius: BorderRadius.circular(50)),
+                    child: Text(badge,
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white)),
+                  ),
+                DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                    size: 18, color: AppColors.textSecondary)),
+              ]
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

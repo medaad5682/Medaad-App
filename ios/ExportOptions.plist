@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Store Distribution Method -->
+	<key>method</key>
+	<string>app-store</string>
+	
+	<!-- Upload to App Store Connect -->
+	<key>destination</key>
+	<string>upload</string>
+	
+	<!-- Team ID (سيتم تحديثه من Apple Developer Account) -->
+	<key>teamID</key>
+	<string>YOUR_TEAM_ID</string>
+	
+	<!-- Provisioning Profile UUID (optional - يتم اختياره تلقائياً) -->
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>com.amrai.medaad</key>
+		<string>YOUR_PROVISIONING_PROFILE_NAME</string>
+	</dict>
+	
+	<!-- Signing Certificate -->
+	<key>signingCertificate</key>
+	<string>Apple Distribution</string>
+	
+	<!-- Signing Style -->
+	<key>signingStyle</key>
+	<string>automatic</string>
+	
+	<!-- Upload Symbols for Crash Reports -->
+	<key>uploadSymbols</key>
+	<true/>
+	
+	<!-- Upload Bitcode (Not required for iOS 14+) -->
+	<key>uploadBitcode</key>
+	<false/>
+	
+	<!-- Compile Bitcode -->
+	<key>compileBitcode</key>
+	<false/>
+	
+	<!-- Thinning -->
+	<key>thinning</key>
+	<string>&lt;none&gt;</string>
+	
+	<!-- Strip Swift Symbols -->
+	<key>stripSwiftSymbols</key>
+	<true/>
+	
+	<!-- Manage App Version and Build Number -->
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+	
+	<!-- iCloud Container Environment -->
+	<key>iCloudContainerEnvironment</key>
+	<string>Production</string>
+	
+	<!-- Generate App Size Report -->
+	<key>generateAppStoreInformation</key>
+	<true/>
+</dict>
+</plist>

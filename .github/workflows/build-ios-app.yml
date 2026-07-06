@@ -1,0 +1,130 @@
+name: Build iOS App (Fixed + dSYM Upload)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PUB_CACHE }}
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: ${{ runner.os }}-pub-
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-pods-
+
+      - name: Clean and Install
+        run: |
+          rm -f pubspec.lock
+          rm -f ios/Podfile.lock
+          flutter clean
+          flutter pub get
+
+      - name: Generate App Icons
+        run: flutter pub run flutter_launcher_icons
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+          cd ..
+
+      # 1. إنشاء ملف إعدادات فايربيس
+      - name: Create Firebase Config
+        env:
+          GOOGLE_PLIST_DATA: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
+        run: |
+          if [ -n "$GOOGLE_PLIST_DATA" ]; then
+            echo "$GOOGLE_PLIST_DATA" | base64 --decode > ios/Runner/GoogleService-Info.plist
+          fi
+
+      # 2. إنشاء ملف Entitlements (لحل مشكلة التخزين -34018 والشاشة البيضاء)
+      - name: Create Entitlements File
+        run: |
+          cat <<EOF > ios/Runner/Runner.entitlements
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>keychain-access-groups</key>
+              <array>
+                  <string>$(AppIdentifierPrefix)com.medaad.edu</string>
+              </array>
+              <key>application-identifier</key>
+              <string>$(AppIdentifierPrefix)com.medaad.edu</string>
+          </dict>
+          </plist>
+          EOF
+
+      # 3. البناء
+      - name: Build for Simulator
+        env:
+          My_Sup3r_S3cr3t_K3y_For_Android_App_Only: ${{ secrets.My_Sup3r_S3cr3t_K3y_For_Android_App_Only }}
+        run: |
+          flutter build ios --simulator --debug --no-codesign --dart-define=My_Sup3r_S3cr3t_K3y_For_Android_App_Only="$My_Sup3r_S3cr3t_K3y_For_Android_App_Only"
+
+      # 4. الإصلاحات اليدوية (نسخ الملفات + التوقيع الصحيح)
+      - name: Fix & Sign App
+        run: |
+          APP_PATH="build/ios/iphonesimulator/Runner.app"
+          
+          # نسخ ملف فايربيس قسراً إلى داخل التطبيق
+          cp ios/Runner/GoogleService-Info.plist "$APP_PATH/"
+          
+          # توقيع المكتبات الداخلية
+          find "$APP_PATH/Frameworks" -name "*.framework" -type d -exec codesign --force --sign - {} \;
+          
+          # توقيع التطبيق باستخدام ملف الصلاحيات
+          codesign --force --deep --sign - --entitlements ios/Runner/Runner.entitlements "$APP_PATH"
+
+      # ✅ 5. خطوة جديدة: رفع ملفات dSYM إلى Crashlytics
+      # هذه الخطوة ستحل مشكلة "Unprocessed crash" في لوحة التحكم
+      - name: Upload dSYM to Crashlytics
+        run: |
+          # العثور على أداة الرفع داخل مجلد Pods
+          UPLOAD_TOOL=$(find ios/Pods -name upload-symbols | head -n 1)
+          
+          # مسار ملف dSYM (يتم إنتاجه تلقائياً بجانب التطبيق)
+          DSYM_PATH="build/ios/iphonesimulator/Runner.app.dSYM"
+          
+          if [[ -f "$UPLOAD_TOOL" && -d "$DSYM_PATH" ]]; then
+            echo "🚀 Found upload-symbols tool at: $UPLOAD_TOOL"
+            echo "📂 Found dSYM at: $DSYM_PATH"
+            
+            # تنفيذ أمر الرفع
+            "$UPLOAD_TOOL" -gsp ios/Runner/GoogleService-Info.plist -p ios "$DSYM_PATH"
+            echo "✅ dSYM uploaded successfully!"
+          else
+            echo "⚠️ Could not find upload-symbols tool or dSYM file. Skipping upload."
+            ls -R build/ios/iphonesimulator
+          fi
+
+      # 6. الضغط
+      - name: Compress for Appetize
+        run: |
+          cd build/ios/iphonesimulator
+          zip -r -y -9 Medaad_Appetize_Fixed.zip Runner.app
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Medaad-iOS-Appetize-Fixed
+          path: build/ios/iphonesimulator/Medaad_Appetize_Fixed.zip

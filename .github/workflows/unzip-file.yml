@@ -1,0 +1,45 @@
+name: Unzip WebApp
+
+on:
+  workflow_dispatch: # تشغيل يدوي بضغطة زر
+
+permissions:
+  contents: write # ضروري للسماح برفع الملفات
+
+jobs:
+  extract-webapp:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. سحب ملفات المستودع
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. فك ضغط ملف webapp.zip
+      - name: Unzip webapp.zip
+        run: |
+          if [ -f "webapp.zip" ]; then
+            echo "Found webapp.zip, extracting..."
+            unzip -o webapp.zip
+          else
+            echo "Error: webapp.zip not found!"
+            exit 1
+          fi
+
+      # 3. حذف ملف الـ Zip بعد الفك (اختياري - يفضل حذفه لتوفير المساحة)
+      - name: Remove Zip File
+        run: rm webapp.zip
+
+      # 4. رفع الملفات الجديدة للمستودع
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          
+          git add .
+          
+          if git diff-index --quiet HEAD; then
+            echo "No changes to commit"
+          else
+            git commit -m "Extract webapp.zip contents"
+            git push
+          fi

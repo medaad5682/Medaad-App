@@ -1,0 +1,90 @@
+name: Build Android App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # ✅ 1. تسريع التحميل عبر الكاش (Gradle)
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true # ✅ تفعيل كاش الفلاتر نفسه
+
+      # ✅ 2. تسريع تحميل مكتبات Dart
+      - name: Cache Pub packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PUB_CACHE }}
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      # ✅ التعديل الحاسم هنا: حذف ملف القفل التالف قبل التثبيت
+      - name: Clean and Get Packages
+        run: |
+          echo "Removing corrupted pubspec.lock..."
+          rm -f pubspec.lock
+          flutter clean
+          flutter pub get
+
+      - name: Generate App Icons
+        run: flutter pub run flutter_launcher_icons
+        
+      - name: Create and Verify Keystore
+        env:
+          DATA: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+          KEYSTORE_DATA: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          # التحقق من وجود الأسرار قبل فك التشفير لتجنب الأخطاء
+          if [ -n "$DATA" ]; then
+            echo "$DATA" | tr -d '[:space:]' | base64 -d > android/app/google-services.json
+          fi
+          
+          if [ -n "$KEYSTORE_DATA" ]; then
+            # ✅ التعديل لحل المشكلة: إنشاء مجلد keystore أولاً ثم وضع المفتاح بداخله
+            mkdir -p android/app/keystore
+            echo "$KEYSTORE_DATA" | tr -d '[:space:]' | base64 -d > android/app/keystore/upload-keystore.jks
+          fi
+
+      # ✅ 3. بناء نسخة App Bundle (AAB) مع تحديد رقم الإصدار
+      - name: Build App Bundle (AAB)
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          My_Sup3r_S3cr3t_K3y_For_Android_App_Only: ${{ secrets.My_Sup3r_S3cr3t_K3y_For_Android_App_Only }}
+        run: |
+          # بناء AAB مع تحديد الإصدار 2.0.0 ورقم البناء 16
+          flutter build appbundle --release --build-name=2.0.0 --build-number=16 --dart-define=My_Sup3r_S3cr3t_K3y_For_Android_App_Only="$My_Sup3r_S3cr3t_K3y_For_Android_App_Only" 
+
+      - name: Upload AAB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
