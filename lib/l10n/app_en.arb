@@ -1406,6 +1406,10 @@
   "@couldNotOpenWhatsapp": {
     "description": "Snackbar shown when the WhatsApp link fails to open"
   },
+  "couldNotOpenStoreLink": "Could not open the store link. Please update the app manually.",
+  "@couldNotOpenStoreLink": {
+    "description": "Snackbar shown when the App Store / Play Store update link fails to open"
+  },
   "errorLoadingProfile": "Error loading profile",
   "@errorLoadingProfile": {
     "description": "Error message shown when a teacher profile fails to load"
