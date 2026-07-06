@@ -63,6 +63,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool _isVideoLoading = true;
   bool _isOfflineMode = false;
 
+  // ✅ [QUALITY-SWITCH RESUME FIX] موضع الاستئناف المطلوب بعد فتح مصدر
+  // جديد (مثلاً عند تغيير الجودة). لا نستدعي seek() مباشرة بعد open() لأن
+  // مصدر الشبكة (خصوصاً قائمة HLS جديدة بالكامل عند تبديل الجودة) لا يملك
+  // بعد نطاقاً قابلاً للـ seek عند تلك اللحظة، فتُتجاهل الحركة بصمت.
+  // بدلاً من ذلك نخزّن الهدف هنا، وننفذ الـ seek فعلياً داخل مستمع
+  // buffering أدناه بمجرد انتهاء التخزين المؤقت وقبل استئناف التشغيل.
+  Duration? _pendingResumePosition;
+
   bool _isWeakDevice = false;
 
   int _stabilizingCountdown = 0;
@@ -307,6 +315,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               _player.pause();
               return;
             }
+            // ✅ [QUALITY-SWITCH RESUME FIX] الآن — وليس فور open() — أصبح
+            // للمصدر نطاق قابل للـ seek فعلياً، لذا ننفذ موضع الاستئناف
+            // المخزّن هنا قبل استئناف التشغيل أو بدء العد التنازلي.
+            final resumeAt = _pendingResumePosition;
+            _pendingResumePosition = null;
+            if (resumeAt != null && resumeAt != Duration.zero) {
+              _acquireSeekLock(const Duration(seconds: 2));
+              _player.seek(resumeAt);
+            }
             if (_isOfflineMode) {
               _startCountdown();
             } else {
@@ -352,6 +369,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Future<void> _playVideo(String url, {Duration? startAt}) async {
     if (_isDisposing) return;
+
+    // ✅ [QUALITY-SWITCH RESUME FIX] نخزّن الهدف هنا فقط. الـ seek الفعلي
+    // يحدث لاحقًا داخل مستمع buffering أعلاه، بعد أن يصبح المصدر الجديد
+    // قابلاً للـ seek فعلياً — انظر الشرح هناك.
+    _pendingResumePosition =
+        (startAt != null && startAt != Duration.zero) ? startAt : null;
 
     setState(() {
       _isVideoLoading = true;
@@ -453,9 +476,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       }
 
-      if (startAt != null && startAt != Duration.zero) {
-        await _player.seek(startAt);
-      }
+      // ✅ [QUALITY-SWITCH RESUME FIX] لا نستدعي seek() هنا بعد الآن — انظر
+      // _pendingResumePosition ومستمع buffering أعلاه.
 
       if (_currentSpeed != 1.0) {
         await _player.setRate(_currentSpeed);
