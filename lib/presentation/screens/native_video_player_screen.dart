@@ -78,8 +78,15 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   bool _seekIndicatorIsForward = true;
 
   BoxFit _videoFit = BoxFit.contain;
-  static const List<BoxFit> _fitCycle = [BoxFit.contain, BoxFit.fill, BoxFit.fitWidth];
-  static const List<String> _fitLabels = ['16:9', 'Full', 'Wide'];
+  // [FIX] BoxFit.fitWidth was replaced with BoxFit.cover.
+  // On iOS, better_player_plus maps BoxFit to native AVLayerVideoGravity,
+  // and BOTH BoxFit.contain and BoxFit.fitWidth map to the same 'aspect'
+  // gravity — so the resize button looked broken on iOS (2 of 3 taps
+  // showed no visual change). BoxFit.cover maps to a distinct 'fill'
+  // (crop-to-fill) gravity on iOS, giving 3 genuinely different states
+  // on both Android and iOS.
+  static const List<BoxFit> _fitCycle = [BoxFit.contain, BoxFit.fill, BoxFit.cover];
+  static const List<String> _fitLabels = ['16:9', 'Full', 'Fill'];
   int _fitIndex = 0;
 
   bool _isHolding2x = false;
@@ -1151,7 +1158,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                       ? Icons.crop_16_9
                                       : _fitIndex == 1
                                           ? Icons.fit_screen
-                                          : Icons.width_full,
+                                          : Icons.crop_free,
                                   color: AppColors.accentYellow,
                                 ),
                                 onPressed: _cycleVideoFit,
