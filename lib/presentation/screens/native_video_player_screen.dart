@@ -866,11 +866,30 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       controllerToDispose?.dispose(forceDispose: true);
 
       await WakelockPlus.disable();
-      await _resetSystemChrome();
     } catch (e) {
       FirebaseCrashlytics.instance
           .recordError(e, null, reason: 'Native Player Exit Error');
     }
+
+    // ✅ إصلاح (iPhone 11 تحديدًا): النافذة العائمة لا تظهر أثناء انتقال
+    // إغلاق الشاشة، وتظهر فقط عند إعادة فتح المشغل.
+    //
+    // السبب: _resetSystemChrome() كانت تُستدعى هنا بـ await قبل nav.pop()
+    // مباشرة. هي بدورها تستدعي SystemChrome.setPreferredOrientations
+    // لفتح كل الاتجاهات من جديد — وهذا استدعاء أصلي (native) حقيقي عبر
+    // الـ platform channel. على iOS تحديدًا، تغيير قناع الاتجاهات
+    // المسموحة يجبر UIKit على إعادة استعلام supportedInterfaceOrientations
+    // وقد يُطلق تمريرة إعادة تخطيط (relayout) أصلية على الـ
+    // UIViewController المضيف لمحرك Flutter. بما أننا كنا ننتظر (await)
+    // اكتمال هذه الرحلة الأصلية *قبل* استدعاء nav.pop()، كان الإطار الذي
+    // يُفترض أن يُظهر النافذة العائمة تحت حركة الإغلاق (transition) يتزامن
+    // أحيانًا مع هذه العملية الأصلية ويُبتلع، خصوصاً على جهاز أبطأ مثل
+    // iPhone 11 (شريحة A13 أقدم مقارنة بالأجهزة الأحدث). لا يوجد مكافئ لهذا
+    // على أندرويد، ما يفسّر سبب عمل أندرويد بشكل صحيح دائمًا.
+    //
+    // الحل: نفّذ nav.pop() فورًا أولاً حتى لا يتنافس مع أي رحلة أصلية، ثم
+    // أعد ضبط اتجاهات النظام (والتي لا تحتاج أن تحدث فورًا) بعد ذلك دون
+    // انتظارها (fire-and-forget) حتى لا تحجب أي شيء آخر.
 
     // ✅ نستخدم navigatorKey العام بدلاً من الـ context المحلي للشاشة.
     // السبب: عند تفعيل الفيديو العائم، يتم إدراج FloatingVideoOverlay في
@@ -889,6 +908,10 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       // احتياط إضافي نادر إن كان الـ context المحلي هو المتاح فعلاً
       Navigator.of(context).pop();
     }
+
+    // لا ننتظر (no await): لا يجوز لهذا الاستدعاء الأصلي أن يحجب أو
+    // يتزامن مع حركة إغلاق الشاشة التي بدأت للتو أعلاه.
+    unawaited(_resetSystemChrome());
   }
 
   @override
