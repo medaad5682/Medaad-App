@@ -1,221 +1,394 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:better_player_plus/better_player_plus.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+import '../../core/services/audio_protection_service.dart';
+import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 import '../../core/constants/app_colors.dart';
-import '../../core/services/floating_video_controller.dart';
+import '../../core/services/app_state.dart';
+import '../../core/services/floating_video_controller.dart'; // إضافة متحكم الفيديو العائم
 import '../../main.dart' show navigatorKey;
-import '../screens/native_video_player_screen.dart';
 
-// ============================================================
-// 🎬 FloatingVideoOverlay
-//
-// A draggable, resizable Picture-in-Picture (PiP) video player.
-// Drop this widget inside the Stack of any screen that should
-// support floating video (e.g. PdfViewerScreen).
-//
-// Security contract
-// ─────────────────
-// • FLAG_SECURE is applied at the Android window level by
-//   FlutterWindowManagerPlus.  That flag belongs to the *Activity*
-//   (window), not individual widgets, so it remains active for the
-//   entire app once set — the floating overlay simply inherits it.
-// • This widget never calls removeFlags, so security is preserved.
-// • The FLAG is re-asserted in initState as a belt-and-braces guard.
-// ============================================================
+class NativeVideoPlayerScreen extends StatefulWidget {
+  final Map<String, String> streams;
+  final String title;
 
-class FloatingVideoOverlay extends StatefulWidget {
-  /// Initial position offset from the bottom-right corner.
-  final Offset initialOffset;
+  /// Playback handoff — set when returning from the floating (PiP) player,
+  /// so full-screen resumes at the same position, speed and quality
+  /// instead of restarting from the beginning.
+  final Duration? initialPosition;
+  final double? initialSpeed;
+  final String? initialQuality;
+  final bool initialAutoPlay;
 
-  const FloatingVideoOverlay({
+  const NativeVideoPlayerScreen({
     super.key,
-    this.initialOffset = const Offset(16, 100),
+    required this.streams,
+    required this.title,
+    this.initialPosition,
+    this.initialSpeed,
+    this.initialQuality,
+    this.initialAutoPlay = true,
   });
 
   @override
-  State<FloatingVideoOverlay> createState() => _FloatingVideoOverlayState();
+  State<NativeVideoPlayerScreen> createState() =>
+      _NativeVideoPlayerScreenState();
 }
 
-class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
+class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     with WidgetsBindingObserver {
-  // ── Geometry ────────────────────────────────────────────────
-  static const double _minW = 180.0;
-  // ✅ لا يوجد حد أقصى ثابت بعد الآن — يُحسب الحد الأقصى ديناميكيًا من
-  // مقاس الشاشة في _maxWidthForScreen() بحيث تكبر النافذة العائمة حتى
-  // حواف الشاشة (مع هامش صغير) على أي جهاز، بما في ذلك الأجهزة اللوحية.
-  static const double _screenMargin = 16.0;
-  static const double _aspectRatio = 16 / 9;
+  BetterPlayerController? _betterPlayerController;
 
-  double _width = 240.0;
-  double get _height => _width / _aspectRatio;
+  final AudioProtectionService _protectionService = AudioProtectionService();
+  StreamSubscription? _recordingSubscription;
+  bool _isRecordingDetected = false;
 
-  /// أقصى عرض ممكن للنافذة العائمة بناءً على مقاس الشاشة الحالي، بحيث لا
-  /// يتجاوز عرض أو ارتفاع النافذة حدود الشاشة (مع هامش [_screenMargin]).
-  double _maxWidthForScreen(Size screen) {
-    final maxByWidth = screen.width - (_screenMargin * 2);
-    final maxByHeight = (screen.height - (_screenMargin * 2)) * _aspectRatio;
-    final maxW = maxByWidth < maxByHeight ? maxByWidth : maxByHeight;
-    return maxW < _minW ? _minW : maxW;
-  }
-
-  late Offset _position; // top-left of the floating window
-  bool _isDragging = false;
-
-  // ── Player ──────────────────────────────────────────────────
-  BetterPlayerController? _controller;
-  bool _isPlaying = false;
-  bool _isInitializing = true;
-  bool _isError = false;
-  String _currentQuality = '';
+  String _currentQuality = "";
   List<String> _sortedQualities = [];
-  double _currentSpeed = 1.0;
+
+  bool _isError = false;
+  String _errorMessage = "";
+  bool _isInitializing = true;
+  bool _isDisposing = false;
+
+  int _currentQualityIndex = 0;
   bool _handoffApplied = false;
 
-  // ── Seeking ─────────────────────────────────────────────────
-  Duration _videoPosition = Duration.zero;
-  Duration _videoDuration = Duration.zero;
-  bool _isScrubbing = false;
-  double _scrubFraction = 0.0; // 0..1, only meaningful while scrubbing
-
-  Offset? _lastTapLocalPos;
-  bool _showSeekBubble = false;
-  bool _seekBubbleForward = true;
-  Timer? _seekBubbleTimer;
-  static const Duration _doubleTapSeekStep = Duration(seconds: 10);
-
-  // ✅ التراكم عند النقر المزدوج المتكرر (Cumulative seek):
-  // _seekBurstBase هو الموضع الذي بدأت عنده "الدفعة" الحالية من النقرات
-  // المتتالية، و _seekBurstSteps هو عدد خطوات الـ 10 ثوانٍ المتراكمة
-  // (موجب للأمام، سالب للخلف) ضمن هذه الدفعة. _seekBubbleSeconds تُستخدم
-  // فقط لعرض الرقم التراكمي في فقاعة الـ UI. _seekCommitTimer يؤجل
-  // استدعاء seekTo() الفعلي حتى تهدأ سلسلة النقرات، حتى لا تتنافس عدة
-  // أوامر seek غير متزامنة مع بعضها وتكسر التراكم.
-  Duration _seekBurstBase = Duration.zero;
-  int _seekBurstSteps = 0;
-  int _seekBubbleSeconds = 0;
-  Timer? _seekCommitTimer;
-
-  // ── Watermark ───────────────────────────────────────────────
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
+  String _watermarkText = "";
 
-  // ── Controls visibility ─────────────────────────────────────
+  double _currentSpeed = 1.0;
+  static const List<double> _speedOptions = [
+    0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0,
+  ];
+
+  int _pendingSeekDelta = 0;
+  Duration _seekBaseline = Duration.zero;
+  Timer? _seekIndicatorTimer;
+  bool _showSeekIndicator = false;
+  bool _seekIndicatorIsForward = true;
+
+  BoxFit _videoFit = BoxFit.contain;
+  static const List<BoxFit> _fitCycle = [BoxFit.contain, BoxFit.fill, BoxFit.fitWidth];
+  static const List<String> _fitLabels = ['16:9', 'Full', 'Wide'];
+  int _fitIndex = 0;
+
+  bool _isHolding2x = false;
+  double _speedBeforeHold = 1.0;
+
+  final Map<String, String> _headers = {
+    'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)',
+  };
+
+  // ── Custom Controls State ──────────────────────────────────────────────
   bool _controlsVisible = false;
-  Timer? _controlsTimer;
+  bool _isPlaying = false;
+  Duration _position = Duration.zero;
+  Duration _videoDuration = Duration.zero;
+  bool _isSeekBarDragging = false;
+  Timer? _controlsAutoHideTimer;
 
-  final FloatingVideoController _fvc = FloatingVideoController.instance;
+  void _toggleControls() {
+    if (_betterPlayerController == null || _isDisposing) return;
+    setState(() => _controlsVisible = !_controlsVisible);
+    _resetAutoHideTimer();
+  }
+
+  void _resetAutoHideTimer() {
+    _controlsAutoHideTimer?.cancel();
+    if (_controlsVisible) {
+      _controlsAutoHideTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted && !_isSeekBarDragging) {
+          setState(() => _controlsVisible = false);
+        }
+      });
+    }
+  }
+
+  void _togglePlayPause() {
+    if (_betterPlayerController == null || _isDisposing) return;
+    if (_betterPlayerController!.isPlaying() ?? false) {
+      _betterPlayerController!.pause();
+    } else {
+      _betterPlayerController!.play();
+    }
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _resetAutoHideTimer();
+  }
+
+  void _attachVideoListener() {
+    final vpc = _betterPlayerController?.videoPlayerController;
+    if (vpc == null) return;
+    vpc.removeListener(_onVideoValueChanged);
+    vpc.addListener(_onVideoValueChanged);
+    _onVideoValueChanged();
+  }
+
+  void _onVideoValueChanged() {
+    if (!mounted || _isDisposing) return;
+    final value = _betterPlayerController?.videoPlayerController?.value;
+    if (value == null) return;
+    setState(() {
+      _isPlaying = value.isPlaying;
+      if (!_isSeekBarDragging) _position = value.position;
+      _videoDuration = value.duration ?? Duration.zero;
+    });
+  }
+
+  void _onSeekStart(double _) {
+    _isSeekBarDragging = true;
+    _controlsAutoHideTimer?.cancel();
+  }
+
+  void _onSeekChanged(double value) {
+    setState(() => _position = Duration(milliseconds: value.toInt()));
+  }
+
+  void _onSeekEnd(double value) {
+    try {
+      _betterPlayerController?.seekTo(Duration(milliseconds: value.toInt()));
+    } catch (e) {
+      FirebaseCrashlytics.instance.recordError(e, null, reason: 'Native Player Seekbar Error');
+    }
+    _isSeekBarDragging = false;
+    _resetAutoHideTimer();
+  }
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
+  }
 
   @override
   void initState() {
     super.initState();
-    // Default position: bottom-right corner (adjusted in first build)
-    _position = const Offset(16, 400);
-    _assertFlagSecure();
-    _initPlayer();
-    _startWatermark();
     WidgetsBinding.instance.addObserver(this);
-    _fvc.addListener(_onControllerChanged);
+    if (widget.initialSpeed != null) {
+      _currentSpeed = widget.initialSpeed!;
+    }
+    _sortQualities();
+    _loadUserData();
+    _initializeProtection();
+    _setupScreen();
   }
 
-  // ── Security ────────────────────────────────────────────────
+  void _sortQualities() {
+    _sortedQualities = widget.streams.keys.toList();
+    _sortedQualities.sort((a, b) {
+      final numA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      final numB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      return numB.compareTo(numA);
+    });
+    if (_sortedQualities.isNotEmpty) {
+      // If we're resuming from the floating player, keep the exact same
+      // quality it was playing at instead of falling back to a default.
+      final handoffQuality = widget.initialQuality;
+      if (handoffQuality != null &&
+          _sortedQualities.contains(handoffQuality)) {
+        _currentQualityIndex = _sortedQualities.indexOf(handoffQuality);
+        _currentQuality = handoffQuality;
+        return;
+      }
 
-  Future<void> _assertFlagSecure() async {
+      const priorityOrder = ['360', '480', '240', '720'];
+      int chosenIndex = -1;
+      for (final p in priorityOrder) {
+        final idx = _sortedQualities.indexWhere(
+          (q) => q.replaceAll(RegExp(r'[^0-9]'), '') == p,
+        );
+        if (idx != -1) {
+          chosenIndex = idx;
+          break;
+        }
+      }
+      _currentQualityIndex =
+          chosenIndex != -1 ? chosenIndex : (_sortedQualities.length / 2).floor();
+      _currentQuality = _sortedQualities[_currentQualityIndex];
+    }
+  }
+
+  Future<void> _initializeProtection() async {
     try {
       await FlutterWindowManagerPlus.addFlags(
           FlutterWindowManagerPlus.FLAG_SECURE);
-    } catch (_) {}
+      await _protectionService.blockAudioCapture();
+      await _protectionService.startMonitoring();
+      _recordingSubscription =
+          _protectionService.recordingStateStream.listen((isRecording) {
+        if (isRecording) _handleRecordingDetected();
+      });
+      debugPrint("🛡️ Protection Enabled in Native Video Player");
+    } catch (e) {
+      FirebaseCrashlytics.instance
+          .recordError(e, null, reason: 'Native Player Protection Init Error');
+    }
+  }
+
+  void _handleRecordingDetected() {
+    if (!mounted) return;
+    setState(() => _isRecordingDetected = true);
+    _betterPlayerController?.setVolume(0.0);
+    _betterPlayerController?.pause();
+    FirebaseCrashlytics.instance.log(
+        "🚨 Security: Screen Recording Detected! Native Player Muted & Paused.");
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _assertFlagSecure();
-    }
     if (state == AppLifecycleState.paused) {
-      _controller?.pause();
-    }
-  }
-
-  // ── FloatingVideoController listener ────────────────────────
-
-  void _onControllerChanged() {
-    if (!_fvc.isFloating) {
-      // Floating was stopped externally — dispose player
-      _disposePlayer();
-    }
-  }
-
-  // ── Player init ─────────────────────────────────────────────
-
-  void _initPlayer() {
-    final state = _fvc.videoState;
-    if (state == null) return;
-
-    _sortedQualities = state.streams.keys.toList();
-    _sortedQualities.sort((a, b) {
-      final nA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-      final nB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-      return nA.compareTo(nB); // ascending: start with lowest for PiP
-    });
-
-    // Keep the exact same quality that was playing full-screen, if it was
-    // handed off to us. Otherwise fall back to a modest default for PiP.
-    final handoffQuality = state.initialQuality;
-    if (handoffQuality != null && _sortedQualities.contains(handoffQuality)) {
-      _currentQuality = handoffQuality;
-    } else {
-      const preferred = ['360', '240', '480', '720'];
-      int chosenIdx = 0;
-      for (final p in preferred) {
-        final idx = _sortedQualities
-            .indexWhere((q) => q.replaceAll(RegExp(r'[^0-9]'), '') == p);
-        if (idx != -1) {
-          chosenIdx = idx;
-          break;
-        }
+      _betterPlayerController?.pause();
+    } else if (state == AppLifecycleState.resumed) {
+      FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
+          .catchError((_) {});
+      _protectionService.blockAudioCapture();
+      if (_isRecordingDetected) {
+        _betterPlayerController?.setVolume(0.0);
+        _betterPlayerController?.pause();
       }
-      _currentQuality = _sortedQualities[chosenIdx];
     }
-    _currentSpeed = state.playbackSpeed;
+  }
+
+  void _loadUserData() {
+    String displayText = '';
+
+    final userData = AppState().userData;
+    if (userData != null) {
+      displayText = (userData['phone'] as String? ?? '').trim();
+      if (displayText.isEmpty) displayText = (userData['name'] as String? ?? '').trim();
+      if (displayText.isEmpty) displayText = (userData['email'] as String? ?? '').trim();
+      if (displayText.isEmpty) displayText = (userData['username'] as String? ?? '').trim();
+    }
+
+    if (displayText.isEmpty) {
+      try {
+        if (Hive.isBoxOpen('auth_box')) {
+          final box = Hive.box('auth_box');
+          displayText = (box.get('phone') as String? ?? '').trim();
+          if (displayText.isEmpty) displayText = (box.get('name') as String? ?? '').trim();
+          if (displayText.isEmpty) displayText = (box.get('email') as String? ?? '').trim();
+          if (displayText.isEmpty) displayText = (box.get('username') as String? ?? '').trim();
+        }
+      } catch (_) {}
+    }
+
+    _watermarkText = displayText.isNotEmpty ? displayText : 'Unknown User';
+  }
+
+  void _startWatermarkAnimation() {
+    _watermarkTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      if (_isDisposing) {
+        timer.cancel();
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          final random = Random();
+          double x = (random.nextDouble() * 1.6) - 0.8;
+          double y = (random.nextDouble() * 1.6) - 0.8;
+          _watermarkAlignment = Alignment(x, y);
+        });
+      }
+    });
+  }
+
+  Future<void> _setupScreen() async {
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      await WakelockPlus.enable();
+
+      if (_currentQuality.isEmpty || widget.streams[_currentQuality] == null) {
+        throw Exception("No playable stream available");
+      }
+
+      _initializePlayer();
+      _startWatermarkAnimation();
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance
+          .recordError(e, stack, reason: 'Native Player Setup Error');
+      if (mounted) {
+        setState(() {
+          _isError = true;
+          _errorMessage = "تعذر بدء تشغيل الفيديو.";
+          _isInitializing = false;
+        });
+      }
+    }
+  }
+
+  bool _isCodecError(dynamic e) {
+    final msg = e.toString().toLowerCase();
+    return msg.contains('mediacodec') ||
+        msg.contains('exoplaybackexception') ||
+        msg.contains('video/mp2t') ||
+        msg.contains('videorenderer') ||
+        msg.contains('codecexception') ||
+        msg.contains('mediacodecvideorenderererror');
+  }
+
+  void _initializePlayer() {
+    if (!mounted || _isDisposing) return;
+
+    final initialUrl = widget.streams[_currentQuality]!;
 
     final dataSource = BetterPlayerDataSource(
       BetterPlayerDataSourceType.network,
-      state.streams[_currentQuality]!,
-      headers: const {'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)'},
+      initialUrl,
+      headers: _headers,
       videoFormat: BetterPlayerVideoFormat.hls,
-      resolutions: state.streams,
-      cacheConfiguration:
-          const BetterPlayerCacheConfiguration(useCache: false),
-      notificationConfiguration:
-          const BetterPlayerNotificationConfiguration(showNotification: false),
+      resolutions: widget.streams,
+      cacheConfiguration: const BetterPlayerCacheConfiguration(useCache: false),
+      notificationConfiguration: const BetterPlayerNotificationConfiguration(
+        showNotification: false,
+      ),
     );
 
     final controller = BetterPlayerController(
       BetterPlayerConfiguration(
-        fit: BoxFit.contain,
-        autoPlay: state.wasPlaying,
+        fit: _videoFit,
+        autoPlay: widget.initialAutoPlay,
         looping: false,
         fullScreenByDefault: false,
-        allowedScreenSleep: false,
+        allowedScreenSleep: true,
         autoDetectFullscreenDeviceOrientation: false,
         controlsConfiguration: BetterPlayerControlsConfiguration(
-          showControls: false,
+          showControls: false, // 🔴 تعطيل المتحكمات الافتراضية
           showControlsOnInitialize: false,
           enableFullscreen: false,
           enablePip: false,
           enableQualities: false,
           enableSubtitles: false,
+          enableAudioTracks: false,
           enableSkips: false,
           enableMute: true,
           enablePlaybackSpeed: false,
           enableOverflowMenu: false,
+          controlBarHeight: 52,
           loadingColor: AppColors.accentYellow,
+          progressBarPlayedColor: AppColors.accentYellow,
+          progressBarHandleColor: AppColors.accentYellow,
+          progressBarBufferedColor: Colors.white24,
+          progressBarBackgroundColor: Colors.white10,
+          textColor: Colors.white,
         ),
-        errorBuilder: (context, _) => const SizedBox.shrink(),
+        errorBuilder: (context, errorMessage) {
+          return const SizedBox.shrink();
+        },
       ),
       betterPlayerDataSource: dataSource,
     );
@@ -223,429 +396,713 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     controller.addEventsListener(_onPlayerEvent);
 
     setState(() {
-      _controller = controller;
+      _betterPlayerController = controller;
       _isInitializing = false;
+      _isError = false;
     });
   }
 
   void _onPlayerEvent(BetterPlayerEvent event) {
-    if (!mounted) return;
+    if (!mounted || _isDisposing) return;
+
     switch (event.betterPlayerEventType) {
-      case BetterPlayerEventType.initialized:
-        _attachVideoListener();
-        _applyHandoffStateIfNeeded();
-        break;
       case BetterPlayerEventType.exception:
-        setState(() => _isError = true);
+        final errMsg = (event.parameters?['exception'] ??
+                event.parameters?['error'] ??
+                'Unknown player exception')
+            .toString();
         FirebaseCrashlytics.instance.log(
-          '⚠️ FloatingVideo exception: ${event.parameters}',
+          '⚠️ Native Player (better_player) exception: $errMsg (quality: $_currentQuality)',
         );
+        _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
+        break;
+      case BetterPlayerEventType.initialized:
+        if (_isError) {
+          setState(() {
+            _isError = false;
+          });
+        }
+        _attachVideoListener(); // 🟢 ربط الـ Listener المخصص
+        _applyHandoffStateIfNeeded();
+        // Sync iOS's native videoGravity with the current fit selection now
+        // that the player (and its platform view) actually exists.
+        _applyIOSVideoGravity();
         break;
       default:
         break;
     }
   }
 
-  void _attachVideoListener() {
-    _controller?.videoPlayerController
-        ?.removeListener(_onVideoValueChanged);
-    _controller?.videoPlayerController
-        ?.addListener(_onVideoValueChanged);
-    _onVideoValueChanged();
+  void _handlePlayerError(String errorDescription, {required bool isCodecRelated}) {
+    if (!mounted || _isDisposing) return;
+
+    if (isCodecRelated) {
+      final nextIndex = _sortedQualities.indexWhere((q) {
+        final qNum = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        final curNum = int.tryParse(
+              _currentQuality.replaceAll(RegExp(r'[^0-9]'), ''),
+            ) ??
+            0;
+        return qNum < curNum;
+      });
+
+      if (nextIndex != -1) {
+        final fallbackQuality = _sortedQualities[nextIndex];
+        final fallbackUrl = widget.streams[fallbackQuality];
+
+        if (fallbackUrl != null) {
+          FirebaseCrashlytics.instance.log(
+            '🔄 Codec error on $_currentQuality → auto-fallback to $fallbackQuality',
+          );
+          setState(() {
+            _currentQuality = fallbackQuality;
+            _currentQualityIndex = nextIndex;
+          });
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted && !_isDisposing) {
+              try {
+                _betterPlayerController?.setResolution(fallbackUrl);
+                _reapplySpeedAfterSourceChange();
+              } catch (e) {
+                FirebaseCrashlytics.instance.recordError(e, null,
+                    reason: 'Native Player setResolution fallback error');
+              }
+            }
+          });
+          return;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _isError = true;
+          _errorMessage =
+              'جهازك لا يدعم فك ترميز هذه الجودة. جرّب اختيار جودة أقل من أيقونة ⚙️ أعلى الشاشة.';
+          _isInitializing = false;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _isError = true;
+          _errorMessage =
+              'تعذر تشغيل الفيديو. تحقق من اتصال الإنترنت وأعد المحاولة.';
+          _isInitializing = false;
+        });
+      }
+    }
   }
 
-  void _onVideoValueChanged() {
-    if (!mounted) return;
-    final v = _controller?.videoPlayerController?.value;
-    if (v == null) return;
+  Future<void> _switchQuality(String quality) async {
+    if (quality == _currentQuality || !widget.streams.containsKey(quality)) {
+      return;
+    }
+    final newIndex = _sortedQualities.indexOf(quality);
     setState(() {
-      _isPlaying = v.isPlaying;
-      if (!_isScrubbing) _videoPosition = v.position;
-      _videoDuration = v.duration ?? Duration.zero;
+      _currentQuality = quality;
+      if (newIndex != -1) _currentQualityIndex = newIndex;
     });
+    try {
+      _betterPlayerController?.setResolution(widget.streams[quality]!);
+      _reapplySpeedAfterSourceChange();
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance
+          .recordError(e, stack, reason: 'Native Player setResolution Error');
+      _handlePlayerError(e.toString(), isCodecRelated: _isCodecError(e));
+    }
   }
 
-  /// Resumes playback at the exact position/speed handed off from the
-  /// full-screen player, the first time the floating player initializes.
+  /// Resumes at the exact position/speed/play-state handed off from the
+  /// floating (PiP) player, the first time the video initializes.
   void _applyHandoffStateIfNeeded() {
-    if (_handoffApplied || !mounted) return;
+    if (_handoffApplied || !mounted || _isDisposing) return;
     _handoffApplied = true;
 
-    final pos = _fvc.videoState?.initialPosition ?? Duration.zero;
-    if (pos > Duration.zero) {
+    final pos = widget.initialPosition;
+    final speed = widget.initialSpeed;
+
+    if (pos != null && pos > Duration.zero) {
       try {
-        _controller?.seekTo(pos);
+        _betterPlayerController?.seekTo(pos);
       } catch (_) {}
     }
-    if (_currentSpeed != 1.0) {
+    if (speed != null && speed != 1.0) {
+      // A short delay avoids the seek/speed calls racing the player's own
+      // startup on some devices.
       Future.delayed(const Duration(milliseconds: 300), () {
-        if (!mounted) return;
+        if (!mounted || _isDisposing) return;
         try {
-          _controller?.setSpeed(_currentSpeed);
+          _betterPlayerController?.setSpeed(speed);
         } catch (_) {}
       });
     }
+    if (!widget.initialAutoPlay) {
+      try {
+        _betterPlayerController?.pause();
+      } catch (_) {}
+    }
   }
 
-  // ── Controls auto-hide ───────────────────────────────────────
-
-  void _showControls() {
-    _controlsTimer?.cancel();
-    setState(() => _controlsVisible = true);
-    _controlsTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _controlsVisible = false);
+  void _reapplySpeedAfterSourceChange() {
+    if (_currentSpeed == 1.0) return;
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (!mounted || _isDisposing) return;
+      try {
+        _betterPlayerController?.setSpeed(_currentSpeed);
+      } catch (_) {}
     });
   }
 
-  // ── Watermark ────────────────────────────────────────────────
+  void _cycleVideoFit() {
+    setState(() {
+      _fitIndex = (_fitIndex + 1) % _fitCycle.length;
+      _videoFit = _fitCycle[_fitIndex];
+    });
+    // Dart-side BoxFit only repaints the Flutter FittedBox wrapper around the
+    // texture. On Android that's enough because ExoPlayer hands over the raw
+    // frame untouched. On iOS, better_player_plus's AVPlayerLayer already
+    // scales/crops the frame natively according to its own videoGravity
+    // setting *before* Flutter ever sees it — so changing BoxFit alone has no
+    // visible effect there. iOS needs its native gravity updated separately.
+    _applyIOSVideoGravity();
+  }
 
-  void _startWatermark() {
-    _watermarkTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!mounted) return;
-      final r = Random();
-      setState(() {
-        _watermarkAlignment = Alignment(
-          (r.nextDouble() * 1.6) - 0.8,
-          (r.nextDouble() * 1.6) - 0.8,
+  /// Mirrors the current [_videoFit] selection to iOS's native AVPlayerLayer
+  /// videoGravity via the platform channel exposed on VideoPlayerController.
+  /// Safe to call on any platform — the underlying call is a no-op on Android.
+  void _applyIOSVideoGravity() {
+    if (!Platform.isIOS) return;
+    final vpc = _betterPlayerController?.videoPlayerController;
+    if (vpc == null) return;
+    // Maps our fit cycle to better_player_plus's iOS gravity strings:
+    // 'aspect'  -> AVLayerVideoGravityResizeAspect     (letterboxed, like BoxFit.contain)
+    // 'stretch' -> AVLayerVideoGravityResize           (non-uniform stretch, like BoxFit.fill)
+    // 'fill'    -> AVLayerVideoGravityResizeAspectFill (crop to fill, closest to BoxFit.fitWidth)
+    final String gravity;
+    switch (_videoFit) {
+      case BoxFit.fill:
+        gravity = 'stretch';
+        break;
+      case BoxFit.fitWidth:
+        gravity = 'fill';
+        break;
+      case BoxFit.contain:
+      default:
+        gravity = 'aspect';
+        break;
+    }
+    try {
+      vpc.setAspectRatio(gravity);
+    } catch (e) {
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        null,
+        reason: 'Native Player iOS setAspectRatio Error',
+      );
+    }
+  }
+
+  void _onHoldStart() {
+    if (_betterPlayerController == null || _isDisposing) return;
+    _speedBeforeHold = _currentSpeed;
+    _isHolding2x = true;
+    try {
+      _betterPlayerController?.setSpeed(2.0);
+    } catch (_) {}
+    if (mounted) setState(() {});
+  }
+
+  void _onHoldEnd() {
+    if (!_isHolding2x) return;
+    _isHolding2x = false;
+    try {
+      _betterPlayerController?.setSpeed(_speedBeforeHold);
+    } catch (_) {}
+    if (mounted) setState(() {});
+  }
+
+  void _setSpeed(double speed) {
+    setState(() => _currentSpeed = speed);
+    try {
+      _betterPlayerController?.setSpeed(speed);
+    } catch (e) {
+      FirebaseCrashlytics.instance
+          .recordError(e, null, reason: 'Native Player setSpeed Error');
+    }
+  }
+
+  void _showSpeedSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.backgroundSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        final maxSheetHeight = MediaQuery.of(sheetContext).size.height * 0.7;
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxSheetHeight),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _speedOptions.length,
+                    itemBuilder: (context, index) {
+                      final speed = _speedOptions[index];
+                      final selected = speed == _currentSpeed;
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(
+                          selected ? LucideIcons.checkCircle2 : LucideIcons.circle,
+                          color: selected ? AppColors.accentYellow : Colors.white54,
+                        ),
+                        title: Text(
+                          speed == 1.0 ? 'عادي (×1)' : '×${speed.toString()}',
+                          style: TextStyle(color: AppColors.textPrimary),
+                        ),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _setSpeed(speed);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
+      },
+    );
+  }
+
+  void _handleDoubleTapSeek({required bool forward}) {
+    if (_betterPlayerController == null || _isDisposing) return;
+
+    final videoValue = _betterPlayerController!.videoPlayerController?.value;
+    final currentPosition = videoValue?.position ?? Duration.zero;
+    final duration = videoValue?.duration ?? Duration.zero;
+    const stepSeconds = 10;
+
+    final isNewBurst = _pendingSeekDelta == 0 ||
+        (forward && _pendingSeekDelta < 0) ||
+        (!forward && _pendingSeekDelta > 0);
+
+    if (isNewBurst) {
+      _seekBaseline = currentPosition;
+      _pendingSeekDelta = forward ? stepSeconds : -stepSeconds;
+    } else {
+      _pendingSeekDelta += forward ? stepSeconds : -stepSeconds;
+    }
+
+    var target = _seekBaseline + Duration(seconds: _pendingSeekDelta);
+    if (target < Duration.zero) target = Duration.zero;
+    if (duration > Duration.zero && target > duration) target = duration;
+
+    try {
+      _betterPlayerController?.seekTo(target);
+    } catch (e) {
+      FirebaseCrashlytics.instance
+          .recordError(e, null, reason: 'Native Player Double-Tap Seek Error');
+    }
+
+    _seekIndicatorTimer?.cancel();
+    setState(() {
+      _showSeekIndicator = true;
+      _seekIndicatorIsForward = forward;
+    });
+    _seekIndicatorTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted) return;
+      setState(() {
+        _showSeekIndicator = false;
+        _pendingSeekDelta = 0;
       });
     });
   }
 
-  // ── Dispose ──────────────────────────────────────────────────
-
-  // ✅ إصلاح Crash فادح: "'_lifecycleState != _ElementLifecycle.defunct':
-  // is not true". السبب: عند استدعاء _disposePlayer() من داخل
-  // State.dispose() نفسها (كما كان يحدث سابقًا)، فإن "mounted" لا يزال
-  // true في تلك اللحظة تحديدًا (الـ framework لا يصفّر الـ Element إلا
-  // بعد عودة dispose())، لكن الـ Element يكون قد انتقل داخليًا بالفعل
-  // إلى الحالة "defunct" أثناء تسلسل الـ unmount. لذلك يمر فحص mounted
-  // بنجاح، لكن استدعاء setState() بعده يصطدم بتأكيد داخلي في
-  // markNeedsBuild() ويرمي استثناءً فادحًا يوقف الـ widget tree بالكامل.
-  // القاعدة العامة في Flutter: لا يجوز أبدًا استدعاء setState() من داخل
-  // dispose(). الحل: فصل "تنظيف الموارد" عن "إشعار الواجهة بإعادة البناء"
-  // عبر معامل [notify]، بحيث يمرر dispose() القيمة false دائمًا.
-  void _disposePlayer({bool notify = true}) {
-    _controller?.videoPlayerController
-        ?.removeListener(_onVideoValueChanged);
-    _controlsTimer?.cancel();
-    _watermarkTimer?.cancel();
-    _seekBubbleTimer?.cancel();
-    _seekCommitTimer?.cancel();
-    final c = _controller;
-    _controller = null;
-    c?.dispose(forceDispose: true);
-    if (notify && mounted) setState(() {});
+  void _retryCurrentQuality() {
+    if (_currentQuality.isNotEmpty && widget.streams[_currentQuality] != null) {
+      setState(() {
+        _isError = false;
+      });
+      try {
+        _betterPlayerController?.retryDataSource();
+      } catch (_) {
+        try {
+          _betterPlayerController?.setResolution(widget.streams[_currentQuality]!);
+        } catch (e) {
+          FirebaseCrashlytics.instance
+              .recordError(e, null, reason: 'Native Player Retry Error');
+        }
+      }
+    }
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _fvc.removeListener(_onControllerChanged);
-    // ⚠️ notify: false — لا يجوز استدعاء setState() من dispose()، انظر
-    // الشرح أعلاه.
-    _disposePlayer(notify: false);
-    super.dispose();
-  }
-
-  // ── Clamp position to screen bounds ─────────────────────────
-
-  Offset _clampPosition(Offset pos, Size screen) {
-    final maxX = screen.width - _width;
-    final maxY = screen.height - _height - 24; // avoid nav bar
-    return Offset(
-      pos.dx.clamp(0.0, maxX),
-      pos.dy.clamp(0.0, maxY),
+  void _showQualitySheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.backgroundSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        final maxSheetHeight = MediaQuery.of(sheetContext).size.height * 0.7;
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxSheetHeight),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _sortedQualities.length,
+                    itemBuilder: (context, index) {
+                      final q = _sortedQualities[index];
+                      final selected = q == _currentQuality;
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(
+                          selected ? LucideIcons.checkCircle2 : LucideIcons.circle,
+                          color: selected ? AppColors.accentYellow : Colors.white54,
+                        ),
+                        title: Text(q, style: TextStyle(color: AppColors.textPrimary)),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _switchQuality(q);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
-  // ── Restore full screen ─────────────────────────────────────
-
-  /// Captures the floating player's current position/speed/quality/
-  /// play-state, tears down the floating player, and pushes the
-  /// full-screen player back so it resumes at exactly the same spot.
-  void _expandToFullScreen() {
-    final fvcState = _fvc.videoState;
-    if (fvcState == null) return;
-
-    final position =
-        _controller?.videoPlayerController?.value.position ?? Duration.zero;
-    final isPlaying = _controller?.isPlaying() ?? _isPlaying;
-
-    _fvc.updatePlaybackSnapshot(
-      position: position,
-      speed: _currentSpeed,
-      quality: _currentQuality,
-      isPlaying: isPlaying,
-    );
-
-    final streams = fvcState.streams;
-    final title = fvcState.title;
-
-    _disposePlayer();
-    _fvc.stopFloating();
-
-    navigatorKey.currentState?.push(
-      MaterialPageRoute(
-        builder: (_) => NativeVideoPlayerScreen(
-          streams: streams,
-          title: title,
-          initialPosition: position,
-          initialSpeed: _currentSpeed,
-          initialQuality: _currentQuality,
-          initialAutoPlay: isPlaying,
+  Widget _buildErrorWidget(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              style: const TextStyle(color: Colors.white),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _retryCurrentQuality,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accentYellow,
+                foregroundColor: Colors.black,
+              ),
+              child: const Text("إعادة المحاولة"),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // ── Seek gestures ─────────────────────────────────────────────
-
-  /// Double-tap the left half to rewind, right half to fast-forward —
-  /// same convention as the full-screen player — without leaving the
-  /// floating window. Consecutive double-taps in the same direction, made
-  /// while the seek bubble is still showing, accumulate into one burst
-  /// (10s, 20s, 30s...) instead of each tap fighting the previous one.
-  void _handleDoubleTap() {
-    final tapX = _lastTapLocalPos?.dx ?? (_width / 2);
-    final forward = tapX >= _width / 2;
-
-    // ✅ إذا كانت دفعة النقرات الحالية لا تزال جارية (الفقاعة ظاهرة) وبنفس
-    // الاتجاه، نضيف هذه النقرة لنفس نقطة الانطلاق (_seekBurstBase) بدلاً
-    // من إعادة قراءة موضع المشغل من جديد — لأن الموضع الفعلي قد لا يكون قد
-    // استقر بعد من آخر seekTo غير المتزامن. تغيير الاتجاه أو انقضاء وقت
-    // الفقاعة يبدأ دفعة جديدة من موضع المشغل الحالي.
-    final isSameBurst = _showSeekBubble && _seekBubbleForward == forward;
-    if (!isSameBurst) {
-      _seekBurstBase = _controller?.videoPlayerController?.value.position ??
-          _videoPosition;
-      _seekBurstSteps = 0;
-    }
-    _seekBurstSteps += forward ? 1 : -1;
-
-    final total = _videoDuration;
-    Duration target = _seekBurstBase + (_doubleTapSeekStep * _seekBurstSteps);
-    if (target < Duration.zero) target = Duration.zero;
-    if (total > Duration.zero && target > total) target = total;
-
-    setState(() {
-      _videoPosition = target;
-      _seekBubbleForward = forward;
-      _seekBubbleSeconds = _doubleTapSeekStep.inSeconds * _seekBurstSteps.abs();
-      _showSeekBubble = true;
-    });
-
-    // ✅ نؤجل استدعاء seekTo() الفعلي 350ms بعد آخر نقرة بدلاً من إرسال أمر
-    // seek منفصل مع كل نقرة على حدة. عدة أوامر seek متتالية بسرعة كانت
-    // تتنافس مع بعضها داخل المشغل (كل seekTo جديد يُلغي/يتجاوز السابق قبل
-    // اكتماله)، فيظهر التراكم صحيحًا في الواجهة لكن الفيديو الفعلي لا
-    // يصل إلا لجزء من المسافة المطلوبة.
-    _seekCommitTimer?.cancel();
-    _seekCommitTimer = Timer(const Duration(milliseconds: 350), () {
-      try {
-        _controller?.seekTo(target);
-      } catch (_) {}
-    });
-
-    _seekBubbleTimer?.cancel();
-    _seekBubbleTimer = Timer(const Duration(milliseconds: 700), () {
-      if (!mounted) return;
-      setState(() {
-        _showSeekBubble = false;
-        _seekBurstSteps = 0;
-      });
-    });
+  Future<void> _resetSystemChrome() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+        overlays: SystemUiOverlay.values);
+    // ✅ استعادة كل الاتجاهات (وليس البورتريه فقط) حتى يتمكن المستخدم من
+    // تدوير الجهاز بحرية أثناء استخدام النافذة العائمة، بدلاً من تثبيت
+    // الشاشة على الوضع الرأسي فقط.
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
   }
 
-  String _formatDuration(Duration d) {
-    if (d.isNegative) d = Duration.zero;
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return h > 0 ? '$h:$m:$s' : '$m:$s';
-  }
+  Future<void> _safeExit() async {
+    if (_isDisposing) return;
+    _isDisposing = true;
+    if (mounted) setState(() {});
 
-  // ── Quality picker ───────────────────────────────────────────
-
-  void _switchQuality(String q) {
-    final url = _fvc.videoState?.streams[q];
-    if (url == null || q == _currentQuality) return;
-    setState(() => _currentQuality = q);
     try {
-      _controller?.setResolution(url);
-      if (_currentSpeed != 1.0) {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (!mounted) return;
-          try {
-            _controller?.setSpeed(_currentSpeed);
-          } catch (_) {}
-        });
-      }
+      _betterPlayerController?.videoPlayerController?.removeListener(_onVideoValueChanged);
+      _controlsAutoHideTimer?.cancel();
+      _watermarkTimer?.cancel();
+      _seekIndicatorTimer?.cancel();
+      await _recordingSubscription?.cancel();
+
+      final controllerToDispose = _betterPlayerController;
+      _betterPlayerController = null;
+      controllerToDispose?.dispose(forceDispose: true);
+
+      await WakelockPlus.disable();
+      await _resetSystemChrome();
     } catch (e) {
       FirebaseCrashlytics.instance
-          .recordError(e, null, reason: 'FloatingVideo setResolution');
+          .recordError(e, null, reason: 'Native Player Exit Error');
+    }
+
+    // ✅ نستخدم navigatorKey العام بدلاً من الـ context المحلي للشاشة.
+    // السبب: عند تفعيل الفيديو العائم، يتم إدراج FloatingVideoOverlay في
+    // Stack عالمي فوق الـ MaterialApp.builder (انظر app.dart)، وهذا قد
+    // يترافق مع rebuild لأعلى الشجرة في نفس لحظة إغلاق هذه الشاشة.
+    // الاعتماد على context محلي هنا هو ما يسبب خطأ:
+    // "Navigator operation requested with a context that does not include
+    // a Navigator". navigatorKey.currentState يشير دائمًا مباشرة إلى
+    // الـ NavigatorState الجذري المرفق بـ MaterialApp بغض النظر عن حالة أي
+    // شجرة فرعية أخرى — نفس النمط المستخدم في
+    // FloatingVideoOverlay._expandToFullScreen().
+    final nav = navigatorKey.currentState;
+    if (nav != null && nav.canPop()) {
+      nav.pop();
+    } else if (mounted && Navigator.of(context).canPop()) {
+      // احتياط إضافي نادر إن كان الـ context المحلي هو المتاح فعلاً
+      Navigator.of(context).pop();
     }
   }
 
-  // ── Build ────────────────────────────────────────────────────
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _isDisposing = true;
+    
+    _betterPlayerController?.videoPlayerController?.removeListener(_onVideoValueChanged);
+    _controlsAutoHideTimer?.cancel();
+    _watermarkTimer?.cancel();
+    _seekIndicatorTimer?.cancel();
+    _recordingSubscription?.cancel();
+    _protectionService.stopMonitoring();
+    
+    final c = _betterPlayerController;
+    _betterPlayerController = null;
+    c?.dispose(forceDispose: true);
+    
+    WakelockPlus.disable();
+    _resetSystemChrome();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final screen = MediaQuery.of(context).size;
-
-    // ✅ إعادة ضبط العرض إذا تغيّر مقاس الشاشة (تدوير الجهاز، أو فتح
-    // النافذة على شاشة أصغر) بحيث لا تبقى النافذة العائمة أكبر من المسموح.
-    final maxW = _maxWidthForScreen(screen);
-    if (_width > maxW) {
-      _width = maxW;
-    } else if (_width < _minW) {
-      _width = _minW;
-    }
-
-    // On first build, snap to bottom-right
-    if (_position == const Offset(16, 400)) {
-      _position = Offset(
-        screen.width - _width - widget.initialOffset.dx,
-        screen.height - _height - widget.initialOffset.dy,
-      );
-    }
-
-    return AnimatedPositioned(
-      duration: _isDragging
-          ? Duration.zero
-          : const Duration(milliseconds: 120),
-      left: _position.dx,
-      top: _position.dy,
-      child: GestureDetector(
-        // ── Drag ──────────────────────────────────────────────
-        onPanStart: (_) => setState(() => _isDragging = true),
-        onPanUpdate: (d) {
-          setState(() {
-            _position = _clampPosition(
-              _position + d.delta,
-              screen,
-            );
-          });
-        },
-        onPanEnd: (_) => setState(() => _isDragging = false),
-        // ── Tap to toggle controls / double-tap to seek ────────
-        onTap: _showControls,
-        onDoubleTapDown: (d) => _lastTapLocalPos = d.localPosition,
-        onDoubleTap: _handleDoubleTap,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            width: _width,
-            height: _height,
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.6),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        await _safeExit();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        resizeToAvoidBottomInset: false,
+        body: SafeArea(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_isRecordingDetected)
+                _buildSecurityAlert()
+              else if (_isError)
+                _buildErrorWidget(_errorMessage)
+              else if (_isInitializing || _betterPlayerController == null)
+                Center(
+                  child: CircularProgressIndicator(color: AppColors.accentYellow),
                 )
-              ],
-              border: Border.all(
-                color: AppColors.accentYellow.withOpacity(0.4),
-                width: 1.2,
-              ),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Stack(
-              children: [
-                // ── Video ────────────────────────────────────
-                if (_controller != null && !_isError)
-                  Positioned.fill(
-                    child: BetterPlayer(controller: _controller!),
-                  )
-                else if (_isInitializing)
-                  Center(
-                    child: SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        color: AppColors.accentYellow,
-                        strokeWidth: 2,
-                      ),
-                    ),
-                  )
-                else
-                  Center(
-                    child: Icon(Icons.error_outline,
-                        color: Colors.redAccent, size: 28),
-                  ),
+              else
+                Positioned.fill(
+                  child: BetterPlayer(controller: _betterPlayerController!),
+                ),
 
-                // ── Watermark ────────────────────────────────
-                if (_controller != null && !_isError)
-                  Positioned.fill(
-                    child: AnimatedAlign(
-                      alignment: _watermarkAlignment,
-                      duration: const Duration(seconds: 2),
-                      child: IgnorePointer(
-                        child: Padding(
-                          padding: const EdgeInsets.all(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.55),
-                              borderRadius: BorderRadius.circular(4),
+              // ── Gesture layer ──────────────────────────────────────────
+              if (!_isRecordingDetected &&
+                  !_isError &&
+                  !_isInitializing &&
+                  _betterPlayerController != null)
+                Positioned.fill(
+                  child: Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Row(
+                      children: [
+                        // ── Left zone ──────────────────────────────────
+                        Expanded(
+                          flex: 3,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: _toggleControls,
+                            onDoubleTap: () => _handleDoubleTapSeek(forward: false),
+                            onLongPressStart: (_) => _onHoldStart(),
+                            onLongPressEnd: (_) => _onHoldEnd(),
+                            onLongPressCancel: _onHoldEnd,
+                          ),
+                        ),
+                        // ── Centre zone ────────────────────────────────
+                        Expanded(
+                          flex: 2,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: _toggleControls,
+                          ),
+                        ),
+                        // ── Right zone ─────────────────────────────────
+                        Expanded(
+                          flex: 3,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: _toggleControls,
+                            onDoubleTap: () => _handleDoubleTapSeek(forward: true),
+                            onLongPressStart: (_) => _onHoldStart(),
+                            onLongPressEnd: (_) => _onHoldEnd(),
+                            onLongPressCancel: _onHoldEnd,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              
+              // ── Custom Controls Stack ────────────────────────────────────────
+              if (!_isRecordingDetected && !_isError && !_isInitializing && _betterPlayerController != null)
+                IgnorePointer(
+                  ignoring: !_controlsVisible,
+                  child: AnimatedOpacity(
+                    opacity: _controlsVisible ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Stack(
+                      children: [
+                        // زر التشغيل والإيقاف في المنتصف
+                        Center(
+                          child: IconButton(
+                            iconSize: 56,
+                            icon: Icon(
+                              _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                              color: AppColors.accentYellow, // 👈 تعديل اللون للأصفر
+                              shadows: const [
+                                // 👈 إضافة ظل داكن لضمان الوضوح التام على الخلفية البيضاء
+                                Shadow(color: Colors.black87, blurRadius: 12),
+                              ],
                             ),
-                            child: Text(
-                              _fvc.videoState?.watermarkText ?? '',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.75),
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                                decoration: TextDecoration.none,
+                            onPressed: _togglePlayPause,
+                          ),
+                        ),
+                        
+                        // الشريط السفلي
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          bottom: 8,
+                          child: SafeArea(
+                            child: Container(
+                              // 👈 خلفية شبه شفافة تحمي الشريط بالكامل من التداخل مع الفيديو الأبيض
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.55), 
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              // ✅ نجبر اتجاه هذا الشريط على LTR دائمًا. الـ Slider في فلاتر
+                              // يقرأ Directionality.of(context) ليقرر اتجاه الزيادة، فإذا كان
+                              // التطبيق بالعربية (RTL) ينعكس اتجاه شريط التقديم تلقائيًا
+                              // (اليسار = تقديم بدل الترجيع). شريط تشغيل الفيديو يجب أن يبقى
+                              // بنفس الاتجاه دائمًا (يسار = بداية) بغض النظر عن لغة الواجهة،
+                              // تمامًا مثل منطقة اللمس للتقديم/الترجيع أعلاه.
+                              child: Directionality(
+                                textDirection: TextDirection.ltr,
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      _formatDuration(_position),
+                                      // 👈 جعل وقت الفيديو باللون الأصفر
+                                      style: TextStyle(color: AppColors.accentYellow, fontSize: 12, decoration: TextDecoration.none),
+                                    ),
+                                    Expanded(
+                                      child: SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 2.5,
+                                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                        ),
+                                        child: Slider(
+                                          value: _position.inMilliseconds
+                                              .clamp(0, _videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds)
+                                              .toDouble(),
+                                          min: 0,
+                                          max: (_videoDuration.inMilliseconds == 0 ? 1 : _videoDuration.inMilliseconds).toDouble(),
+                                          activeColor: AppColors.accentYellow,
+                                          inactiveColor: Colors.white54,
+                                          onChangeStart: _onSeekStart,
+                                          onChanged: _onSeekChanged,
+                                          onChangeEnd: _onSeekEnd,
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      _formatDuration(_videoDuration),
+                                      // 👈 جعل وقت الفيديو الكلي باللون الأصفر
+                                      style: TextStyle(color: AppColors.accentYellow, fontSize: 12, decoration: TextDecoration.none),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
+                ),
 
-                // ── Controls overlay ─────────────────────────
-                if (_controlsVisible)
-                  _buildControls(screen),
-
-                // ── Double-tap seek indicator ─────────────────
-                // ✅ يعرض الآن الرقم التراكمي (10/20/30...) وليس أيقونة
-                // ثابتة فقط، حتى يرى المستخدم مقدار القفزة الفعلية عند
-                // النقر المزدوج المتكرر بسرعة.
-                if (_showSeekBubble)
-                  Align(
-                    alignment: _seekBubbleForward
-                        ? const Alignment(0.6, 0)
-                        : const Alignment(-0.6, 0),
-                    child: IgnorePointer(
+              // ── ×2 speed indicator ────────────────────────────────────
+              if (_isHolding2x)
+                Positioned(
+                  top: 12,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.55),
-                          borderRadius: BorderRadius.circular(20),
+                          color: Colors.black.withOpacity(0.45),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              _seekBubbleForward
-                                  ? Icons.fast_forward
-                                  : Icons.fast_rewind,
-                              color: Colors.white.withOpacity(0.9),
-                              size: 14,
-                            ),
-                            const SizedBox(width: 2),
+                            Icon(Icons.fast_forward, color: AppColors.accentYellow, size: 14),
+                            const SizedBox(width: 4),
                             Text(
-                              '${_seekBubbleSeconds}s',
+                              '×2',
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 10,
+                                color: AppColors.accentYellow,
                                 fontWeight: FontWeight.bold,
+                                fontSize: 12,
                                 decoration: TextDecoration.none,
                               ),
                             ),
@@ -654,285 +1111,204 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                       ),
                     ),
                   ),
+                ),
 
-                // ── Resize handle (bottom-right) ──────────────
+              // ── Seek indicator ────────────────────────────────────────
+              if (_showSeekIndicator)
+                Align(
+                  alignment: _seekIndicatorIsForward
+                      ? const Alignment(0.85, 0)
+                      : const Alignment(-0.85, 0),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 48),
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        opacity: _showSeekIndicator ? 0.95 : 0.0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.65),
+                            borderRadius: BorderRadius.circular(40),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _seekIndicatorIsForward
+                                    ? Icons.fast_forward
+                                    : Icons.fast_rewind,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_pendingSeekDelta.abs()} ث',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  decoration: TextDecoration.none,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // ── Top bar: back + title + fit + speed + quality + PIP ─────────
+              if (!_isRecordingDetected && !_isDisposing)
                 Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: GestureDetector(
-                    onPanUpdate: (d) {
-                      setState(() {
-                        // ✅ الحد الأقصى أصبح ديناميكيًا (maxW) بدلاً من رقم
-                        // ثابت، فيسمح بتكبير النافذة حتى حواف الشاشة على
-                        // الأجهزة اللوحية والشاشات الكبيرة.
-                        _width = (_width + d.delta.dx)
-                            .clamp(_minW, maxW);
-                        // Re-clamp position so we don't go off-screen
-                        _position =
-                            _clampPosition(_position, screen);
-                      });
-                    },
+                  top: 4,
+                  left: 4,
+                  right: 4,
+                  child: SafeArea(
+                    child: AnimatedOpacity(
+                      opacity: _controlsVisible ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: IgnorePointer(
+                        ignoring: !_controlsVisible,
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back, color: Colors.white),
+                              onPressed: _safeExit,
+                            ),
+                            Expanded(
+                              child: Text(
+                                widget.title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  decoration: TextDecoration.none,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (!_isError && _betterPlayerController != null) ...[
+                              IconButton(
+                                icon: Icon(
+                                  _fitIndex == 0
+                                      ? Icons.crop_16_9
+                                      : _fitIndex == 1
+                                          ? Icons.fit_screen
+                                          : Icons.width_full,
+                                  color: AppColors.accentYellow,
+                                ),
+                                onPressed: _cycleVideoFit,
+                                tooltip: _fitLabels[_fitIndex],
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.speed, color: AppColors.accentYellow),
+                                onPressed: _showSpeedSheet,
+                                tooltip: '×$_currentSpeed',
+                              ),
+                            ],
+                            if (_sortedQualities.length > 1 && !_isError)
+                              IconButton(
+                                icon: Icon(LucideIcons.settings, color: AppColors.accentYellow),
+                                onPressed: _showQualitySheet,
+                                tooltip: _currentQuality,
+                              ),
+                            
+                            // ── PIP (Floating Video) Button ──
+                            if (!_isError && _betterPlayerController != null)
+                              IconButton(
+                                icon: Icon(Icons.picture_in_picture_alt, color: AppColors.accentYellow),
+                                tooltip: 'تشغيل كنافذة عائمة',
+                                onPressed: () async {
+                                  // 1. التقاط حالة التشغيل الحالية (الموضع/السرعة/الجودة)
+                                  //    حتى يستأنف المشغل العائم من نفس النقطة تمامًا.
+                                  //    (يجب التقاطها قبل استدعاء _safeExit لأنها
+                                  //    ستُصفّر _betterPlayerController).
+                                  final currentPosition =
+                                      _betterPlayerController
+                                              ?.videoPlayerController
+                                              ?.value
+                                              .position ??
+                                          _position;
+                                  final wasPlaying = _betterPlayerController
+                                          ?.isPlaying() ??
+                                      _isPlaying;
+                                  final streams = widget.streams;
+                                  final title = widget.title;
+                                  final watermarkText = _watermarkText;
+                                  final speed = _currentSpeed;
+                                  final quality = _currentQuality;
+
+                                  // 2. ✅ فعّل وضع الفيديو العائم أولاً — قبل إغلاق هذه
+                                  //    الشاشة، وليس بعده. هذا الاستدعاء لا يفعل أكثر من
+                                  //    قلب علم isFloating و notifyListeners()، فيُدرج
+                                  //    ListenableBuilder في app.dart النافذة العائمة فورًا
+                                  //    في نفس الإطار — بشكل مستقل تمامًا عن أي انتقال
+                                  //    (transition) جارٍ حالياً في الـ Navigator الرئيسي.
+                                  //
+                                  //    ⚠️ سابقًا كنا نستدعي هذا *بعد* _safeExit() + تأخير
+                                  //    ثابت 150ms، على افتراض أن كل الأجهزة تُنهي حركة
+                                  //    الـ pop وتحرير الـ decoder خلال تلك المدة. على بعض
+                                  //    أجهزة iOS الأبطأ (أو تحت Low Power Mode / حرارة
+                                  //    مرتفعة) لم تكن 150ms كافية، فكان استدعاء
+                                  //    startFloating() يحدث بينما شجرة الودجت العليا لا تزال
+                                  //    في خضم معاملة بناء لأجل انتقال الشاشة السابقة —
+                                  //    فتُدرَج الـ OverlayEntry دون أن تُرسم فعليًا حتى يأتي
+                                  //    إطار إضافي (وهو ما كان يفسّر ظهورها فجأة بعد إعادة
+                                  //    فتح المشغل، لأن ذلك يفرض إعادة بناء كاملة).
+                                  //    بتقديم هذا الاستدعاء قبل أي إغلاق أو تأخير، تصبح
+                                  //    النافذة العائمة مستقلة تمامًا عن سرعة أي جهاز.
+                                  FloatingVideoController.instance.startFloating(
+                                    streams: streams,
+                                    title: title,
+                                    watermarkText: watermarkText,
+                                    initialPosition: currentPosition,
+                                    playbackSpeed: speed,
+                                    initialQuality: quality,
+                                    wasPlaying: wasPlaying,
+                                  );
+
+                                  // 3. الآن أغلق المشغل الحالي وحرر الـ decoder/Surface
+                                  //    الخاص به. النافذة العائمة الجديدة تنشئ الآن (انظر
+                                  //    FloatingVideoOverlay._initPlayer) الـ
+                                  //    BetterPlayerController الفعلي الخاص بها بعد تأخير
+                                  //    داخلي قصير خاص بها هي — لا علاقة له بظهور الودجت
+                                  //    نفسه — وهو ما يحفظ نفس الحماية الأصلية ضد تزاحم
+                                  //    فك التشفير (decoder contention) دون المخاطرة بعدم
+                                  //    ظهور النافذة العائمة إطلاقًا على بعض الأجهزة.
+                                  await _safeExit();
+                                },
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // ── Watermark ─────────────────────────────────────────────
+              if (!_isDisposing && !_isError && !_isInitializing)
+                AnimatedAlign(
+                  alignment: _watermarkAlignment,
+                  duration: const Duration(seconds: 2),
+                  child: IgnorePointer(
                     child: Container(
-                      width: 22,
-                      height: 22,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: const BorderRadius.only(
-                          bottomRight: Radius.circular(10),
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _watermarkText,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.85),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          decoration: TextDecoration.none,
                         ),
                       ),
-                      child: const Icon(
-                        Icons.open_in_full,
-                        color: Colors.white54,
-                        size: 12,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildControls(Size screen) {
-    return Positioned.fill(
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.5),
-        ),
-        child: Stack(
-          children: [
-            // ── Close button (top-right) ─────────────────────
-            Positioned(
-              top: 4,
-              right: 4,
-              child: GestureDetector(
-                onTap: () {
-                  _disposePlayer();
-                  _fvc.stopFloating();
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.close,
-                      color: Colors.white, size: 14),
-                ),
-              ),
-            ),
-
-            // ── Expand to full screen (top-right, next to close) ─
-            Positioned(
-              top: 4,
-              right: 28,
-              child: GestureDetector(
-                onTap: _expandToFullScreen,
-                child: Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.fullscreen,
-                      color: Colors.white, size: 15),
-                ),
-              ),
-            ),
-
-            // ── Title (top-left) ─────────────────────────────
-            Positioned(
-              top: 6,
-              left: 6,
-              right: 52,
-              child: Text(
-                _fvc.videoState?.title ?? '',
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  decoration: TextDecoration.none,
-                ),
-              ),
-            ),
-
-            // ── Play / Pause ─────────────────────────────────
-            Center(
-              child: GestureDetector(
-                onTap: () {
-                  if (_controller?.isPlaying() ?? false) {
-                    _controller?.pause();
-                  } else {
-                    _controller?.play();
-                  }
-                  _showControls();
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.black45,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _isPlaying
-                        ? Icons.pause
-                        : Icons.play_arrow,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                ),
-              ),
-            ),
-
-            // ── Quality badge (bottom-left, above seek bar) ────
-            if (_sortedQualities.length > 1)
-              Positioned(
-                bottom: 20,
-                left: 4,
-                child: GestureDetector(
-                  onTap: () => _showQualityPicker(),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                          color: AppColors.accentYellow.withOpacity(0.5),
-                          width: 0.8),
-                    ),
-                    child: Text(
-                      _currentQuality,
-                      style: TextStyle(
-                        color: AppColors.accentYellow,
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                        decoration: TextDecoration.none,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-            // ── Elapsed / total time (bottom-right, above seek bar) ─
-            if (_videoDuration > Duration.zero)
-              Positioned(
-                bottom: 20,
-                right: 4,
-                child: Text(
-                  '${_formatDuration(_isScrubbing ? Duration(milliseconds: (_scrubFraction * _videoDuration.inMilliseconds).round()) : _videoPosition)} / ${_formatDuration(_videoDuration)}',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 7,
-                    fontWeight: FontWeight.bold,
-                    decoration: TextDecoration.none,
-                  ),
-                ),
-              ),
-
-            // ── Seek bar (bottom, full width, draggable) ───────
-            _buildSeekBar(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Thin, draggable progress bar pinned to the bottom edge of the
-  /// floating window. Tap anywhere on it to jump to that point, or drag
-  /// the thumb to scrub — all without leaving the floating window.
-  Widget _buildSeekBar() {
-    final hasDuration = _videoDuration > Duration.zero;
-    final progress = hasDuration
-        ? (_isScrubbing
-                ? _scrubFraction
-                : _videoPosition.inMilliseconds /
-                    _videoDuration.inMilliseconds)
-            .clamp(0.0, 1.0)
-        : 0.0;
-
-    void seekToFraction(double dx) {
-      if (!hasDuration) return;
-      final fraction = (dx / _width).clamp(0.0, 1.0);
-      setState(() => _scrubFraction = fraction);
-    }
-
-    return Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
-      height: 18, // generous touch target even though the visible track is thin
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (d) {
-          if (!hasDuration) return;
-          final fraction = (d.localPosition.dx / _width).clamp(0.0, 1.0);
-          final target = Duration(
-              milliseconds:
-                  (fraction * _videoDuration.inMilliseconds).round());
-          try {
-            _controller?.seekTo(target);
-          } catch (_) {}
-          setState(() => _videoPosition = target);
-          _showControls();
-        },
-        onHorizontalDragStart: (d) {
-          if (!hasDuration) return;
-          _controlsTimer?.cancel();
-          setState(() {
-            _isScrubbing = true;
-            _scrubFraction = progress;
-          });
-          seekToFraction(d.localPosition.dx);
-        },
-        onHorizontalDragUpdate: (d) => seekToFraction(d.localPosition.dx),
-        onHorizontalDragEnd: (_) {
-          if (!hasDuration) return;
-          final target = Duration(
-              milliseconds:
-                  (_scrubFraction * _videoDuration.inMilliseconds).round());
-          try {
-            _controller?.seekTo(target);
-          } catch (_) {}
-          setState(() {
-            _videoPosition = target;
-            _isScrubbing = false;
-          });
-          _showControls();
-        },
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Stack(
-            alignment: Alignment.centerLeft,
-            children: [
-              // Track background
-              Container(height: 3, color: Colors.white24),
-              // Played portion
-              FractionallySizedBox(
-                widthFactor: progress,
-                child: Container(height: 3, color: AppColors.accentYellow),
-              ),
-              // Thumb
-              if (hasDuration)
-                Positioned(
-                  left: (progress * _width - 4).clamp(0.0, _width - 8),
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: AppColors.accentYellow,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.4),
-                          blurRadius: 2,
-                        ),
-                      ],
                     ),
                   ),
                 ),
@@ -943,59 +1319,45 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     );
   }
 
-  void _showQualityPicker() {
-    // ✅ لا نستخدم context الخاص بـ FloatingVideoOverlay هنا لأنه لا يملك
-    // Navigator كسلف (النافذة العائمة موضوعة فوق الـ Navigator داخل
-    // MaterialApp.builder، وليست من ذريته — انظر app.dart). استخدام هذا
-    // الـ context مباشرةً مع showModalBottomSheet هو بالضبط ما كان يسبب
-    // خطأ: "Navigator operation requested with a context that does not
-    // include a Navigator". لذلك نستخدم navigatorKey.currentContext الذي
-    // يشير دائمًا إلى سياق متصل فعليًا بجذر الـ Navigator.
-    final sheetContext = navigatorKey.currentContext;
-    if (sheetContext == null) return;
-    showModalBottomSheet(
-      context: sheetContext,
-      backgroundColor: AppColors.backgroundSecondary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (sheetBuilderContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 3,
-              margin: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(3),
-              ),
+  Widget _buildSecurityAlert() {
+    return Container(
+      color: Colors.red.shade900,
+      width: double.infinity,
+      height: double.infinity,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.block, color: Colors.white, size: 80),
+          const SizedBox(height: 24),
+          Text(
+            AppLocalizations.of(context)?.securityAlertTitle ?? 'SECURITY ALERT',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 2.0,
             ),
-            ..._sortedQualities.map((q) => ListTile(
-                  dense: true,
-                  leading: Icon(
-                    q == _currentQuality
-                        ? Icons.check_circle
-                        : Icons.circle_outlined,
-                    color: q == _currentQuality
-                        ? AppColors.accentYellow
-                        : Colors.white54,
-                    size: 18,
-                  ),
-                  title: Text(q,
-                      style: TextStyle(color: AppColors.textPrimary)),
-                  onTap: () {
-                    // ✅ نستخدم context الخاص ببناء الـ sheet نفسه (وهو من
-                    // ذرية الـ Navigator الذي فُتحت عليه الورقة فعليًا)
-                    // بدلاً من context الخارجي الخاص بالنافذة العائمة.
-                    Navigator.pop(sheetBuilderContext);
-                    _switchQuality(q);
-                  },
-                )),
-            const SizedBox(height: 8),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            AppLocalizations.of(context)?.screenRecordingDetectedMessage ?? '',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 16),
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            onPressed: _safeExit,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.red.shade900,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+            ),
+            child: Text(
+              AppLocalizations.of(context)?.closePlayer ?? 'Close',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }
