@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
@@ -39,6 +40,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       TextEditingController(); // 🆕 متحكم الخصم
   File? _receiptImage;
   bool _isUploading = false;
+  bool _isPickingImage = false; // 🆕 لمنع فتح منتقي الصور أكثر من مرة بالضغط السريع المتكرر
 
   bool _isLoadingPaymentData = false;
   late Map<String, dynamic> _currentPaymentInfo;
@@ -214,13 +216,32 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    // ✅ منع الاستدعاء المتزامن: بدون هذا الحارس، ضغطة سريعة مزدوجة على زر
+    // إرفاق الإيصال تطلق نداءين متزامنين لـ pickImage()، فيرمي الثاني
+    // PlatformException(already_active) غير مُلتقَط ويصل كخطأ قاتل.
+    if (_isPickingImage) return;
+    _isPickingImage = true;
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(source: ImageSource.gallery);
 
-    if (pickedFile != null) {
-      setState(() {
-        _receiptImage = File(pickedFile.path);
-      });
+      if (pickedFile != null && mounted) {
+        setState(() {
+          _receiptImage = File(pickedFile.path);
+        });
+      }
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(e, stack,
+          reason: 'Checkout receipt image picker error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(AppLocalizations.of(context)!.connectionError),
+              backgroundColor: AppColors.error),
+        );
+      }
+    } finally {
+      _isPickingImage = false;
     }
   }
 
