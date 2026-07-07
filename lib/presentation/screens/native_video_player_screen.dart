@@ -336,13 +336,40 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     }
   }
 
+  bool _isNetworkError(dynamic e) {
+    final msg = e.toString().toLowerCase();
+    return msg.contains('sockettimeoutexception') ||
+        msg.contains('unknownhostexception') ||
+        msg.contains('connectexception') ||
+        msg.contains('econnreset') ||
+        msg.contains('httpdatasourceexception') ||
+        msg.contains('ioexception') ||
+        msg.contains('io exception') ||
+        msg.contains('unable to connect') ||
+        msg.contains('failed to connect') ||
+        msg.contains('no address associated with hostname') ||
+        msg.contains('behindlivewindowexception') ||
+        msg.contains('software caused connection abort') ||
+        msg.contains('network is unreachable') ||
+        msg.contains('connection reset') ||
+        msg.contains('connection refused');
+  }
+
   bool _isCodecError(dynamic e) {
     final msg = e.toString().toLowerCase();
+    // ✅ فحص خطأ الشبكة أولًا: ExoPlaybackException هو غلاف عام تستخدمه
+    // ExoPlayer لأي نوع فشل (شبكة/مصدر/عرض)، وليس فقط أخطاء الكوديك.
+    // عند انقطاع الإنترنت تُلَفّ IOException بداخل ExoPlaybackException،
+    // فيبقى نص "ExoPlaybackException" ظاهرًا في رسالة الخطأ ويؤدي إلى
+    // تصنيف انقطاع الشبكة خطأً كـ "خطأ كوديك" (ويحاول التطبيق حينها
+    // التبديل تلقائيًا لجودة أقل بدل إخبار المستخدم بفحص اتصاله — وهذا
+    // التبديل سيفشل أيضًا لأن السبب شبكة وليس كوديك).
+    if (_isNetworkError(e)) return false;
     return msg.contains('mediacodec') ||
-        msg.contains('exoplaybackexception') ||
         msg.contains('video/mp2t') ||
         msg.contains('videorenderer') ||
         msg.contains('codecexception') ||
+        msg.contains('decoderinitializationexception') ||
         msg.contains('mediacodecvideorenderererror');
   }
 
@@ -484,11 +511,19 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
             _currentQuality = fallbackQuality;
             _currentQualityIndex = nextIndex;
           });
-          Future.delayed(const Duration(milliseconds: 500), () {
+          Future.delayed(const Duration(milliseconds: 500), () async {
             if (mounted && !_isDisposing) {
               try {
-                _betterPlayerController?.setResolution(fallbackUrl);
-                _reapplySpeedAfterSourceChange();
+                // ✅ لازم await هنا: setResolution داخليًا async وتستكمل عملها
+                // بعد أول await داخلي (إعادة تهيئة الفيديو)، فإن أي استثناء
+                // يُرمى في تلك النقطة (مثلاً null-check على متحكم تمت
+                // إزالته أثناء إغلاق الشاشة) لا يصل إطلاقًا إلى الـ catch
+                // هنا إن لم ننتظر (await) النتيجة — بل يتحول إلى
+                // Unhandled Future rejection قاتل يصل لـ Crashlytics مباشرة.
+                await _betterPlayerController?.setResolution(fallbackUrl);
+                if (mounted && !_isDisposing) {
+                  _reapplySpeedAfterSourceChange();
+                }
               } catch (e) {
                 FirebaseCrashlytics.instance.recordError(e, null,
                     reason: 'Native Player setResolution fallback error');
@@ -529,12 +564,20 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       if (newIndex != -1) _currentQualityIndex = newIndex;
     });
     try {
-      _betterPlayerController?.setResolution(widget.streams[quality]!);
-      _reapplySpeedAfterSourceChange();
+      // ✅ await ضروري: بدونه أي استثناء يُرمى بعد أول نقطة انتظار داخلية
+      // في setResolution (مثلاً إذا أُغلقت الشاشة أو تمت إزالة الـ
+      // controller أثناء تبديل الجودة) يتحول إلى Unhandled Future
+      // rejection قاتل ولا يصل إلى الـ catch أدناه إطلاقًا.
+      await _betterPlayerController?.setResolution(widget.streams[quality]!);
+      if (mounted && !_isDisposing) {
+        _reapplySpeedAfterSourceChange();
+      }
     } catch (e, stack) {
       FirebaseCrashlytics.instance
           .recordError(e, stack, reason: 'Native Player setResolution Error');
-      _handlePlayerError(e.toString(), isCodecRelated: _isCodecError(e));
+      if (mounted && !_isDisposing) {
+        _handlePlayerError(e.toString(), isCodecRelated: _isCodecError(e));
+      }
     }
   }
 
@@ -810,19 +853,50 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     });
   }
 
-  void _retryCurrentQuality() {
-    if (_currentQuality.isNotEmpty && widget.streams[_currentQuality] != null) {
-      setState(() {
-        _isError = false;
-      });
+  Future<void> _retryCurrentQuality() async {
+    if (!mounted || _isDisposing) return;
+    if (_currentQuality.isEmpty || widget.streams[_currentQuality] == null) {
+      return;
+    }
+
+    // ✅ نعرض مؤشر تحميل أثناء إعادة المحاولة بدل مسح رسالة الخطأ فورًا؛
+    // لو فشلت إعادة المحاولة لاحقًا سنعيد إظهار خطأ واضح بدل شاشة فارغة.
+    setState(() {
+      _isError = false;
+      _isInitializing = true;
+    });
+
+    try {
+      // ✅ await ضروري: retryDataSource داخليًا async وتستدعي seekTo()
+      // بعد إعادة تهيئة المصدر — أي استثناء بعد أول await داخلي (مثل
+      // "الفيديو لم يُهيَّأ بعد") لا يصل إلى الـ catch إن لم ننتظر النتيجة.
+      await _betterPlayerController?.retryDataSource();
+      // نجاح: حدث BetterPlayerEventType.initialized سيصل لاحقًا ويمسح
+      // _isInitializing/_isError من مستمع الأحداث، لكن كإجراء احتياطي:
+      if (mounted && !_isDisposing) {
+        setState(() => _isInitializing = false);
+      }
+    } catch (_) {
+      if (!mounted || _isDisposing) return;
       try {
-        _betterPlayerController?.retryDataSource();
-      } catch (_) {
-        try {
-          _betterPlayerController?.setResolution(widget.streams[_currentQuality]!);
-        } catch (e) {
-          FirebaseCrashlytics.instance
-              .recordError(e, null, reason: 'Native Player Retry Error');
+        await _betterPlayerController
+            ?.setResolution(widget.streams[_currentQuality]!);
+        if (mounted && !_isDisposing) {
+          setState(() => _isInitializing = false);
+        }
+      } catch (e, stack) {
+        FirebaseCrashlytics.instance
+            .recordError(e, stack, reason: 'Native Player Retry Error');
+        // ✅ لا نترك الواجهة معلّقة على مؤشر تحميل أو شاشة فارغة: نعيد
+        // إظهار رسالة خطأ مناسبة (شبكة أم لا) مع زر إعادة المحاولة مجددًا.
+        if (mounted && !_isDisposing) {
+          setState(() {
+            _isInitializing = false;
+            _isError = true;
+            _errorMessage = _isNetworkError(e)
+                ? 'لا يوجد اتصال بالإنترنت. تحقق من اتصالك وأعد المحاولة.'
+                : 'تعذر تشغيل الفيديو. تحقق من اتصال الإنترنت وأعد المحاولة.';
+          });
         }
       }
     }
