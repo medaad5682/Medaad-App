@@ -63,6 +63,11 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   int _currentQualityIndex = 0;
   bool _handoffApplied = false;
 
+  // ✅ إصلاح "إعادة المحاولة" بعد انقطاع الشبكة: نحفظ هنا آخر موضع تشغيل
+  // معروف لحظة ظهور الخطأ، لنتمكن من العودة إليه بعد إعادة إنشاء المشغّل
+  // من جديد في _retryCurrentQuality() (انظر التعليق هناك لتفاصيل السبب).
+  Duration? _pendingRetryPosition;
+
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
   String _watermarkText = "";
@@ -456,6 +461,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         }
         _attachVideoListener(); // 🟢 ربط الـ Listener المخصص
         _applyHandoffStateIfNeeded();
+        _applyRetryStateIfNeeded();
         // Sync iOS's native videoGravity with the current fit selection now
         // that the player (and its platform view) actually exists.
         // ✅ إصلاح: الفيديو كان يظهر "عريضًا" (مقصوصًا بلا أشرطة سوداء) على
@@ -488,6 +494,15 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
   void _handlePlayerError(String errorDescription, {required bool isCodecRelated}) {
     if (!mounted || _isDisposing) return;
+
+    // ✅ نحفظ آخر موضع تشغيل معروف (_position يُحدَّث باستمرار من
+    // _onVideoValueChanged أثناء التشغيل الطبيعي) لحظة وقوع أي خطأ، بصرف
+    // النظر عن نوعه. لو أعاد المستخدم لاحقًا الضغط على "إعادة المحاولة"
+    // (_retryCurrentQuality)، سنستخدم هذه القيمة لإعادة التشغيل من نفس
+    // النقطة بدل البدء من الصفر.
+    if (_position > Duration.zero) {
+      _pendingRetryPosition = _position;
+    }
 
     if (isCodecRelated) {
       final nextIndex = _sortedQualities.indexWhere((q) {
@@ -609,6 +624,33 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       try {
         _betterPlayerController?.pause();
       } catch (_) {}
+    }
+  }
+
+  /// Resumes at the position saved in [_pendingRetryPosition] the first time
+  /// the (freshly re-created) player initializes after the user pressed
+  /// "retry" in [_retryCurrentQuality]. No-op if there was no pending retry.
+  void _applyRetryStateIfNeeded() {
+    final pos = _pendingRetryPosition;
+    if (pos == null || !mounted || _isDisposing) return;
+    // نمسح القيمة فورًا حتى لا تُطبَّق مرة أخرى بالخطأ في تهيئات لاحقة
+    // (مثلاً عند تبديل الجودة يدويًا بعد نجاح إعادة المحاولة).
+    _pendingRetryPosition = null;
+    if (pos <= Duration.zero) return;
+
+    try {
+      _betterPlayerController?.seekTo(pos);
+    } catch (_) {}
+
+    if (_currentSpeed != 1.0) {
+      // نفس التأخير القصير المستخدم في handoff، لتجنب تسابق seek/setSpeed مع
+      // بدء تشغيل المشغّل نفسه على بعض الأجهزة.
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (!mounted || _isDisposing) return;
+        try {
+          _betterPlayerController?.setSpeed(_currentSpeed);
+        } catch (_) {}
+      });
     }
   }
 
@@ -859,47 +901,53 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       return;
     }
 
-    // ✅ نعرض مؤشر تحميل أثناء إعادة المحاولة بدل مسح رسالة الخطأ فورًا؛
-    // لو فشلت إعادة المحاولة لاحقًا سنعيد إظهار خطأ واضح بدل شاشة فارغة.
+    // ✅ إصلاح: زر "إعادة المحاولة" كان يتوقف عن العمل بعد أول محاولة فاشلة
+    // بسبب انقطاع الشبكة — حتى بعد عودة الإنترنت فعليًا.
+    //
+    // السبب: كنا نعتمد على retryDataSource() المدمجة في better_player_plus،
+    // والتي تعيد استخدام نفس الـ BetterPlayerController/ExoPlayer (أندرويد)
+    // أو AVPlayer (iOS) الأصلي بدل إنشاء واحد جديد بالكامل. عندما يفشل أول
+    // اتصال فعليًا بسبب انقطاع الشبكة (لا مجرد تقطّع لحظي)، يبقى المشغّل
+    // الأصلي أحيانًا عالقًا في حالة داخلية معطوبة بعد تلك المحاولة — فحتى
+    // مع عودة الإنترنت، استدعاء retryDataSource() مجددًا على نفس الكائن لا
+    // يُطلق محاولة اتصال جديدة فعليًا (لا حدث "initialized" ولا حتى حدث
+    // "exception" جديد يصل لاحقًا)، فيبقى الـ Future المنتظر بلا استجابة
+    // ويظل زر إعادة المحاولة بلا أي أثر ملحوظ للمستخدم.
+    //
+    // الحل: نتخلّص تمامًا من الـ controller القديم (المشتبه بتعطّله) وننشئ
+    // واحدًا جديدًا بالكامل من الصفر عبر _initializePlayer() — تمامًا كما
+    // يحدث عند فتح الشاشة لأول مرة — لضمان محاولة اتصال نظيفة تمامًا في كل
+    // مرة يضغط فيها المستخدم "إعادة المحاولة"، بغض النظر عن حالة المحاولة
+    // السابقة. حتى لا يبدأ الفيديو من الصفر بعد ذلك، نحفظ آخر موضع تشغيل
+    // معروف في _pendingRetryPosition (انظر _handlePlayerError) ونطبّقه
+    // تلقائيًا بعد نجاح التهيئة الجديدة (انظر _applyRetryStateIfNeeded التي
+    // تُستدعى من حدث "initialized" في _onPlayerEvent).
     setState(() {
       _isError = false;
       _isInitializing = true;
     });
 
     try {
-      // ✅ await ضروري: retryDataSource داخليًا async وتستدعي seekTo()
-      // بعد إعادة تهيئة المصدر — أي استثناء بعد أول await داخلي (مثل
-      // "الفيديو لم يُهيَّأ بعد") لا يصل إلى الـ catch إن لم ننتظر النتيجة.
-      await _betterPlayerController?.retryDataSource();
-      // نجاح: حدث BetterPlayerEventType.initialized سيصل لاحقًا ويمسح
-      // _isInitializing/_isError من مستمع الأحداث، لكن كإجراء احتياطي:
-      if (mounted && !_isDisposing) {
-        setState(() => _isInitializing = false);
-      }
-    } catch (_) {
-      if (!mounted || _isDisposing) return;
-      try {
-        await _betterPlayerController
-            ?.setResolution(widget.streams[_currentQuality]!);
-        if (mounted && !_isDisposing) {
-          setState(() => _isInitializing = false);
-        }
-      } catch (e, stack) {
-        FirebaseCrashlytics.instance
-            .recordError(e, stack, reason: 'Native Player Retry Error');
-        // ✅ لا نترك الواجهة معلّقة على مؤشر تحميل أو شاشة فارغة: نعيد
-        // إظهار رسالة خطأ مناسبة (شبكة أم لا) مع زر إعادة المحاولة مجددًا.
-        if (mounted && !_isDisposing) {
-          setState(() {
-            _isInitializing = false;
-            _isError = true;
-            _errorMessage = _isNetworkError(e)
-                ? 'لا يوجد اتصال بالإنترنت. تحقق من اتصالك وأعد المحاولة.'
-                : 'تعذر تشغيل الفيديو. تحقق من اتصال الإنترنت وأعد المحاولة.';
-          });
-        }
-      }
+      final oldController = _betterPlayerController;
+      // نزيل الـ controller القديم من الحالة فورًا حتى لا يحاول أي كود آخر
+      // (مثل مستمعي الفيديو) استخدامه أثناء عملية التخلص منه أدناه.
+      _betterPlayerController = null;
+      oldController?.removeEventsListener(_onPlayerEvent);
+      oldController?.videoPlayerController
+          ?.removeListener(_onVideoValueChanged);
+      oldController?.dispose(forceDispose: true);
+    } catch (e) {
+      FirebaseCrashlytics.instance.recordError(e, null,
+          reason: 'Native Player Retry Dispose Error');
     }
+
+    if (!mounted || _isDisposing) return;
+
+    // _initializePlayer() ينشئ BetterPlayerController جديدًا تمامًا بنفس
+    // الجودة الحالية (_currentQuality) وسيستكمل حالة _isInitializing/_isError
+    // تلقائيًا لاحقًا عبر أحداث "initialized"/"exception" في _onPlayerEvent —
+    // تمامًا كما يحدث في التهيئة الأولى للشاشة.
+    _initializePlayer();
   }
 
   void _showQualitySheet() {
