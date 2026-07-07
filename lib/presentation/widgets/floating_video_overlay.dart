@@ -535,182 +535,215 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
           : const Duration(milliseconds: 120),
       left: _position.dx,
       top: _position.dy,
-      child: GestureDetector(
-        // ── Drag ──────────────────────────────────────────────
-        onPanStart: (_) => setState(() => _isDragging = true),
-        onPanUpdate: (d) {
-          setState(() {
-            _position = _clampPosition(
-              _position + d.delta,
-              screen,
-            );
-          });
-        },
-        onPanEnd: (_) => setState(() => _isDragging = false),
-        // ── Tap to toggle controls / double-tap to seek ────────
-        onTap: _showControls,
-        onDoubleTapDown: (d) => _lastTapLocalPos = d.localPosition,
-        onDoubleTap: _handleDoubleTap,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            width: _width,
-            height: _height,
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.6),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                )
-              ],
-              border: Border.all(
-                color: AppColors.accentYellow.withOpacity(0.4),
-                width: 1.2,
-              ),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Stack(
-              children: [
-                // ── Video ────────────────────────────────────
-                if (_controller != null && !_isError)
-                  Positioned.fill(
-                    child: BetterPlayer(controller: _controller!),
-                  )
-                else if (_isInitializing)
-                  Center(
-                    child: SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        color: AppColors.accentYellow,
-                        strokeWidth: 2,
-                      ),
+      // ✅ إصلاح تعارض الإيماءات (gesture arena race):
+      // كان مقبض التصغير (resize handle) عبارة عن GestureDetector متداخل
+      // (نسل) داخل شجرة الـ GestureDetector الخارجي المسؤول عن السحب/النقر.
+      // عندما يغطي كلا الـ GestureDetector نفس منطقة اللمس ويطلبان نوع
+      // إيماءة من نفس العائلة (pan/drag)، يدخل الاثنان في نفس "ساحة
+      // الإيماءات" (gesture arena) لكل لمسة، وFlutter يفصل الفائز بناءً على
+      // تفاصيل توقيت/حركة دقيقة تختلف من جهاز لآخر — وهذا بالضبط سبب أن
+      // بعض الهواتف كانت "تبتلع" كل لمسة كسحب خارجي صغير فلا يظهر onTap
+      // أبدًا (ماعدا فوق أيقونة التصغير نفسها حيث كان الفائز أحيانًا هو
+      // كاشف النقر الخارجي)، بينما مقبض التصغير لا يفوز أبدًا فلا يعمل.
+      //
+      // الحل المعماري: نجعل مقبض التصغير "شقيقًا" (sibling) للـ
+      // GestureDetector الخارجي بدلاً من كونه من ذريته، عبر وضعهما معًا
+      // داخل Stack واحد على نفس المستوى. بهذه الطريقة لا توجد علاقة سلف/نسل
+      // بينهما إطلاقًا، ولا يوجد شيء يتنافس عليه في ساحة الإيماءات — يقوم
+      // Stack باختبار الإصابة (hit-testing) ويوجّه اللمسة حتمًا إلى العنصر
+      // الأعلى (مقبض التصغير) عندما تقع فوقه، وإلى الكاشف الخارجي في أي
+      // مكان آخر، بشكل متطابق على كل الأجهزة.
+      child: SizedBox(
+        width: _width,
+        height: _height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // ── Whole-widget drag / tap / double-tap detector ────
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              // ── Drag ──────────────────────────────────────────
+              onPanStart: (_) => setState(() => _isDragging = true),
+              onPanUpdate: (d) {
+                setState(() {
+                  _position = _clampPosition(
+                    _position + d.delta,
+                    screen,
+                  );
+                });
+              },
+              onPanEnd: (_) => setState(() => _isDragging = false),
+              // ── Tap to toggle controls / double-tap to seek ────
+              onTap: _showControls,
+              onDoubleTapDown: (d) => _lastTapLocalPos = d.localPosition,
+              onDoubleTap: _handleDoubleTap,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: _width,
+                  height: _height,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.6),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      )
+                    ],
+                    border: Border.all(
+                      color: AppColors.accentYellow.withOpacity(0.4),
+                      width: 1.2,
                     ),
-                  )
-                else
-                  Center(
-                    child: Icon(Icons.error_outline,
-                        color: Colors.redAccent, size: 28),
                   ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    children: [
+                    // ── Video ────────────────────────────────────
+                    if (_controller != null && !_isError)
+                      Positioned.fill(
+                        child: BetterPlayer(controller: _controller!),
+                      )
+                    else if (_isInitializing)
+                      Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            color: AppColors.accentYellow,
+                            strokeWidth: 2,
+                          ),
+                        ),
+                      )
+                    else
+                      Center(
+                        child: Icon(Icons.error_outline,
+                            color: Colors.redAccent, size: 28),
+                      ),
 
-                // ── Watermark ────────────────────────────────
-                if (_controller != null && !_isError)
-                  Positioned.fill(
-                    child: AnimatedAlign(
-                      alignment: _watermarkAlignment,
-                      duration: const Duration(seconds: 2),
-                      child: IgnorePointer(
-                        child: Padding(
-                          padding: const EdgeInsets.all(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.55),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              _fvc.videoState?.watermarkText ?? '',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.75),
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                                decoration: TextDecoration.none,
+                    // ── Watermark ────────────────────────────────
+                    if (_controller != null && !_isError)
+                      Positioned.fill(
+                        child: AnimatedAlign(
+                          alignment: _watermarkAlignment,
+                          duration: const Duration(seconds: 2),
+                          child: IgnorePointer(
+                            child: Padding(
+                              padding: const EdgeInsets.all(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.55),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  _fvc.videoState?.watermarkText ?? '',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.75),
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.bold,
+                                    decoration: TextDecoration.none,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
 
-                // ── Controls overlay ─────────────────────────
-                if (_controlsVisible)
-                  _buildControls(screen),
+                    // ── Controls overlay ─────────────────────────
+                    if (_controlsVisible)
+                      _buildControls(screen),
 
-                // ── Double-tap seek indicator ─────────────────
-                // ✅ يعرض الآن الرقم التراكمي (10/20/30...) وليس أيقونة
-                // ثابتة فقط، حتى يرى المستخدم مقدار القفزة الفعلية عند
-                // النقر المزدوج المتكرر بسرعة.
-                if (_showSeekBubble)
-                  Align(
-                    alignment: _seekBubbleForward
-                        ? const Alignment(0.6, 0)
-                        : const Alignment(-0.6, 0),
-                    child: IgnorePointer(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.55),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _seekBubbleForward
-                                  ? Icons.fast_forward
-                                  : Icons.fast_rewind,
-                              color: AppColors.accentYellow,
-                              size: 14,
+                    // ── Double-tap seek indicator ─────────────────
+                    // ✅ يعرض الآن الرقم التراكمي (10/20/30...) وليس أيقونة
+                    // ثابتة فقط، حتى يرى المستخدم مقدار القفزة الفعلية عند
+                    // النقر المزدوج المتكرر بسرعة.
+                    if (_showSeekBubble)
+                      Align(
+                        alignment: _seekBubbleForward
+                            ? const Alignment(0.6, 0)
+                            : const Alignment(-0.6, 0),
+                        child: IgnorePointer(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.55),
+                              borderRadius: BorderRadius.circular(20),
                             ),
-                            const SizedBox(width: 2),
-                            Text(
-                              '${_seekBubbleSeconds}s',
-                              style: TextStyle(
-                                color: AppColors.accentYellow,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                decoration: TextDecoration.none,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _seekBubbleForward
+                                      ? Icons.fast_forward
+                                      : Icons.fast_rewind,
+                                  color: AppColors.accentYellow,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  '${_seekBubbleSeconds}s',
+                                  style: TextStyle(
+                                    color: AppColors.accentYellow,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    decoration: TextDecoration.none,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-
-                // ── Resize handle (bottom-right) ──────────────
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: GestureDetector(
-                    onPanUpdate: (d) {
-                      setState(() {
-                        // ✅ الحد الأقصى أصبح ديناميكيًا (maxW) بدلاً من رقم
-                        // ثابت، فيسمح بتكبير النافذة حتى حواف الشاشة على
-                        // الأجهزة اللوحية والشاشات الكبيرة.
-                        _width = (_width + d.delta.dx)
-                            .clamp(_minW, maxW);
-                        // Re-clamp position so we don't go off-screen
-                        _position =
-                            _clampPosition(_position, screen);
-                      });
-                    },
-                    child: Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: const BorderRadius.only(
-                          bottomRight: Radius.circular(10),
-                        ),
-                      ),
-                      child: Icon(
-                        Icons.open_in_full,
-                        color: AppColors.accentYellow.withOpacity(0.85),
-                        size: 18,
-                      ),
-                    ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
+
+            // ── Resize handle (bottom-right) ──────────────────
+            // ✅ الآن شقيق (sibling) للـ GestureDetector الخارجي أعلاه، وليس
+            // من ذريته — انظر التعليق التوضيحي فوق الـ SizedBox. هذا يزيل
+            // أي علاقة سلف/نسل بين كاشفي الإيماءات فلا يتنافسان في نفس
+            // ساحة الإيماءات، ويصبح ظهور الـ controls وعمل التصغير متطابقًا
+            // على جميع الأجهزة.
+            Positioned(
+              bottom: 0,
+              right: 0,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanUpdate: (d) {
+                  setState(() {
+                    // ✅ الحد الأقصى أصبح ديناميكيًا (maxW) بدلاً من رقم
+                    // ثابت، فيسمح بتكبير النافذة حتى حواف الشاشة على
+                    // الأجهزة اللوحية والشاشات الكبيرة.
+                    _width = (_width + d.delta.dx).clamp(_minW, maxW);
+                    // Re-clamp position so we don't go off-screen
+                    _position = _clampPosition(_position, screen);
+                  });
+                },
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: const BorderRadius.only(
+                      bottomRight: Radius.circular(10),
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.open_in_full,
+                    color: AppColors.accentYellow.withOpacity(0.85),
+                    size: 18,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
