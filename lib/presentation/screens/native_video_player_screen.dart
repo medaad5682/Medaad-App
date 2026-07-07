@@ -257,6 +257,11 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         _betterPlayerController?.setVolume(0.0);
         _betterPlayerController?.pause();
       }
+      // ✅ إعادة تطبيق الـ videoGravity الصحيح على iOS عند العودة من
+      // الخلفية: نظام iOS قد يعيد بناء الـ AVPlayerLayer الأصلي عند
+      // استئناف التطبيق، وهذا قد يفقد قيمة الـ gravity المضبوطة سابقًا
+      // ويعيد الفيديو لسلوك iOS الافتراضي (عريض/مقصوص) دون أي إشعار.
+      _forceApplyIOSVideoGravity();
     }
   }
 
@@ -426,7 +431,28 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         _applyHandoffStateIfNeeded();
         // Sync iOS's native videoGravity with the current fit selection now
         // that the player (and its platform view) actually exists.
-        _applyIOSVideoGravity();
+        // ✅ إصلاح: الفيديو كان يظهر "عريضًا" (مقصوصًا بلا أشرطة سوداء) على
+        // iOS رغم أن "Contain" (16:9) هو الافتراضي المختار دائمًا.
+        //
+        // السبب: better_player_plus مثبّتة عند الإصدار 1.2.1 تحديدًا (بسبب
+        // تعارض بين الحزم كان يمنع الترقية). سجل تغييرات الحزمة نفسها يوضح
+        // أن معالجة BoxFit التلقائية والموثوقة على iOS (قيمة افتراضية
+        // أصلية = resizeAspect + إعادة محاولة مجدولة لتطبيق الـ gravity) لم
+        // تُضَف إلا في إصدار لاحق (1.3.2)، وليست موجودة في 1.2.1 المثبَّتة
+        // هنا. لذلك كان تطبيقنا يعتمد على استدعاء واحد فقط لـ
+        // _applyIOSVideoGravity() عند حدث "initialized" — وفي 1.2.1 هذا
+        // الاستدعاء الوحيد يمكن أن يخسر السباق مع تهيئة الـ AVPlayerLayer
+        // الأصلية (مثلاً إذا لم يكن playerView قد أُنشئ بعد فعليًا لحظة
+        // وصول الأمر عبر قناة المنصّة)، فيعود الفيديو لسلوك iOS الافتراضي
+        // غير المحتوى (عريض/مقصوص) دون أي تنبيه.
+        //
+        // الحل: بدلاً من استدعاء واحد، نعيد تطبيق الـ gravity الصحيح عدة
+        // مرات على فترات متباعدة (فوريًا، ثم بعد إطار واحد، ثم بعد فترات
+        // قصيرة متتالية) لضمان أن آخر استدعاء يصل دائمًا بعد أن يكون الـ
+        // playerView قد أُنشئ فعليًا — بغض النظر عن أي سباق توقيت في نسخة
+        // الحزمة المثبَّتة. هذه العملية رخيصة جدًا (استدعاء قناة منصّة فارغ
+        // تقريبًا) ولا تأثير مرئي لها إذا كانت القيمة صحيحة أصلًا.
+        _forceApplyIOSVideoGravity();
         break;
       default:
         break;
@@ -584,7 +610,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           .recordError(e, null, reason: 'Native Player setOverriddenFit Error');
     }
 
-    _applyIOSVideoGravity();
+    _forceApplyIOSVideoGravity();
   }
 
   /// Mirrors the current [_videoFit] selection to iOS's native AVPlayerLayer
@@ -619,6 +645,37 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         null,
         reason: 'Native Player iOS setAspectRatio Error',
       );
+    }
+  }
+
+  /// Re-applies [_applyIOSVideoGravity] several times over the next
+  /// ~1.5 seconds instead of just once.
+  ///
+  /// better_player_plus is pinned to 1.2.1 here (see comment at the call
+  /// site), a version where a single call right after the "initialized"
+  /// event can lose a timing race with the native AVPlayerLayer's own
+  /// setup and silently fail to letterbox the video. Firing the same
+  /// cheap, idempotent call again on the next frame and a few more times
+  /// shortly after guarantees the *last* attempt lands after the native
+  /// player view genuinely exists, on every device, without needing to
+  /// know exactly when that happens.
+  void _forceApplyIOSVideoGravity() {
+    if (!Platform.isIOS) return;
+    _applyIOSVideoGravity();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isDisposing) return;
+      _applyIOSVideoGravity();
+    });
+    for (final delay in const [
+      Duration(milliseconds: 150),
+      Duration(milliseconds: 400),
+      Duration(milliseconds: 900),
+      Duration(milliseconds: 1500),
+    ]) {
+      Future.delayed(delay, () {
+        if (!mounted || _isDisposing) return;
+        _applyIOSVideoGravity();
+      });
     }
   }
 
