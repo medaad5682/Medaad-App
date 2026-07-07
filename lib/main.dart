@@ -200,7 +200,7 @@ void main() async {
     // ✅ ربط دالة الخلفية بفايربيز لاستقبال الإشعارات والتطبيق مغلق
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+    FlutterError.onError = _handleFlutterFatalError;
 
     await NotificationService().init();
     
@@ -303,7 +303,13 @@ void main() async {
     unawaited(_setupFirebaseMessaging(authBox));
   }, (error, stack) async {
     if (Firebase.apps.isNotEmpty) {
-      await FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      final isBenign = _isBenignAppCheckTokenListenerError(error);
+      if (isBenign) {
+        debugPrint(
+            '⚠️ Ignoring benign App Check token-listener MissingPluginException (non-fatal): $error');
+      }
+      await FirebaseCrashlytics.instance
+          .recordError(error, stack, fatal: !isBenign);
     }
   });
 }
@@ -315,4 +321,49 @@ Future<void> _enableSecureMode() async {
   } catch (e) {
     debugPrint("Security Mode Error: $e");
   }
+}
+
+// ✅ [إصلاح] "Fatal Exception: FlutterError — MissingPluginException(No
+// implementation found for method listen on channel
+// plugins.flutter.io/firebase_app_check/token/[DEFAULT])" كان يُسجَّل في
+// Crashlytics كـ crash **قاتل** رغم أنه ليس كذلك فعليًا.
+//
+// السبب: حزمة firebase_app_check تبدأ تلقائيًا، فور أول وصول إلى
+// FirebaseAppCheck.instance (داخل .activate() في main() أعلاه)، بالاستماع
+// إلى EventChannel داخلي خاص بتحديثات الـ token — بمعزل تمامًا عن أي كود
+// في تطبيقنا (نحن لا نستدعي onTokenChange في أي مكان — تم التحقق). الحزمة
+// نفسها تلف هذا الإعداد بـ try/catch مع تعليق صريح من مطوّرها: "This can
+// happen... Silently ignore errors during token listener registration."
+// لكن هذا الـ catch يغطي فقط استدعاء التسجيل المتزامن؛ فشل "listen" نفسه
+// (حين لا يكون المعالج الأصلي لهذه القناة مسجَّلاً على iOS) يحدث بشكل
+// غير متزامن خارج نطاق ذلك الـ try، فيفلت كخطأ غير ملتقَط ويصل إلى
+// FlutterError.onError أو إلى onError الخاص بـ runZonedGuarded — وكلاهما
+// في هذا الملف كان يسجّل أي شيء يصله كـ fatal: true بلا أي تمييز.
+//
+// الحل: تمييز هذا النوع تحديدًا (MissingPluginException الخاص بقناة
+// firebase_app_check/token) وتسجيله كخطأ غير قاتل (fatal: false) بدلاً من
+// قاتل، تمامًا كما فُعل سابقًا مع أخطاء الشبكة. أي MissingPluginException
+// أخرى (لقنوات مختلفة) تبقى تُعامل كقاتلة كما كانت، لتفادي إخفاء مشاكل
+// حقيقية أخرى بنفس النوع من الاستثناءات.
+bool _isBenignAppCheckTokenListenerError(Object error) {
+  if (error is! MissingPluginException) return false;
+  final message = error.message ?? '';
+  return message.contains('firebase_app_check/token');
+}
+
+/// Wraps [FirebaseCrashlytics.instance.recordFlutterFatalError] so the known
+/// benign App Check token-listener [MissingPluginException] (see comment on
+/// [_isBenignAppCheckTokenListenerError]) is recorded as non-fatal instead of
+/// crashing the crash-free rate for something that isn't a real crash.
+Future<void> _handleFlutterFatalError(FlutterErrorDetails details) async {
+  if (_isBenignAppCheckTokenListenerError(details.exception)) {
+    debugPrint(
+        '⚠️ Ignoring benign App Check token-listener MissingPluginException (non-fatal): ${details.exception}');
+    if (Firebase.apps.isNotEmpty) {
+      await FirebaseCrashlytics.instance
+          .recordError(details.exception, details.stack, fatal: false);
+    }
+    return;
+  }
+  await FirebaseCrashlytics.instance.recordFlutterFatalError(details);
 }
