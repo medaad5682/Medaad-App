@@ -50,6 +50,12 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
   static const double _screenMargin = 16.0;
   static const double _aspectRatio = 16 / 9;
 
+  // ✅ حدّ يدوي (بالبكسل المنطقي) للتمييز بين "نقرة مهتزّة" و"سحب حقيقي"
+  // في كاشف اللمس الخارجي أدناه. أكبر عمدًا من حدّ Flutter الداخلي لكاشف
+  // السحب (kPanSlop ≈ 36) ليبقى هامش أمان كافٍ على الأجهزة ذات الحساسية/
+  // الضجيج الأعلى في شاشة اللمس. انظر الشرح الكامل بجانب onPanCancel.
+  static const double _tapSlop = 48.0;
+
   double _width = 240.0;
   double get _height => _width / _aspectRatio;
 
@@ -64,6 +70,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
 
   late Offset _position; // top-left of the floating window
   bool _isDragging = false;
+  double _panDistance = 0.0; // accumulated movement of the current gesture
 
   // ── Player ──────────────────────────────────────────────────
   BetterPlayerController? _controller;
@@ -561,12 +568,16 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            // ── Whole-widget drag / tap / double-tap detector ────
+            // ── Whole-widget drag / tap detector ─────────────────
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               // ── Drag ──────────────────────────────────────────
-              onPanStart: (_) => setState(() => _isDragging = true),
+              onPanStart: (_) {
+                _panDistance = 0.0;
+                setState(() => _isDragging = true);
+              },
               onPanUpdate: (d) {
+                _panDistance += d.delta.distance;
                 setState(() {
                   _position = _clampPosition(
                     _position + d.delta,
@@ -574,12 +585,44 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                   );
                 });
               },
-              onPanEnd: (_) => setState(() => _isDragging = false),
-              // ── Tap to toggle controls ─────────────────────────
-              // ✅ onDoubleTap أُزيل عمدًا من هنا — انظر شرح _seekBy() أعلاه.
-              // بقاء onTap وحيدًا بلا onDoubleTap يعني عدم وجود أي تأخير أو
-              // تحكيم إيماءات، فتظهر الـ controls بمجرد لمسة واحدة بثبات.
-              onTap: _showControls,
+              // ✅ إصلاح إضافي من نفس عائلة مشكلة onDoubleTap أعلاه (اختفاء
+              // الـ controls بصمت على بعض الأجهزة رغم إزالة onDoubleTap):
+              // كان هذا الكاشف نفسه يحمل onTap مع onPanStart/onPanUpdate/
+              // onPanEnd معًا على كامل منطقة النافذة. أي نقرة حقيقية تتضمن
+              // دومًا قدرًا بسيطًا من الاهتزاز الفيزيائي في إحداثيات اللمس —
+              // لا توجد نقرة "ثابتة تمامًا" على مستوى البكسل — ويختلف مقدار
+              // هذا الاهتزاز من جهاز لآخر حسب حساسية شاشة اللمس ومشغّلها.
+              // إن تجاوز الاهتزاز حدّ التسامح الداخلي لكاشف السحب قبل رفع
+              // الإصبع (أشيع على بعض الأجهزة من غيرها) يفوز كاشف السحب في
+              // ساحة الإيماءات فورًا ويُرفض كاشف النقر تلقائيًا، فلا يصل
+              // onTap أبدًا ولا تظهر الـ controls — بينما "تُمتصّ" اللمسة
+              // نفسها كسحب متناهي الصغر لا يُحرّك النافذة بشكل ملحوظ. هذا
+              // بالضبط سبب أن مقبض التصغير (الذي يحمل onPanUpdate فقط بلا
+              // onTap منافس، أسفل هذا الودجت) كان يعمل بثبات دائمًا بينما
+              // هذه المنطقة بالذات كانت تفشل أحيانًا فقط.
+              //
+              // الحل: إزالة onTap نهائيًا بدلاً من محاولة "الفوز" في ساحة
+              // الإيماءات، والاعتماد على عائلة كاشف واحدة فقط (سحب) لا
+              // تتنافس مع أي شيء، مع تمييز يدوي للنقر:
+              // • onPanCancel: يُستدعى تلقائيًا من Flutter عندما لا تتجاوز
+              //   اللمسة حدّ السحب إطلاقًا (لم يُستدعَ onPanStart أصلاً) —
+              //   وهي الحالة الأشيع لنقرة نظيفة تمامًا.
+              // • onPanEnd: إن بدأ السحب فعليًا لكن إجمالي المسافة المتراكمة
+              //   [_panDistance] بقي أقل من [_tapSlop]، فهذه نقرة اهتزّت
+              //   بالكاد فقط ولم تُحرّك النافذة فعليًا — نعاملها كنقرة أيضًا.
+              //   أما إن تجاوزت [_tapSlop] فهو سحب حقيقي، فلا نُظهر الـ
+              //   controls (لتفادي فتحها مع كل عملية سحب للنافذة).
+              onPanEnd: (_) {
+                setState(() => _isDragging = false);
+                if (_panDistance < _tapSlop) {
+                  _showControls();
+                }
+              },
+              onPanCancel: () {
+                _panDistance = 0.0;
+                setState(() => _isDragging = false);
+                _showControls();
+              },
               child: Material(
                 color: Colors.transparent,
                 child: Container(
