@@ -821,7 +821,14 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
             // تراكم القفزات (10s, 20s, 30s...) محفوظ عبر _seekBy(), وكل
             // ضغطة هي فعل صريح لا يتداخل مع onTap الخاص بإظهار الـ controls.
             Center(
-              child: Row(
+              // ✅ نفرض LTR هنا عمدًا: بدون هذا، الـ Row يعكس ترتيب
+              // الأزرار تلقائيًا في اللغة العربية (RTL) فيصبح زر
+              // "-10" على اليمين و "+10" على اليسار، عكس الإنجليزية
+              // تمامًا. بتثبيت الاتجاه LTR يبقى الترتيب البصري
+              // (خلف - تشغيل - تقديم) متطابقًا في اللغتين.
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: Row(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -882,6 +889,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                     ),
                   ),
                 ],
+                ),
               ),
             ),
 
