@@ -81,11 +81,10 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
   bool _isScrubbing = false;
   double _scrubFraction = 0.0; // 0..1, only meaningful while scrubbing
 
-  Offset? _lastTapLocalPos;
   bool _showSeekBubble = false;
   bool _seekBubbleForward = true;
   Timer? _seekBubbleTimer;
-  static const Duration _doubleTapSeekStep = Duration(seconds: 10);
+  static const Duration _seekStep = Duration(seconds: 10);
 
   // ✅ التراكم عند النقر المزدوج المتكرر (Cumulative seek):
   // _seekBurstBase هو الموضع الذي بدأت عنده "الدفعة" الحالية من النقرات
@@ -399,22 +398,24 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     );
   }
 
-  // ── Seek gestures ─────────────────────────────────────────────
+  // ── Seek buttons ─────────────────────────────────────────────
 
-  /// Double-tap the left half to rewind, right half to fast-forward —
-  /// same convention as the full-screen player — without leaving the
-  /// floating window. Consecutive double-taps in the same direction, made
-  /// while the seek bubble is still showing, accumulate into one burst
-  /// (10s, 20s, 30s...) instead of each tap fighting the previous one.
-  void _handleDoubleTap() {
-    final tapX = _lastTapLocalPos?.dx ?? (_width / 2);
-    final forward = tapX >= _width / 2;
-
-    // ✅ إذا كانت دفعة النقرات الحالية لا تزال جارية (الفقاعة ظاهرة) وبنفس
-    // الاتجاه، نضيف هذه النقرة لنفس نقطة الانطلاق (_seekBurstBase) بدلاً
-    // من إعادة قراءة موضع المشغل من جديد — لأن الموضع الفعلي قد لا يكون قد
-    // استقر بعد من آخر seekTo غير المتزامن. تغيير الاتجاه أو انقضاء وقت
-    // الفقاعة يبدأ دفعة جديدة من موضع المشغل الحالي.
+  // ✅ إصلاح جذري لمشكلة اختفاء الـ controls نهائيًا على بعض الأجهزة (مثل
+  // iPhone 11): كان الـ GestureDetector الخارجي يحمل onTap و onDoubleTap
+  // معًا على نفس المنطقة. عندما يكون onDoubleTap موجودًا، يضطر Flutter إلى
+  // تأخير onTap لمدة ~300ms بعد كل لمسة ليتأكد أن لمسة ثانية لن تتبعها
+  // (لتمييز double-tap عن tap عادي). هذا التحكيم (gesture arbitration) هو
+  // نفسه ما كان يفشل بصمت على بعض الأجهزة، فلا يصل onTap أبدًا ولا تظهر
+  // الـ controls بأي طريقة. الحل الجذري: إزالة onDoubleTap كليًا من كاشف
+  // الإيماءات الخارجي، واستبدال "النقر المزدوج للتقديم/الترجيع" بأيقونتين
+  // صريحتين (⏪ / ⏩) داخل شريط الـ controls نفسه. الآن onTap هو الإيماءة
+  // الوحيدة على تلك المنطقة فيصل فورًا وبثبات على كل الأجهزة، بينما التقديم
+  // والترجيع أصبحا فعلًا صريحًا (button tap) لا يتنافس مع أي شيء.
+  //
+  // منطق التراكم (cumulative seek) نفسه محفوظ كما كان: الضغط المتكرر على
+  // نفس الأيقونة أثناء ظهور الفقاعة يتراكم (10s, 20s, 30s...) بدلاً من أن
+  // تتنافس كل ضغطة مع سابقتها.
+  void _seekBy(bool forward) {
     final isSameBurst = _showSeekBubble && _seekBubbleForward == forward;
     if (!isSameBurst) {
       _seekBurstBase = _controller?.videoPlayerController?.value.position ??
@@ -424,16 +425,17 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     _seekBurstSteps += forward ? 1 : -1;
 
     final total = _videoDuration;
-    Duration target = _seekBurstBase + (_doubleTapSeekStep * _seekBurstSteps);
+    Duration target = _seekBurstBase + (_seekStep * _seekBurstSteps);
     if (target < Duration.zero) target = Duration.zero;
     if (total > Duration.zero && target > total) target = total;
 
     setState(() {
       _videoPosition = target;
       _seekBubbleForward = forward;
-      _seekBubbleSeconds = _doubleTapSeekStep.inSeconds * _seekBurstSteps.abs();
+      _seekBubbleSeconds = _seekStep.inSeconds * _seekBurstSteps.abs();
       _showSeekBubble = true;
     });
+    _showControls();
 
     // ✅ نؤجل استدعاء seekTo() الفعلي 350ms بعد آخر نقرة بدلاً من إرسال أمر
     // seek منفصل مع كل نقرة على حدة. عدة أوامر seek متتالية بسرعة كانت
@@ -573,10 +575,11 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                 });
               },
               onPanEnd: (_) => setState(() => _isDragging = false),
-              // ── Tap to toggle controls / double-tap to seek ────
+              // ── Tap to toggle controls ─────────────────────────
+              // ✅ onDoubleTap أُزيل عمدًا من هنا — انظر شرح _seekBy() أعلاه.
+              // بقاء onTap وحيدًا بلا onDoubleTap يعني عدم وجود أي تأخير أو
+              // تحكيم إيماءات، فتظهر الـ controls بمجرد لمسة واحدة بثبات.
               onTap: _showControls,
-              onDoubleTapDown: (d) => _lastTapLocalPos = d.localPosition,
-              onDoubleTap: _handleDoubleTap,
               child: Material(
                 color: Colors.transparent,
                 child: Container(
@@ -813,31 +816,72 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
               ),
             ),
 
-            // ── Play / Pause ─────────────────────────────────
+            // ── Seek back / Play-Pause / Seek forward ─────────
+            // ✅ الأيقونتان الجديدتان تحلّان محل النقر المزدوج القديم —
+            // تراكم القفزات (10s, 20s, 30s...) محفوظ عبر _seekBy(), وكل
+            // ضغطة هي فعل صريح لا يتداخل مع onTap الخاص بإظهار الـ controls.
             Center(
-              child: GestureDetector(
-                onTap: () {
-                  if (_controller?.isPlaying() ?? false) {
-                    _controller?.pause();
-                  } else {
-                    _controller?.play();
-                  }
-                  _showControls();
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.black45,
-                    shape: BoxShape.circle,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: () => _seekBy(false),
+                    child: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: const BoxDecoration(
+                        color: Colors.black45,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.replay_10,
+                        color: AppColors.accentYellow,
+                        size: 20,
+                      ),
+                    ),
                   ),
-                  child: Icon(
-                    _isPlaying
-                        ? Icons.pause
-                        : Icons.play_arrow,
-                    color: AppColors.accentYellow,
-                    size: 34,
+                  const SizedBox(width: 18),
+                  GestureDetector(
+                    onTap: () {
+                      if (_controller?.isPlaying() ?? false) {
+                        _controller?.pause();
+                      } else {
+                        _controller?.play();
+                      }
+                      _showControls();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _isPlaying
+                            ? Icons.pause
+                            : Icons.play_arrow,
+                        color: AppColors.accentYellow,
+                        size: 34,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 18),
+                  GestureDetector(
+                    onTap: () => _seekBy(true),
+                    child: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: const BoxDecoration(
+                        color: Colors.black45,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.forward_10,
+                        color: AppColors.accentYellow,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
 
