@@ -751,6 +751,22 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
               ),
             ),
 
+            // ── Seek bar (bottom, full width, draggable) ───────
+            // ✅ إصلاح تعارض إيماءات آخر من نفس عائلة مشكلة مقبض التصغير:
+            // كان هذا الكاشف (onTapDown + onHorizontalDrag*) من ذرية
+            // الـ GestureDetector الخارجي المسؤول عن سحب/نقر النافذة كلها
+            // (لأن _buildSeekBar() كانت تُستدعى داخل _buildControls()، وهي
+            // مرسومة داخل نفس الـ Container/Stack الذي يغلّفه الكاشف
+            // الخارجي). أي سحب أفقي فوق شريط التقدّم كان يدخل نفس "ساحة
+            // الإيماءات" بين PanGestureRecognizer (الخارجي، يقبل أي اتجاه)
+            // و HorizontalDragGestureRecognizer (الداخلي)، والفوز بينهما
+            // غير محسوم بثبات فيتحول أحيانًا "السحب على شريط التقدّم" إلى
+            // سحبٍ للنافذة العائمة نفسها بدلاً من الترجيع/التقديم.
+            // الحل: جعل شريط التقدّم شقيقًا (sibling) للكاشف الخارجي بنفس
+            // الطريقة المتبعة مع مقبض التصغير أدناه، فلا يتشاركان ساحة
+            // الإيماءات إطلاقًا — hit-testing وحده يحدد من يستقبل اللمسة.
+            if (_controlsVisible) _buildSeekBar(),
+
             // ── Resize handle (bottom-right) ──────────────────
             // ✅ الآن شقيق (sibling) للـ GestureDetector الخارجي أعلاه، وليس
             // من ذريته — انظر التعليق التوضيحي فوق الـ SizedBox. هذا يزيل
@@ -982,8 +998,6 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
                 ),
               ),
 
-            // ── Seek bar (bottom, full width, draggable) ───────
-            _buildSeekBar(),
           ],
         ),
       ),
