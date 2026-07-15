@@ -1985,6 +1985,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get titleNameLabel => 'Title / Name';
 
   @override
+  String get chapterFolderLabel => 'Folder (optional)';
+
+  @override
+  String get chapterFolderHint => 'e.g. Term 1, Unit 2 (leave empty for no folder)';
+
+  @override
   String get enterTitleHereHint => 'Enter title here';
 
   @override

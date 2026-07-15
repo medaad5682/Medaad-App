@@ -1967,6 +1967,12 @@ class AppLocalizationsAr extends AppLocalizations {
   String get titleNameLabel => 'العنوان / الاسم';
 
   @override
+  String get chapterFolderLabel => 'المجلد (اختياري)';
+
+  @override
+  String get chapterFolderHint => 'مثال: الترم الأول، الوحدة 2 (اتركه فارغاً لعدم استخدام مجلد)';
+
+  @override
   String get enterTitleHereHint => 'أدخل العنوان هنا';
 
   @override

@@ -3674,6 +3674,18 @@ abstract class AppLocalizations {
   /// **'Title / Name'**
   String get titleNameLabel;
 
+  /// Label for the optional folder/group name field when creating or editing a chapter
+  ///
+  /// In en, this message translates to:
+  /// **'Folder (optional)'**
+  String get chapterFolderLabel;
+
+  /// Hint text for the optional chapter folder field
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Term 1, Unit 2 (leave empty for no folder)'**
+  String get chapterFolderHint;
+
   /// Hint text for the title/name field on the content form
   ///
   /// In en, this message translates to:
