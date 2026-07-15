@@ -38,8 +38,12 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
   String? _error;
   Map<String, dynamic>? _content;
   bool _isTeacher = false;
-  // ✅ [جديد] أسماء المجلدات المطوية حالياً (فارغة افتراضياً = كل المجلدات مفتوحة)
+  // ✅ [جديد] أسماء المجلدات المطوية حالياً. المجلدات تكون مطوية (مغلقة)
+  // بشكل افتراضي عند ظهورها لأول مرة — انظر _syncFolderDefaults.
   final Set<String> _collapsedFolders = {};
+  // أسماء المجلدات التي سبق رصدها من قبل، لتفادي إعادة طي مجلد فتحه
+  // المستخدم يدوياً كلما تم تحديث البيانات (بعد تعديل/إضافة فصل مثلاً).
+  final Set<String> _knownFolderNames = {};
 
   final String _baseUrl = ApiConstants.baseUrl;
 
@@ -73,6 +77,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         setState(() {
           _content = res.data;
           _loading = false;
+          _syncFolderDefaults();
         });
       }
     } catch (e, stack) {
@@ -83,6 +88,21 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
           _error = AppLocalizations.of(context)!.failedToLoadContent;
           _loading = false;
         });
+      }
+    }
+  }
+
+  // ✅ [جديد] عند ظهور مجلد جديد لأول مرة (لم يُرصد من قبل)، يُضاف إلى
+  // قائمة المجلدات المطوية افتراضياً. المجلدات التي فتحها المستخدم يدوياً
+  // من قبل (أُزيلت من _collapsedFolders) لا تتأثر بإعادة جلب البيانات.
+  void _syncFolderDefaults() {
+    final chapters = _content?['chapters'] as List? ?? [];
+    for (final ch in chapters) {
+      final String name = ((ch['folder_name'] as String?) ?? '').trim();
+      if (name.isEmpty) continue;
+      if (!_knownFolderNames.contains(name)) {
+        _knownFolderNames.add(name);
+        _collapsedFolders.add(name);
       }
     }
   }
@@ -126,6 +146,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         }
       }
       _content!['chapters'] = chapters;
+      _syncFolderDefaults();
     });
   }
 
@@ -1023,8 +1044,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
               padding: const EdgeInsetsDirectional.only(start: 12),
               child: Column(
                 children: items
-                    .map<Widget>(
-                        (e) => _buildChapterCard(e.key, e.value as int))
+                    .map<Widget>((e) => _buildChapterCard(e.key, e.value as int,
+                        compact: true))
                     .toList(),
               ),
             ),
@@ -1036,9 +1057,25 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
   // 🔵 بطاقة فصل واحدة — نفس التصميم الأصلي بالحرف، فقط تم استخراجه في
   // دالة مستقلة ليُستخدم سواء داخل القائمة العادية أو داخل مجموعة مجلد.
-  Widget _buildChapterCard(dynamic chapter, int index) {
+  Widget _buildChapterCard(dynamic chapter, int index, {bool compact = false}) {
     final videosCount = (chapter['videos'] as List? ?? []).length;
     final pdfsCount = (chapter['pdfs'] as List? ?? []).length;
+
+    // 🗜️ [جديد] أبعاد أصغر ومناسبة لبطاقة فصل داخل مجلد، بدون أي تأثير
+    // على شكل الفصول المستقلة (بدون مجلد) والتي تحتفظ بحجمها الأصلي.
+    final double cardPadding = compact ? 12 : 16;
+    final double cardMarginBottom = compact ? 8 : 12;
+    final double cardRadius = compact ? 12 : 16;
+    final double badgeSize = compact ? 32 : 40;
+    final double badgeRadius = compact ? 6 : 8;
+    final double badgeFontSize = compact ? 10 : 12;
+    final double gapWidth = compact ? 12 : 16;
+    final double titleFontSize = compact ? 13 : 15;
+    final double hashIconSize = compact ? 9 : 10;
+    final double countsFontSize = compact ? 8 : 9;
+    final double actionIconSize = compact ? 18 : 20;
+    final double editIconSize = compact ? 16 : 18;
+    final double chevronSize = compact ? 16 : 18;
 
     return GestureDetector(
       onTap: () {
@@ -1064,11 +1101,11 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         });
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
+        margin: EdgeInsets.only(bottom: cardMarginBottom),
+        padding: EdgeInsets.all(cardPadding),
         decoration: BoxDecoration(
           color: AppColors.backgroundSecondary,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(cardRadius),
           border: Border.all(color: Colors.white.withOpacity(0.05)),
           boxShadow: const [
             BoxShadow(color: Colors.black12, blurRadius: 4)
@@ -1077,11 +1114,11 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         child: Row(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: badgeSize,
+              height: badgeSize,
               decoration: BoxDecoration(
                 color: AppColors.backgroundPrimary,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(badgeRadius),
                 border: Border.all(color: Colors.white.withOpacity(0.1)),
                 boxShadow: const [
                   BoxShadow(color: Colors.black26, blurRadius: 2)
@@ -1093,12 +1130,12 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                   style: TextStyle(
                     color: AppColors.accentYellow,
                     fontWeight: FontWeight.bold,
-                    fontSize: 12,
+                    fontSize: badgeFontSize,
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: gapWidth),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1110,7 +1147,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                         .toString()
                         .toUpperCase(),
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: titleFontSize,
                       fontWeight: FontWeight.bold,
                       color: AppColors.textPrimary,
                       letterSpacing: -0.5,
@@ -1122,13 +1159,13 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                   Row(
                     children: [
                       Icon(LucideIcons.hash,
-                          size: 10, color: AppColors.accentOrange),
+                          size: hashIconSize, color: AppColors.accentOrange),
                       const SizedBox(width: 4),
                       Text(
                         AppLocalizations.of(context)!
                             .contentsCountLabel(videosCount + pdfsCount),
                         style: TextStyle(
-                          fontSize: 9,
+                          fontSize: countsFontSize,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textSecondary,
                           letterSpacing: 1.5,
@@ -1147,7 +1184,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                 // 💬 زر تقييم الشابتر
                 IconButton(
                   icon: Icon(LucideIcons.messageCircle,
-                      size: 20, color: AppColors.textSecondary),
+                      size: actionIconSize, color: AppColors.textSecondary),
                   onPressed: () {
                     if (_isTeacher) {
                       _showTeacherFeedbackDialog(chapter['id'].toString());
@@ -1160,7 +1197,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                 if (_isTeacher)
                   IconButton(
                     icon: Icon(LucideIcons.edit2,
-                        size: 18, color: AppColors.accentYellow),
+                        size: editIconSize, color: AppColors.accentYellow),
                     onPressed: () {
                       Navigator.push(
                         context,
@@ -1179,7 +1216,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                   )
                 else
                   DirectionalFlip(child: Icon(LucideIcons.chevronRight,
-                      size: 18, color: AppColors.textSecondary)),
+                      size: chevronSize, color: AppColors.textSecondary)),
               ],
             ),
           ],
