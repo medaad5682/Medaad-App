@@ -19,12 +19,16 @@ class ManageContentScreen extends StatefulWidget {
   final ContentType contentType;
   final String? parentId;
   final Map<String, dynamic>? initialData;
+  // ✅ [جديد] أسماء المجلدات المستخدمة بالفعل في نفس المادة، لعرضها كاقتراحات
+  // سريعة (نقرة واحدة) بدل إعادة كتابة الاسم يدوياً في كل مرة.
+  final List<String>? existingFolders;
 
   const ManageContentScreen({
     Key? key,
     required this.contentType,
     this.parentId,
     this.initialData,
+    this.existingFolders,
   }) : super(key: key);
 
   @override
@@ -39,6 +43,8 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
   final TextEditingController _descController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _urlController = TextEditingController();
+  // ✅ [جديد] مجلد اختياري لتقسيم الفصول (اختياري تماماً - لا يؤثر على الفصول التي لا تستخدمه)
+  final TextEditingController _folderNameController = TextEditingController();
 
   // ✅ إضافة متحكمات الوقت للفيديو
   final TextEditingController _hoursController = TextEditingController();
@@ -122,6 +128,9 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
             _secondsController.text = parts[1];
           }
         }
+      }
+      if (widget.contentType == ContentType.chapter) {
+        _folderNameController.text = widget.initialData!['folder_name'] ?? '';
       }
       if (widget.contentType == ContentType.pdf) {
         _uploadedFileUrl = widget.initialData!['file_path'] ?? widget.initialData!['file_url'];
@@ -265,6 +274,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
     _descController.dispose();
     _priceController.dispose();
     _urlController.dispose();
+    _folderNameController.dispose();
     _hoursController.dispose();
     _minutesController.dispose();
     _secondsController.dispose();
@@ -386,6 +396,10 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
           break;
         case ContentType.chapter:
           data['subject_id'] = widget.parentId;
+          // ✅ [جديد] نرسل null بدل نص فارغ حتى تُحذف قيمة المجلد فعلياً
+          // في قاعدة البيانات لو المعلم مسحها أثناء التعديل.
+          final folderText = _folderNameController.text.trim();
+          data['folder_name'] = folderText.isEmpty ? null : folderText;
           break;
         case ContentType.video:
           data['chapter_id'] = widget.parentId;
@@ -719,6 +733,79 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
                     validator: (val) => val!.isEmpty ? AppLocalizations.of(context)!.requiredField : null,
                   ),
                   const SizedBox(height: 16),
+
+                  if (widget.contentType == ContentType.chapter) ...[
+                    // ✅ [جديد] حقل اختياري بالكامل: لو تُرك فارغاً يظهر الفصل
+                    // كالمعتاد بدون أي مجلد (سلوك التطبيق القديم كما هو).
+                    CustomTextField(
+                      label: AppLocalizations.of(context)!.chapterFolderLabel,
+                      controller: _folderNameController,
+                      hintText: AppLocalizations.of(context)!.chapterFolderHint,
+                      prefixIcon: Icons.folder_outlined,
+                    ),
+                    // ✅ [جديد] اقتراحات سريعة: أسماء المجلدات المستخدمة
+                    // بالفعل في نفس المادة، بنقرة واحدة بدل إعادة الكتابة
+                    // يدوياً (وبالتالي تفادي فروقات إملائية تُنشئ مجلداً
+                    // مختلفاً بالخطأ).
+                    if ((widget.existingFolders ?? []).isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: widget.existingFolders!.map((folder) {
+                          final bool isSelected =
+                              _folderNameController.text.trim() == folder;
+                          return GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                // نقرة ثانية على نفس المجلد المختار تُفرغ
+                                // الحقل مجدداً (يعني: بدون مجلد).
+                                _folderNameController.text =
+                                    isSelected ? '' : folder;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? AppColors.accentYellow.withOpacity(0.15)
+                                    : AppColors.backgroundSecondary,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppColors.accentYellow
+                                      : Colors.white.withOpacity(0.1),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.folder,
+                                      size: 14,
+                                      color: isSelected
+                                          ? AppColors.accentYellow
+                                          : AppColors.textSecondary),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    folder,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: isSelected
+                                          ? AppColors.accentYellow
+                                          : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                  ],
 
                   if (widget.contentType == ContentType.course) ...[
                     CustomTextField(
