@@ -596,6 +596,8 @@
   "cancelUploadAction": "إلغاء الرفع",
   "uploadingFileStatus": "جاري رفع الملف...",
   "savingDataStatus": "جاري حفظ البيانات...",
+  "chapterFolderLabel": "المجلد (اختياري)",
+  "chapterFolderHint": "مثال: الترم الأول، الوحدة 2 (اتركه فارغاً لعدم استخدام مجلد)",
   "titleNameLabel": "العنوان / الاسم",
   "enterTitleHereHint": "أدخل العنوان هنا",
   "descriptionFieldLabel": "الوصف",

@@ -2509,6 +2509,14 @@
   "@savingDataStatus": {
     "description": "Status text shown while content data is being saved to the server"
   },
+  "chapterFolderLabel": "Folder (optional)",
+  "@chapterFolderLabel": {
+    "description": "Label for the optional folder/group name field when creating or editing a chapter"
+  },
+  "chapterFolderHint": "e.g. Term 1, Unit 2 (leave empty for no folder)",
+  "@chapterFolderHint": {
+    "description": "Hint text for the optional chapter folder field"
+  },
   "titleNameLabel": "Title / Name",
   "@titleNameLabel": {
     "description": "Label for the title/name text field on the content form"
