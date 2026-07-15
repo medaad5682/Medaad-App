@@ -38,6 +38,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
   String? _error;
   Map<String, dynamic>? _content;
   bool _isTeacher = false;
+  // ✅ [جديد] أسماء المجلدات المطوية حالياً (فارغة افتراضياً = كل المجلدات مفتوحة)
+  final Set<String> _collapsedFolders = {};
 
   final String _baseUrl = ApiConstants.baseUrl;
 
@@ -85,7 +87,21 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
     }
   }
 
-  // ✅ دالة لتحديث الشابتر في القائمة محلياً (Optimistic Update) أو بعد العودة
+  // ✅ [جديد] أسماء المجلدات المستخدمة بالفعل في هذه المادة (بدون تكرار)،
+  // بترتيب أول ظهور، لعرضها كاقتراحات سريعة عند إضافة/تعديل فصل.
+  List<String> _existingFolderNames() {
+    final chapters = _content?['chapters'] as List? ?? [];
+    final List<String> result = [];
+    for (final ch in chapters) {
+      final String name = ((ch['folder_name'] as String?) ?? '').trim();
+      if (name.isNotEmpty && !result.contains(name)) {
+        result.add(name);
+      }
+    }
+    return result;
+  }
+
+
   void _updateChapterList(dynamic result) {
     if (result == true) {
       _fetchContent();
@@ -450,6 +466,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                                   builder: (_) => ManageContentScreen(
                                     contentType: ContentType.chapter,
                                     parentId: widget.subjectId,
+                                    existingFolders: _existingFolderNames(),
                                   ),
                                 ),
                               ).then((val) {
@@ -877,160 +894,297 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
           LucideIcons.bookOpen, AppLocalizations.of(context)!.noChaptersFound);
     }
 
+    // ✅ [جديد] تجميع اختياري بالكامل: لو المدرس لم يستخدم المجلدات إطلاقاً
+    // (لا يوجد أي فصل بحقل folder_name)، تُعرض القائمة تماماً كما كانت من
+    // قبل — صفر تغيير بصرياً أو سلوكياً على أي كورس/مادة قديمة أو جديدة
+    // لا يستخدم هذه الميزة.
+    final bool hasAnyFolder = chapters.any((c) =>
+        ((c['folder_name'] as String?)?.trim().isNotEmpty ?? false));
+
+    if (!hasAnyFolder) {
+      return ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        itemCount: chapters.length,
+        itemBuilder: (context, index) =>
+            _buildChapterCard(chapters[index], index),
+      );
+    }
+
+    // 🗂️ نبني قائمة عناصر معروضة بالحفاظ على ترتيب الظهور الأصلي
+    // (حسب sort_order القادم من السيرفر): كل فصل بدون مجلد يبقى عنصراً
+    // منفرداً في مكانه، وكل مجموعة فصول تشترك بنفس اسم المجلد تُجمع في
+    // أول مكان ظهر فيه اسم هذا المجلد.
+    final List<_ChapterEntry> entries = [];
+    final Map<String, int> folderPosition = {};
+
+    for (int i = 0; i < chapters.length; i++) {
+      final chapter = chapters[i];
+      final String folderName =
+          (chapter['folder_name'] as String?)?.trim() ?? '';
+
+      if (folderName.isEmpty) {
+        entries.add(_ChapterEntry.single(chapter, i));
+        continue;
+      }
+
+      if (folderPosition.containsKey(folderName)) {
+        entries[folderPosition[folderName]!]
+            .items!
+            .add(MapEntry(chapter, i));
+      } else {
+        folderPosition[folderName] = entries.length;
+        entries.add(_ChapterEntry.folder(folderName, [MapEntry(chapter, i)]));
+      }
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      itemCount: chapters.length,
-      itemBuilder: (context, index) {
-        final chapter = chapters[index];
-        final videosCount = (chapter['videos'] as List? ?? []).length;
-        final pdfsCount = (chapter['pdfs'] as List? ?? []).length;
+      itemCount: entries.length,
+      itemBuilder: (context, i) {
+        final entry = entries[i];
+        if (!entry.isFolder) {
+          return _buildChapterCard(entry.chapter!, entry.originalIndex!);
+        }
+        return _buildFolderGroup(entry.folderName!, entry.items!);
+      },
+    );
+  }
 
-        return GestureDetector(
-          onTap: () {
-            final String courseTitle = _content?['course_title'] ??
-                AppLocalizations.of(context)!.unknownCourseFallback;
+  // 🗂️ [جديد] رأس مجلد قابل للطي يحتوي على فصوله بنفس تصميم بطاقة الفصل
+  // العادية تماماً — لا تغيير على أي شيء آخر غير طريقة العرض/التجميع.
+  Widget _buildFolderGroup(String folderName, List<MapEntry> items) {
+    final bool isCollapsed = _collapsedFolders.contains(folderName);
 
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                  builder: (_) => ChapterContentsScreen(
-                        chapter: Map<String, dynamic>.from(chapter),
-                        courseTitle: courseTitle,
-                        subjectTitle: widget.subjectTitle,
-                        subjectId: widget.subjectId,
-                        playerSettings: _content?['player_settings'], 
-                      )),
-            ).then((updatedChapter) {
-              if (updatedChapter != null && updatedChapter is Map) {
-                _updateChapterList(Map<String, dynamic>.from(updatedChapter));
-              } else {
-                _fetchContent();
-              }
-            });
-          },
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.backgroundSecondary,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.05)),
-              boxShadow: const [
-                BoxShadow(color: Colors.black12, blurRadius: 4)
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.backgroundPrimary,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white.withOpacity(0.1)),
-                    boxShadow: const [
-                      BoxShadow(color: Colors.black26, blurRadius: 2)
-                    ],
-                  ),
-                  child: Center(
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                if (isCollapsed) {
+                  _collapsedFolders.remove(folderName);
+                } else {
+                  _collapsedFolders.add(folderName);
+                }
+              });
+            },
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.backgroundPrimary,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                    color: AppColors.accentYellow.withOpacity(0.25)),
+              ),
+              child: Row(
+                children: [
+                  Icon(LucideIcons.folder,
+                      size: 18, color: AppColors.accentYellow),
+                  const SizedBox(width: 10),
+                  Expanded(
                     child: Text(
-                      "${index + 1}".padLeft(2, '0'),
+                      folderName.toUpperCase(),
                       style: TextStyle(
-                        color: AppColors.accentYellow,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                        color: AppColors.textPrimary,
+                        letterSpacing: -0.3,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (chapter['title'] ??
-                                AppLocalizations.of(context)!
-                                    .chapterFallbackTitle)
-                            .toString()
-                            .toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textPrimary,
-                          letterSpacing: -0.5,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(LucideIcons.hash,
-                              size: 10, color: AppColors.accentOrange),
-                          const SizedBox(width: 4),
-                          Text(
-                            AppLocalizations.of(context)!
-                                .contentsCountLabel(videosCount + pdfsCount),
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textSecondary,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                // 🟢 أزرار الشابتر (التقييم بجوار القلم أو السهم)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // 💬 زر تقييم الشابتر
-                    IconButton(
-                      icon: Icon(LucideIcons.messageCircle,
-                          size: 20, color: AppColors.textSecondary),
-                      onPressed: () {
-                        if (_isTeacher) {
-                          _showTeacherFeedbackDialog(chapter['id'].toString());
-                        } else {
-                          _showStudentFeedbackDialog(chapter['id'].toString());
-                        }
-                      },
+                  Text(
+                    "${items.length}",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textSecondary,
                     ),
-
-                    if (_isTeacher)
-                      IconButton(
-                        icon: Icon(LucideIcons.edit2,
-                            size: 18, color: AppColors.accentYellow),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ManageContentScreen(
-                                contentType: ContentType.chapter,
-                                initialData: chapter,
-                                parentId: widget.subjectId,
-                              ),
-                            ),
-                          ).then((val) {
-                            if (val == true) _fetchContent();
-                          });
-                        },
-                      )
-                    else
-                      DirectionalFlip(child: Icon(LucideIcons.chevronRight,
-                          size: 18, color: AppColors.textSecondary)),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    isCollapsed
+                        ? LucideIcons.chevronDown
+                        : LucideIcons.chevronUp,
+                    size: 16,
+                    color: AppColors.textSecondary,
+                  ),
+                ],
+              ),
             ),
           ),
-        );
+          if (!isCollapsed) ...[
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 12),
+              child: Column(
+                children: items
+                    .map<Widget>(
+                        (e) => _buildChapterCard(e.key, e.value as int))
+                    .toList(),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // 🔵 بطاقة فصل واحدة — نفس التصميم الأصلي بالحرف، فقط تم استخراجه في
+  // دالة مستقلة ليُستخدم سواء داخل القائمة العادية أو داخل مجموعة مجلد.
+  Widget _buildChapterCard(dynamic chapter, int index) {
+    final videosCount = (chapter['videos'] as List? ?? []).length;
+    final pdfsCount = (chapter['pdfs'] as List? ?? []).length;
+
+    return GestureDetector(
+      onTap: () {
+        final String courseTitle = _content?['course_title'] ??
+            AppLocalizations.of(context)!.unknownCourseFallback;
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => ChapterContentsScreen(
+                    chapter: Map<String, dynamic>.from(chapter),
+                    courseTitle: courseTitle,
+                    subjectTitle: widget.subjectTitle,
+                    subjectId: widget.subjectId,
+                    playerSettings: _content?['player_settings'],
+                  )),
+        ).then((updatedChapter) {
+          if (updatedChapter != null && updatedChapter is Map) {
+            _updateChapterList(Map<String, dynamic>.from(updatedChapter));
+          } else {
+            _fetchContent();
+          }
+        });
       },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.backgroundSecondary,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 4)
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.backgroundPrimary,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black26, blurRadius: 2)
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  "${index + 1}".padLeft(2, '0'),
+                  style: TextStyle(
+                    color: AppColors.accentYellow,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    (chapter['title'] ??
+                            AppLocalizations.of(context)!
+                                .chapterFallbackTitle)
+                        .toString()
+                        .toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(LucideIcons.hash,
+                          size: 10, color: AppColors.accentOrange),
+                      const SizedBox(width: 4),
+                      Text(
+                        AppLocalizations.of(context)!
+                            .contentsCountLabel(videosCount + pdfsCount),
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textSecondary,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // 🟢 أزرار الشابتر (التقييم بجوار القلم أو السهم)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 💬 زر تقييم الشابتر
+                IconButton(
+                  icon: Icon(LucideIcons.messageCircle,
+                      size: 20, color: AppColors.textSecondary),
+                  onPressed: () {
+                    if (_isTeacher) {
+                      _showTeacherFeedbackDialog(chapter['id'].toString());
+                    } else {
+                      _showStudentFeedbackDialog(chapter['id'].toString());
+                    }
+                  },
+                ),
+
+                if (_isTeacher)
+                  IconButton(
+                    icon: Icon(LucideIcons.edit2,
+                        size: 18, color: AppColors.accentYellow),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ManageContentScreen(
+                            contentType: ContentType.chapter,
+                            initialData: chapter,
+                            parentId: widget.subjectId,
+                            existingFolders: _existingFolderNames(),
+                          ),
+                        ),
+                      ).then((val) {
+                        if (val == true) _fetchContent();
+                      });
+                    },
+                  )
+                else
+                  DirectionalFlip(child: Icon(LucideIcons.chevronRight,
+                      size: 18, color: AppColors.textSecondary)),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1089,3 +1243,27 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
     );
   }
 }
+
+// ============================================================
+// 🗂️ [جديد] عنصر مساعد بسيط لعرض قائمة الفصول: إما فصل منفرد (بدون
+// مجلد) أو مجموعة فصول تشترك في نفس اسم المجلد الاختياري. يُستخدم فقط
+// داخل _buildChaptersList لتحديد شكل العرض ولا يخزَّن أو يُرسل لأي API.
+// ============================================================
+class _ChapterEntry {
+  final bool isFolder;
+  final dynamic chapter; // للفصل المنفرد فقط
+  final int? originalIndex; // ترقيم الفصل الأصلي (للفصل المنفرد فقط)
+  final String? folderName; // لمجموعة المجلد فقط
+  final List<MapEntry<dynamic, int>>? items; // فصول المجلد + ترقيمها الأصلي
+
+  _ChapterEntry.single(this.chapter, this.originalIndex)
+      : isFolder = false,
+        folderName = null,
+        items = null;
+
+  _ChapterEntry.folder(this.folderName, this.items)
+      : isFolder = true,
+        chapter = null,
+        originalIndex = null;
+}
+
