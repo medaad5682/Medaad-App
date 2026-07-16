@@ -44,6 +44,9 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
   // أسماء المجلدات التي سبق رصدها من قبل، لتفادي إعادة طي مجلد فتحه
   // المستخدم يدوياً كلما تم تحديث البيانات (بعد تعديل/إضافة فصل مثلاً).
   final Set<String> _knownFolderNames = {};
+  // 🌳 عرض عمود خط الشجرة (الخط العمودي + الفرع الأفقي) بجوار بطاقات
+  // الفصول داخل المجلد.
+  static const double _kFolderTreeWidth = 20.0;
 
   final String _baseUrl = ApiConstants.baseUrl;
 
@@ -1043,15 +1046,55 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
             Padding(
               padding: const EdgeInsetsDirectional.only(start: 12),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: items
-                    .map<Widget>((e) => FractionallySizedBox(
-                          widthFactor: 0.72,
-                          alignment: AlignmentDirectional.centerStart,
-                          child: _buildChapterCard(e.key, e.value as int,
-                              compact: true),
-                        ))
-                    .toList(),
+                children: List.generate(items.length, (i) {
+                  final e = items[i];
+                  final bool isLast = i == items.length - 1;
+                  return IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // 🌳 خط الشجرة: عمودي نازل من المجلد + فرع أفقي
+                        // قصير يوصل لبداية كل بطاقة فصل من جهة الشمال.
+                        SizedBox(
+                          width: _kFolderTreeWidth,
+                          child: CustomPaint(
+                            painter: _FolderTreePainter(
+                              isLast: isLast,
+                              color: AppColors.accentYellow.withOpacity(0.35),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Stack(
+                            children: [
+                              // امتداد الخط الأفقي حتى يختفي تحت البطاقة
+                              // (البطاقة نفسها لها خلفية معتمة فتغطي الجزء
+                              // اللي تحتها فيبان الخط متصل بيها فعلياً).
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Container(
+                                  height: 2,
+                                  width: double.infinity,
+                                  color:
+                                      AppColors.accentYellow.withOpacity(0.35),
+                                ),
+                              ),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: FractionallySizedBox(
+                                  widthFactor: 0.72,
+                                  child: _buildChapterCard(
+                                      e.key, e.value as int,
+                                      compact: true),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
               ),
             ),
           ],
@@ -1284,6 +1327,48 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
       ),
     );
   }
+}
+
+// ============================================================
+// 🌳 [جديد] رسّام بسيط لخط الشجرة بجانب بطاقات الفصول داخل المجلد:
+// خط عمودي نازل من رأس المجلد يمر بكل الفصول، ومع كل فصل فرع أفقي
+// قصير يوصل الخط ببداية بطاقته. آخر فصل في المجموعة يوقف الخط العمودي
+// عند منتصف ارتفاعه بدل ما يكمل نازل لتحت.
+// ============================================================
+class _FolderTreePainter extends CustomPainter {
+  final bool isLast;
+  final Color color;
+
+  _FolderTreePainter({required this.isLast, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+
+    final double midX = size.width / 2;
+    final double midY = size.height / 2;
+
+    // الخط العمودي (يكمل لتحت لو مش آخر عنصر، يقف في النص لو آخر عنصر)
+    canvas.drawLine(
+      Offset(midX, 0),
+      Offset(midX, isLast ? midY : size.height),
+      paint,
+    );
+
+    // الفرع الأفقي القصير اللي بيوصل للبطاقة
+    canvas.drawLine(
+      Offset(midX, midY),
+      Offset(size.width, midY),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _FolderTreePainter oldDelegate) =>
+      oldDelegate.isLast != isLast || oldDelegate.color != color;
 }
 
 // ============================================================
