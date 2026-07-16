@@ -1043,9 +1043,14 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
             Padding(
               padding: const EdgeInsetsDirectional.only(start: 12),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: items
-                    .map<Widget>((e) => _buildChapterCard(e.key, e.value as int,
-                        compact: true))
+                    .map<Widget>((e) => FractionallySizedBox(
+                          widthFactor: 0.72,
+                          alignment: AlignmentDirectional.centerStart,
+                          child: _buildChapterCard(e.key, e.value as int,
+                              compact: true),
+                        ))
                     .toList(),
               ),
             ),
@@ -1303,4 +1308,3 @@ class _ChapterEntry {
         chapter = null,
         originalIndex = null;
 }
-
