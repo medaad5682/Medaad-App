@@ -17,6 +17,7 @@ import 'teacher/exam_stats_screen.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
+import 'package:Medaad/presentation/widgets/marquee_text.dart';
 
 class SubjectMaterialsScreen extends StatefulWidget {
   final String subjectId;
@@ -1006,7 +1007,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                       size: 18, color: AppColors.accentYellow),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
+                    child: MarqueeText(
                       folderName.toUpperCase(),
                       style: TextStyle(
                         fontSize: 13,
@@ -1014,8 +1015,6 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                         color: AppColors.textPrimary,
                         letterSpacing: -0.3,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Text(
@@ -1039,14 +1038,35 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
             ),
           ),
           if (!isCollapsed) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            // 🌳 [جديد] خط دليل رفيع يربط بصرياً بين رأس المجلد وفصوله،
+            // ليكون واضحاً للعين مباشرة أن هذه البطاقات "متداخلة" داخل
+            // مجلد وليست فصولاً مستقلة في نفس مستوى القائمة الرئيسية.
             Padding(
-              padding: const EdgeInsetsDirectional.only(start: 12),
-              child: Column(
-                children: items
-                    .map<Widget>((e) => _buildChapterCard(e.key, e.value as int,
-                        compact: true))
-                    .toList(),
+              padding: const EdgeInsetsDirectional.only(start: 6),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      width: 2,
+                      margin: const EdgeInsetsDirectional.only(end: 14),
+                      decoration: BoxDecoration(
+                        color: AppColors.accentYellow.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        children: items
+                            .map<Widget>((e) => _buildChapterCard(
+                                e.key, e.value as int,
+                                compact: true))
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -1061,21 +1081,22 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
     final videosCount = (chapter['videos'] as List? ?? []).length;
     final pdfsCount = (chapter['pdfs'] as List? ?? []).length;
 
-    // 🗜️ [جديد] أبعاد أصغر ومناسبة لبطاقة فصل داخل مجلد، بدون أي تأثير
-    // على شكل الفصول المستقلة (بدون مجلد) والتي تحتفظ بحجمها الأصلي.
-    final double cardPadding = compact ? 12 : 16;
-    final double cardMarginBottom = compact ? 8 : 12;
-    final double cardRadius = compact ? 12 : 16;
-    final double badgeSize = compact ? 32 : 40;
+    // 🗜️ [محدَّث] أبعاد أصغر وأكثر إحكاماً لبطاقة فصل داخل مجلد (ارتفاع أقل
+    // بوضوح)، بدون أي تأثير على شكل الفصول المستقلة (بدون مجلد) والتي
+    // تحتفظ بحجمها الأصلي بالكامل.
+    final double cardPadding = compact ? 9 : 16;
+    final double cardMarginBottom = compact ? 6 : 12;
+    final double cardRadius = compact ? 10 : 16;
+    final double badgeSize = compact ? 26 : 40;
     final double badgeRadius = compact ? 6 : 8;
-    final double badgeFontSize = compact ? 10 : 12;
-    final double gapWidth = compact ? 12 : 16;
-    final double titleFontSize = compact ? 13 : 15;
-    final double hashIconSize = compact ? 9 : 10;
-    final double countsFontSize = compact ? 8 : 9;
-    final double actionIconSize = compact ? 18 : 20;
-    final double editIconSize = compact ? 16 : 18;
-    final double chevronSize = compact ? 16 : 18;
+    final double badgeFontSize = compact ? 9 : 12;
+    final double gapWidth = compact ? 10 : 16;
+    final double titleFontSize = compact ? 12 : 15;
+    final double hashIconSize = compact ? 8 : 10;
+    final double countsFontSize = compact ? 7 : 9;
+    final double actionIconSize = compact ? 16 : 20;
+    final double editIconSize = compact ? 14 : 18;
+    final double chevronSize = compact ? 14 : 18;
 
     return GestureDetector(
       onTap: () {
@@ -1104,12 +1125,21 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         margin: EdgeInsets.only(bottom: cardMarginBottom),
         padding: EdgeInsets.all(cardPadding),
         decoration: BoxDecoration(
-          color: AppColors.backgroundSecondary,
+          // 🎨 [جديد] البطاقات داخل مجلد تأخذ لوناً أهدأ وأكثر تسطحاً
+          // (بدون ظل) لتمييزها بصرياً فوراً عن الفصول المستقلة خارج أي
+          // مجلد، والتي تحتفظ بمظهرها الأصلي البارز مع الظل الخفيف.
+          color: compact
+              ? AppColors.backgroundSecondary.withOpacity(0.55)
+              : AppColors.backgroundSecondary,
           borderRadius: BorderRadius.circular(cardRadius),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
-          boxShadow: const [
-            BoxShadow(color: Colors.black12, blurRadius: 4)
-          ],
+          border: Border.all(
+            color: compact
+                ? AppColors.accentYellow.withOpacity(0.12)
+                : Colors.white.withOpacity(0.05),
+          ),
+          boxShadow: compact
+              ? []
+              : const [BoxShadow(color: Colors.black12, blurRadius: 4)],
         ),
         child: Row(
           children: [
@@ -1140,7 +1170,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  MarqueeText(
                     (chapter['title'] ??
                             AppLocalizations.of(context)!
                                 .chapterFallbackTitle)
@@ -1152,8 +1182,6 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                       color: AppColors.textPrimary,
                       letterSpacing: -0.5,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
                   Row(

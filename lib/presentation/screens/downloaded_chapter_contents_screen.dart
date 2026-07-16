@@ -11,6 +11,7 @@ import 'pdf_viewer_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
+import 'package:Medaad/presentation/widgets/marquee_text.dart';
 
 class DownloadedChapterContentsScreen extends StatefulWidget {
   final String courseTitle;
@@ -228,14 +229,12 @@ class _DownloadedChapterContentsScreenState
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              MarqueeText(
                                 widget.chapterTitle.toUpperCase(),
                                 style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                     color: AppColors.textPrimary),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 4),
                               Text(

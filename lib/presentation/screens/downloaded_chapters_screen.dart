@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import 'downloaded_chapter_contents_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
+import 'package:Medaad/presentation/widgets/marquee_text.dart';
 
 class DownloadedChaptersScreen extends StatefulWidget {
   final String courseTitle;
@@ -202,7 +203,7 @@ class _DownloadedChaptersScreenState extends State<DownloadedChaptersScreen> {
                       size: 18, color: AppColors.accentYellow),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
+                    child: MarqueeText(
                       folderName.toUpperCase(),
                       style: TextStyle(
                         fontSize: 13,
@@ -210,8 +211,6 @@ class _DownloadedChaptersScreenState extends State<DownloadedChaptersScreen> {
                         color: AppColors.textPrimary,
                         letterSpacing: -0.3,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Text(
@@ -235,14 +234,33 @@ class _DownloadedChaptersScreenState extends State<DownloadedChaptersScreen> {
             ),
           ),
           if (!isCollapsed) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            // 🌳 خط دليل رفيع يربط بصرياً بين رأس المجلد وفصوله المتداخلة.
             Padding(
-              padding: const EdgeInsetsDirectional.only(start: 12),
-              child: Column(
-                children: items
-                    .map<Widget>((e) =>
-                        _buildChapterCard(e.key, e.value, compact: true))
-                    .toList(),
+              padding: const EdgeInsetsDirectional.only(start: 6),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      width: 2,
+                      margin: const EdgeInsetsDirectional.only(end: 14),
+                      decoration: BoxDecoration(
+                        color: AppColors.accentYellow.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        children: items
+                            .map<Widget>((e) => _buildChapterCard(
+                                e.key, e.value,
+                                compact: true))
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -255,16 +273,16 @@ class _DownloadedChaptersScreenState extends State<DownloadedChaptersScreen> {
   // (compact: true) لتناسب أسلوب عرض المجلدات.
   Widget _buildChapterCard(String chapterName, int fileCount,
       {bool compact = false}) {
-    final double cardPadding = compact ? 12 : 16;
-    final double cardMarginBottom = compact ? 8 : 12;
-    final double cardRadius = compact ? 12 : 16;
-    final double badgeSize = compact ? 32 : 40;
-    final double badgeRadius = compact ? 8 : 12;
-    final double badgeIconSize = compact ? 16 : 18;
-    final double gapWidth = compact ? 12 : 16;
-    final double titleFontSize = compact ? 13 : 15;
-    final double countsFontSize = compact ? 8 : 9;
-    final double chevronSize = compact ? 16 : 18;
+    final double cardPadding = compact ? 9 : 16;
+    final double cardMarginBottom = compact ? 6 : 12;
+    final double cardRadius = compact ? 10 : 16;
+    final double badgeSize = compact ? 26 : 40;
+    final double badgeRadius = compact ? 6 : 12;
+    final double badgeIconSize = compact ? 13 : 18;
+    final double gapWidth = compact ? 10 : 16;
+    final double titleFontSize = compact ? 12 : 15;
+    final double countsFontSize = compact ? 7 : 9;
+    final double chevronSize = compact ? 14 : 18;
 
     return GestureDetector(
       onTap: () => Navigator.push(
@@ -281,10 +299,18 @@ class _DownloadedChaptersScreenState extends State<DownloadedChaptersScreen> {
         margin: EdgeInsets.only(bottom: cardMarginBottom),
         padding: EdgeInsets.all(cardPadding),
         decoration: BoxDecoration(
-          color: AppColors.backgroundSecondary,
+          color: compact
+              ? AppColors.backgroundSecondary.withOpacity(0.55)
+              : AppColors.backgroundSecondary,
           borderRadius: BorderRadius.circular(cardRadius),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
-          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+          border: Border.all(
+            color: compact
+                ? AppColors.accentYellow.withOpacity(0.12)
+                : Colors.white.withOpacity(0.05),
+          ),
+          boxShadow: compact
+              ? []
+              : const [BoxShadow(color: Colors.black12, blurRadius: 4)],
         ),
         child: Row(
           children: [
@@ -303,7 +329,7 @@ class _DownloadedChaptersScreenState extends State<DownloadedChaptersScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  MarqueeText(
                     chapterName.toUpperCase(),
                     style: TextStyle(
                       fontSize: titleFontSize,
@@ -311,8 +337,6 @@ class _DownloadedChaptersScreenState extends State<DownloadedChaptersScreen> {
                       color: AppColors.textPrimary,
                       letterSpacing: -0.5,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
                   Text(

@@ -18,6 +18,7 @@ import '../../core/constants/api_constants.dart';
 import '../../data/models/player_settings_model.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
+import 'package:Medaad/presentation/widgets/marquee_text.dart';
 
 class ChapterContentsScreen extends StatefulWidget {
   final Map<String, dynamic> chapter;
@@ -702,19 +703,15 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      SingleChildScrollView(
-                                        scrollDirection: Axis.horizontal,
-                                        child: Text(
-                                          _currentChapter['title']
-                                              .toString()
-                                              .toUpperCase(),
-                                          style: TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.textPrimary,
-                                            letterSpacing: -0.5,
-                                          ),
-                                          maxLines: 1,
+                                      MarqueeText(
+                                        _currentChapter['title']
+                                            .toString()
+                                            .toUpperCase(),
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.textPrimary,
+                                          letterSpacing: -0.5,
                                         ),
                                       ),
                                       const SizedBox(height: 4),
@@ -902,14 +899,12 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          MarqueeText(
                             video['title'].toString().toUpperCase(),
                             style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.bold,
                                 color: AppColors.textPrimary),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
                           
                           const SizedBox(height: 4),
@@ -1209,11 +1204,13 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(pdf['title'].toString().toUpperCase(),
-                              style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textPrimary)),
+                          MarqueeText(
+                            pdf['title'].toString().toUpperCase(),
+                            style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary),
+                          ),
                           const SizedBox(height: 4),
                           Text(AppLocalizations.of(context)!.studyMaterialLabel,
                               style: TextStyle(
