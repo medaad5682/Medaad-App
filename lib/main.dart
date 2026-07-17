@@ -302,14 +302,17 @@ void main() async {
     // بداخلها أن يصل لهذا الـ Zone أو يُسجَّل كـ fatal.
     unawaited(_setupFirebaseMessaging(authBox));
   }, (error, stack) async {
+    // ✅ الخطأ المعروف وغير الضار (راجع _isBenignAppCheckTokenListenerError
+    // أدناه) لا يُرسَل إلى Crashlytics إطلاقاً الآن — لم يعد كافياً تخفيضه
+    // فقط إلى non-fatal، لأنه كان لا يزال يُسجَّل كـ Issue متكرر في لوحة
+    // Crashlytics رغم كونه غير قاتل (وهو نفس الـ Issue الذي كان يظهر هنا).
+    if (_isBenignAppCheckTokenListenerError(error)) {
+      debugPrint(
+          '⚠️ Ignoring benign App Check token-listener MissingPluginException (not sent to Crashlytics): $error');
+      return;
+    }
     if (Firebase.apps.isNotEmpty) {
-      final isBenign = _isBenignAppCheckTokenListenerError(error);
-      if (isBenign) {
-        debugPrint(
-            '⚠️ Ignoring benign App Check token-listener MissingPluginException (non-fatal): $error');
-      }
-      await FirebaseCrashlytics.instance
-          .recordError(error, stack, fatal: !isBenign);
+      await FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
     }
   });
 }
