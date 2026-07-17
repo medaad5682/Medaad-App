@@ -268,7 +268,6 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                     AppColors.textSecondary.withOpacity(0.1)),
                           ),
                           child: Row(
-                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
                                 width: 40,
@@ -284,29 +283,34 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                     color: AppColors.accentOrange, size: 20),
                               ),
                               const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    AppLocalizations.of(context)!
-                                        .instructorLabel,
-                                    style: TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1.0,
+                              // ✅ Expanded + ellipsis: يمنع اسم المدرّس الطويل من دفع السهم خارج البطاقة
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      AppLocalizations.of(context)!
+                                          .instructorLabel,
+                                      style: TextStyle(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 1.0,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    teacherName,
-                                    style: TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      teacherName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                               const SizedBox(width: 16),
                               DirectionalFlip(child: Icon(LucideIcons.chevronRight,
