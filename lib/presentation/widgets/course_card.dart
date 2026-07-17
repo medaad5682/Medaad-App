@@ -179,10 +179,14 @@ class CourseCard extends StatelessWidget {
                       Icon(LucideIcons.user,
                           size: 14, color: AppColors.textSecondary),
                       const SizedBox(width: 4),
-                      Text(
-                        course.instructorName,
-                        style: TextStyle(
-                            color: AppColors.textSecondary, fontSize: 12),
+                      Expanded(
+                        child: Text(
+                          course.instructorName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: AppColors.textSecondary, fontSize: 12),
+                        ),
                       ),
                     ],
                   ),
