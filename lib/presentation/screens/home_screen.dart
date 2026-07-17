@@ -140,34 +140,41 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            l10n.homeWelcomeGreeting,
-                            style: TextStyle(
-                              color: AppColors.accentYellow,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.5,
+                      // ✅ Expanded + ellipsis: يمنع الاسم الطويل من دفع أيقونات الإشعارات/الطلبات خارج الشاشة
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              l10n.homeWelcomeGreeting,
+                              style: TextStyle(
+                                color: AppColors.accentYellow,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.5,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            (_user?['first_name'] ?? l10n.guestFallbackName)
-                                .toString()
-                                .toUpperCase(),
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: -0.5,
+                            const SizedBox(height: 4),
+                            Text(
+                              (_user?['first_name'] ?? l10n.guestFallbackName)
+                                  .toString()
+                                  .toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: -0.5,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                        
+                      const SizedBox(width: 12),
+
                       // ✅ 2. صف يحتوي على زر الإشعارات وزر الطلبات
                       Row(
                         children: [
@@ -455,13 +462,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                       children: [
                                         Icon(LucideIcons.userCircle, size: 14, color: AppColors.accentOrange),
                                         const SizedBox(width: 8),
-                                        Text(
-                                          course.instructorName.toUpperCase(),
-                                          style: TextStyle(
-                                            color: AppColors.textSecondary,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 1.5,
+                                        Expanded(
+                                          child: Text(
+                                            course.instructorName.toUpperCase(),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: AppColors.textSecondary,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 1.5,
+                                            ),
                                           ),
                                         ),
                                       ],
