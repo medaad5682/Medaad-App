@@ -495,14 +495,20 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                                         const SizedBox(height: 4),
                                         Row(
                                           children: [
-                                            Text(
-                                              instructor.toUpperCase(),
-                                              style: TextStyle(
-                                                color: AppColors.textSecondary
-                                                    .withOpacity(0.7),
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.bold,
-                                                letterSpacing: 1.5,
+                                            Expanded(
+                                              child: Text(
+                                                instructor.toUpperCase(),
+                                                maxLines: 1,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: AppColors
+                                                      .textSecondary
+                                                      .withOpacity(0.7),
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 1.5,
+                                                ),
                                               ),
                                             ),
                                           ],
