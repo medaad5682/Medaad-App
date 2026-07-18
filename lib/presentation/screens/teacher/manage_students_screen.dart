@@ -360,16 +360,24 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                             child: Icon(Icons.person, color: Colors.blue),
                           ),
                           const SizedBox(width: 15),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _studentData!['first_name'] ?? AppLocalizations.of(context)!.noNameFallback,
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                              ),
-                              Text(AppLocalizations.of(context)!.phoneEmojiLabel(_studentData!['phone']?.toString() ?? "")),
-                              Text(AppLocalizations.of(context)!.usernameEmojiLabel(_studentData!['username']?.toString() ?? ""), style: TextStyle(fontSize: 12, color: Colors.grey)),
-                            ],
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _studentData!['first_name'] ?? AppLocalizations.of(context)!.noNameFallback,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                                Text(AppLocalizations.of(context)!.phoneEmojiLabel(_studentData!['phone']?.toString() ?? ""),
+                                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                                Text(AppLocalizations.of(context)!.usernameEmojiLabel(_studentData!['username']?.toString() ?? ""),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              ],
+                            ),
                           ),
                         ],
                       ),
