@@ -387,6 +387,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
 
     final streams = fvcState.streams;
     final title = fvcState.title;
+    final lessonId = fvcState.lessonId;
 
     _disposePlayer();
     _fvc.stopFloating();
@@ -396,6 +397,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
         builder: (_) => NativeVideoPlayerScreen(
           streams: streams,
           title: title,
+          lessonId: lessonId,
           initialPosition: position,
           initialSpeed: _currentSpeed,
           initialQuality: _currentQuality,
