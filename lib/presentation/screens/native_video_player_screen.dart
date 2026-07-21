@@ -650,7 +650,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         setState(() {
           _isError = true;
           _errorMessage =
-              'حدث خطأ أثناء تشغيل هذا الفيديو. اضغط "إعادة المحاولة" لجلب رابط بث جديد.';
+              'حدث خطأ أثناء تشغيل هذا الفيديو. اضغط "إعادة المحاولة" ';
           _isInitializing = false;
         });
       }
