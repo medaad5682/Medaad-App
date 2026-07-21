@@ -10,12 +10,15 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:dio/dio.dart';
 // ✅ مكتبات الحماية
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import '../../core/services/audio_protection_service.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/api_constants.dart';
+import '../../core/services/api_client.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/local_proxy.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
@@ -26,11 +29,20 @@ class VideoPlayerScreen extends StatefulWidget {
   final String title;
   final String? preReadyAudioUrl;
 
+  /// Lesson/video ID used to re-fetch a fresh signed stream URL from
+  /// `/api/secure/get-video-id` when the user retries after a playback
+  /// error. Optional so screens that don't have an ID handy (e.g. offline
+  /// downloads, or the Explode direct-play path) still work — retry then
+  /// simply reuses the original (possibly stale/expired) URLs, same as
+  /// before this fix. Mirrors NativeVideoPlayerScreen.lessonId.
+  final String? lessonId;
+
   const VideoPlayerScreen({
     super.key,
     required this.streams,
     required this.title,
     this.preReadyAudioUrl,
+    this.lessonId,
   });
 
   @override
@@ -43,6 +55,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   late final VideoController _controller;
 
   final LocalProxyService _proxyService = LocalProxyService();
+
+  // ✅ نسخة قابلة للتعديل من widget.streams. تبدأ بنفس القيم الممرَّرة من
+  // الشاشة السابقة، لكن _refreshStreamUrlsIfPossible() (تُستدعى عند إعادة
+  // المحاولة بعد خطأ) قد تستبدلها بروابط جديدة موقّعة حديثًا بدل الاعتماد
+  // إلى الأبد على نفس الخريطة الأصلية التي قد تحتوي روابط منتهية الصلاحية.
+  // نفس الفكرة المطبَّقة في NativeVideoPlayerScreen._streamsMap.
+  late Map<String, String> _streamsMap;
 
   // ✅ خدمة الحماية الخاصة
   final AudioProtectionService _protectionService = AudioProtectionService();
@@ -188,6 +207,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   Future<void> _initializePlayerScreen() async {
+    _streamsMap = Map<String, String>.from(widget.streams);
+
     FirebaseCrashlytics.instance
         .log("🎬 MediaKit: Optimized Init for '${widget.title}'");
     await FirebaseCrashlytics.instance
@@ -495,6 +516,106 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
   }
 
+  /// Handles the "Retry" button after a playback error.
+  ///
+  /// ✅ [جديد] قبل الآن كانت إعادة المحاولة تعيد استخدام نفس رابط
+  /// widget.streams الأصلي دائمًا — وهو رابط Bunny **موقّع ومحدود الصلاحية
+  /// زمنيًا**. لو كان سبب الفشل الفعلي هو انتهاء صلاحية التوقيع (شائع لو ظل
+  /// المستخدم على الشاشة لفترة طويلة أو كان الجهاز نائمًا)، فإن إعادة
+  /// المحاولة بنفس الرابط المنتهي كانت ستفشل مجددًا حتمًا مهما أعاد المستخدم
+  /// الضغط. الحل: قبل استدعاء _playVideo مجددًا، نحاول أولاً جلب رابط بث
+  /// جديد وموقّع حديثًا لنفس الجودة عبر _refreshStreamUrlsIfPossible()
+  /// (تتطلب widget.lessonId؛ إن لم يتوفر، أو فشل الجلب لأي سبب، نكمل بأمان
+  /// بنفس الرابط القديم الموجود أصلاً في _streamsMap تمامًا كالسابق — لا
+  /// يوجد أي تراجع في السلوك). نفس المنطق المطبَّق في
+  /// NativeVideoPlayerScreen._retryCurrentQuality.
+  Future<void> _retryPlayback() async {
+    if (!mounted || _isDisposing) return;
+    if (_currentQuality.isEmpty) return;
+
+    setState(() => _isError = false);
+
+    await _refreshStreamUrlsIfPossible();
+    if (!mounted || _isDisposing) return;
+
+    final url = _streamsMap[_currentQuality];
+    if (url == null) {
+      setState(() {
+        _isError = true;
+        _errorMessage = AppLocalizations.of(context)!.noSourcesAvailableMessage;
+      });
+      return;
+    }
+
+    _playVideo(url, startAt: _errorPosition);
+  }
+
+  /// Re-fetches fresh, newly-signed stream URLs for the current lesson from
+  /// `/api/secure/get-video-id` (the same endpoint used when the video was
+  /// first opened — see chapter_contents_screen.dart._fetchAndPlayVideo) and
+  /// merges them into [_streamsMap], preserving [_currentQuality] where
+  /// possible. Silently does nothing if [VideoPlayerScreen.lessonId] wasn't
+  /// provided, or if the request fails for any reason — in both cases
+  /// [_retryPlayback] simply falls back to retrying with whatever URL is
+  /// already in [_streamsMap], same as before this fix.
+  Future<void> _refreshStreamUrlsIfPossible() async {
+    final lessonId = widget.lessonId;
+    if (lessonId == null || lessonId.isEmpty) return;
+
+    try {
+      final res = await ApiClient.instance.get(
+        '${ApiConstants.baseUrl}/api/secure/get-video-id',
+        queryParameters: {'lessonId': lessonId},
+        options: Options(
+          receiveTimeout: const Duration(seconds: 20),
+          sendTimeout: const Duration(seconds: 20),
+        ),
+      );
+
+      if (res.statusCode != 200) return;
+      final data = res.data;
+
+      final Map<String, String> freshQualities = {};
+      if (data['availableQualities'] != null) {
+        for (final q in (data['availableQualities'] as List)) {
+          if (q['url'] != null && q['quality'] != null) {
+            freshQualities["${q['quality']}p"] = q['url'].toString();
+          }
+        }
+      }
+      if (freshQualities.isEmpty && data['url'] != null) {
+        freshQualities['Auto'] = data['url'].toString();
+      }
+
+      if (freshQualities.isEmpty || !mounted || _isDisposing) return;
+
+      setState(() {
+        _streamsMap = freshQualities;
+        _sortedQualities = _streamsMap.keys.toList();
+        _sortedQualities.sort((a, b) {
+          final numA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+          final numB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+          return numA.compareTo(numB);
+        });
+        if (!_streamsMap.containsKey(_currentQuality) &&
+            _sortedQualities.isNotEmpty) {
+          // الجودة الحالية لم تعد متوفرة في الاستجابة الجديدة (نادر جدًا) —
+          // نختار أقرب جودة متاحة بدلاً من ترك الشاشة بلا رابط صالح.
+          _currentQuality = _sortedQualities.last;
+        }
+      });
+
+      FirebaseCrashlytics.instance.log(
+        '🔄 MediaKit Player retry: refreshed stream URLs for lesson $lessonId (${freshQualities.length} qualities)',
+      );
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(e, stack,
+          reason: 'MediaKit Player Refresh Stream URL Error');
+      // نتجاهل الفشل بصمت ونكمل بمحاولة إعادة الاتصال بنفس الرابط القديم
+      // الموجود أصلاً في _streamsMap — أفضل من عدم فعل أي شيء إطلاقًا.
+    }
+  }
+
   Future<void> _seekRelative(Duration amount) async {
     if (_isRecordingDetected) return;
 
@@ -661,7 +782,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                           _currentQuality = q;
                           _isError = false;
                         });
-                        _playVideo(widget.streams[q]!, startAt: currentPos);
+                        _playVideo(_streamsMap[q]!, startAt: currentPos);
                       }
                     },
                   ))
@@ -730,7 +851,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   void _parseQualities() {
-    if (widget.streams.isEmpty) {
+    if (_streamsMap.isEmpty) {
       setState(() {
         _isError = true;
         _errorMessage = AppLocalizations.of(context)!.noSourcesAvailableMessage;
@@ -739,7 +860,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       return;
     }
 
-    _sortedQualities = widget.streams.keys.toList();
+    _sortedQualities = _streamsMap.keys.toList();
     _sortedQualities.sort((a, b) {
       int valA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       int valB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
@@ -759,7 +880,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
 
     if (_currentQuality.isNotEmpty) {
-      _playVideo(widget.streams[_currentQuality]!);
+      _playVideo(_streamsMap[_currentQuality]!);
     }
   }
 
@@ -1095,8 +1216,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         onPressed: () {
                           FirebaseCrashlytics.instance
                               .log("🔄 User clicked Retry on network error");
-                          setState(() => _isError = false);
-                          _playVideo(widget.streams[_currentQuality]!, startAt: _errorPosition);
+                          _retryPlayback();
                         },
                         style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.accentYellow,
