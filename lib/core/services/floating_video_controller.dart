@@ -14,6 +14,12 @@ class FloatingVideoState {
   final String title;
   final String watermarkText;
 
+  /// Lesson/video ID for the current stream, if known. Threaded through so
+  /// the full-screen player can re-fetch a fresh signed stream URL on retry
+  /// after expanding back from the floating (PiP) player — see
+  /// NativeVideoPlayerScreen.lessonId.
+  final String? lessonId;
+
   /// Playback handoff info — lets the floating player (or the full-screen
   /// player) resume exactly where the other one left off, at the same
   /// speed and quality, instead of restarting from scratch.
@@ -26,6 +32,7 @@ class FloatingVideoState {
     required this.streams,
     required this.title,
     required this.watermarkText,
+    this.lessonId,
     this.initialPosition = Duration.zero,
     this.playbackSpeed = 1.0,
     this.initialQuality,
@@ -42,6 +49,7 @@ class FloatingVideoState {
       streams: streams,
       title: title,
       watermarkText: watermarkText,
+      lessonId: lessonId,
       initialPosition: initialPosition ?? this.initialPosition,
       playbackSpeed: playbackSpeed ?? this.playbackSpeed,
       initialQuality: initialQuality ?? this.initialQuality,
@@ -74,6 +82,7 @@ class FloatingVideoController extends ChangeNotifier {
     required Map<String, String> streams,
     required String title,
     required String watermarkText,
+    String? lessonId,
     Duration initialPosition = Duration.zero,
     double playbackSpeed = 1.0,
     String? initialQuality,
@@ -83,6 +92,7 @@ class FloatingVideoController extends ChangeNotifier {
       streams: streams,
       title: title,
       watermarkText: watermarkText,
+      lessonId: lessonId,
       initialPosition: initialPosition,
       playbackSpeed: playbackSpeed,
       initialQuality: initialQuality,
