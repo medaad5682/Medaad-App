@@ -588,13 +588,25 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           Future.delayed(const Duration(milliseconds: 500), () async {
             if (mounted && !_isDisposing) {
               try {
+                // ✅ [إصلاح] نحدّث روابط البث الموقّعة أولاً (get-video-id)
+                // قبل التبديل للجودة الأدنى — فلو كان سبب فشل الكوديك
+                // الحقيقي (أو الفشل الذي سيصادفنا حالاً عند هذه الجودة
+                // الأدنى تحديدًا) هو انتهاء صلاحية التوقيع بدل الكوديك فعلاً،
+                // فإن استخدام نفس الروابط القديمة سيفشل مجددًا حتمًا. نتجاهل
+                // بأمان أي فشل هنا ونكمل بالرابط القديم الموجود أصلاً في
+                // _streamsMap تمامًا كالسابق — لا يوجد أي تراجع في السلوك.
+                await _refreshStreamUrlsIfPossible();
+                if (!mounted || _isDisposing) return;
+                final refreshedFallbackUrl =
+                    _streamsMap[fallbackQuality] ?? fallbackUrl;
+
                 // ✅ لازم await هنا: setResolution داخليًا async وتستكمل عملها
                 // بعد أول await داخلي (إعادة تهيئة الفيديو)، فإن أي استثناء
                 // يُرمى في تلك النقطة (مثلاً null-check على متحكم تمت
                 // إزالته أثناء إغلاق الشاشة) لا يصل إطلاقًا إلى الـ catch
                 // هنا إن لم ننتظر (await) النتيجة — بل يتحول إلى
                 // Unhandled Future rejection قاتل يصل لـ Crashlytics مباشرة.
-                await _betterPlayerController?.setResolution(fallbackUrl);
+                await _betterPlayerController?.setResolution(refreshedFallbackUrl);
                 if (mounted && !_isDisposing) {
                   _reapplySpeedAfterSourceChange();
                 }
@@ -619,53 +631,49 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       return;
     }
 
-    // ✅ إصلاح: كل خطأ غير متعلق بالكوديك كان يُعرَض دائمًا كنفس رسالة واحدة
-    // ("تحقق من اتصال الإنترنت") — حتى لو كان الجهاز متصلاً فعليًا بالإنترنت
-    // وكان الفشل الحقيقي من الخادم/CDN الخاص بـ Bunny (رابط منتهي الصلاحية،
-    // خطأ 5xx مؤقت، محتوى تالف عند نقطة معينة...)، أو حتى لو كانت الرسالة
-    // القادمة من ExoPlayer غير معروفة أصلاً ولا تطابق أي نمط شبكة حقيقي. هذا
-    // كان يُضلّل المستخدم (يطلب منه فحص اتصاله رغم أنه سليم) ولا يفرّق بين
-    // حالة تستحق إعادة محاولة تلقائية (خطأ خادم مؤقت) وحالة يجب أن ينتظر
-    // فيها المستخدم عودة الإنترنت فعليًا.
+    // ✅ [إصلاح] كل خطأ غير متعلق بالكوديك — سواء طابق نمط شبكة معروف
+    // (_isNetworkError) أو كان رسالة ExoPlayer/AVPlayer غامضة لا تطابق أي
+    // نمط معروف (مثل "ExoPlaybackException: Source error" التي رصدناها في
+    // Crashlytics ولا تحوي أي كلمة من قائمة _isNetworkError) — كان يُعامَل
+    // سابقًا بشكل مختلف تمامًا: النمط المعروف فقط هو ما يمرّ عبر
+    // _classifyAndHandleNetworkOrServerError (فحص اتصال حقيقي + إعادة محاولة
+    // تلقائية بتأخير متزايد مع تحديث رابط البث)، بينما الرسالة غير المعروفة
+    // كانت تعرض رسالة ثابتة واحدة وتتوقف تمامًا — تاركة إعادة تحديث رابط
+    // البث (get-video-id) رهينة ضغطة يدوية واحدة فقط من المستخدم، بلا أي
+    // إعادة محاولة تلقائية ولا أي ضمان لتكرارها لاحقًا.
     //
-    // الحل: نصنّف الآن أخطاء اللا-كوديك إلى فئتين إضافيتين (باستخدام
-    // connectivity_plus لمعرفة الحالة الحقيقية للاتصال):
-    //   1) رسالة تطابق نمط خطأ شبكة معروف (_isNetworkError) — نتحقق فعليًا
-    //      إن كان الجهاز غير متصل بالإنترنت، وإن كان كذلك نعرض رسالة واضحة
-    //      ونتوقف (لا فائدة من إعادة محاولة تلقائية بلا إنترنت أصلاً). أما
-    //      إن كان متصلاً فعلاً، فالمشكلة على الأرجح من الخادم، ونعرض رسالة
-    //      "جارٍ إعادة المحاولة..." مع إعادة محاولة تلقائية بتأخير متزايد
-    //      (backoff) بدل ترك المستخدم بلا أي فعل تلقائي.
-    //   2) رسالة لا تطابق أي نمط شبكة معروف (فئة ثالثة جديدة) — لا نفترض
-    //      إطلاقًا أنها مشكلة اتصال، بل نعرض رسالة عامة محايدة تدفع المستخدم
-    //      لإعادة المحاولة (والتي ستجلب رابط بث جديدًا تلقائيًا الآن — انظر
-    //      _retryCurrentQuality) دون اتهام اتصاله بالإنترنت ظلمًا.
+    // بما أن أخطاء تشغيل Bunny/ExoPlayer الفعلية (بما فيها "Source error"
+    // العامة) غالبًا ما تكون بسبب رابط منتهي الصلاحية أو عطل خادم/CDN مؤقت —
+    // تمامًا كأخطاء الشبكة المعروفة — فإننا الآن نمرّر كل الأخطاء غير
+    // الكوديكية عبر نفس المسار الموحّد (_classifyAndHandleNetworkOrServerError)
+    // بصرف النظر عن تطابق نص الرسالة مع نمط شبكة معروف أم لا. هذا يضمن:
+    //   • فحص اتصال حقيقي دائمًا (رسالة واضحة لو الجهاز فعلاً بلا إنترنت).
+    //   • إعادة محاولة تلقائية بتأخير متزايد (حتى _maxAutoRetries) لأي خطأ
+    //     تشغيل آخر أثناء وجود اتصال — وكل محاولة منها تمرّ عبر
+    //     _retryCurrentQuality الذي يستدعي get-video-id لتحديث الرابط قبل
+    //     إعادة الإنشاء، بدل الاعتماد على ضغطة يدوية واحدة فقط.
     final looksLikeNetworkError = _isNetworkError(errorDescription);
-    if (looksLikeNetworkError) {
-      unawaited(_classifyAndHandleNetworkOrServerError());
-    } else {
-      _autoRetryTimer?.cancel();
-      _autoRetryAttempt = 0;
-      if (mounted) {
-        setState(() {
-          _isError = true;
-          _errorMessage =
-              'حدث خطأ أثناء تشغيل هذا الفيديو. اضغط "إعادة المحاولة" ';
-          _isInitializing = false;
-        });
-      }
-    }
+    unawaited(_classifyAndHandleNetworkOrServerError(
+      isKnownNetworkPattern: looksLikeNetworkError,
+    ));
   }
 
-  /// Handles the "not a codec error" case once we know [errorDescription]
-  /// matched a known network-failure pattern. Uses connectivity_plus to
-  /// distinguish "the device is actually offline" (show a clear message,
-  /// no point auto-retrying) from "the device has internet but the
-  /// stream/server request still failed" (very likely a transient Bunny
-  /// CDN/server hiccup — show a "retrying..." message and auto-retry a
-  /// few times with increasing backoff before falling back to asking the
-  /// user to retry manually).
-  Future<void> _classifyAndHandleNetworkOrServerError() async {
+  /// Handles the "not a codec error" case for *any* non-codec playback
+  /// failure — both messages that matched a known network-failure pattern
+  /// ([isKnownNetworkPattern] = true) and ones that didn't (e.g. the generic
+  /// `ExoPlaybackException: Source error` ExoPlayer sometimes throws with no
+  /// further detail). Both are handled identically from here on: uses
+  /// connectivity_plus to distinguish "the device is actually offline" (show
+  /// a clear message, no point auto-retrying) from "the device has internet
+  /// but the stream/server request still failed" (very likely a transient
+  /// Bunny CDN/server hiccup, or an expired signed URL — show a
+  /// "retrying..." message and auto-retry a few times with increasing
+  /// backoff, refreshing the signed stream URL via get-video-id on every
+  /// attempt through [_retryCurrentQuality], before falling back to asking
+  /// the user to retry manually).
+  Future<void> _classifyAndHandleNetworkOrServerError({
+    bool isKnownNetworkPattern = true,
+  }) async {
     if (!mounted || _isDisposing) return;
 
     final hasInternet = await _hasInternetConnection();
@@ -694,15 +702,21 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       });
 
       FirebaseCrashlytics.instance.log(
-        '🔁 Native Player auto-retry $attempt/$_maxAutoRetries scheduled in ${delay.inSeconds}s (server error, has connectivity)',
+        '🔁 Native Player auto-retry $attempt/$_maxAutoRetries scheduled in ${delay.inSeconds}s '
+        '(${isKnownNetworkPattern ? "network-pattern error" : "unclassified playback error"}, has connectivity)',
       );
 
       _autoRetryTimer?.cancel();
       _autoRetryTimer = Timer(delay, () {
         if (!mounted || _isDisposing) return;
+        // ✅ [إصلاح] _retryCurrentQuality يستدعي get-video-id دائمًا (عبر
+        // _refreshStreamUrlsIfPossible) قبل إعادة إنشاء المشغّل — الآن هذا
+        // ينطبق على كل إعادة محاولة تلقائية هنا، بغض النظر عن كون الخطأ
+        // الأصلي طابق نمط شبكة معروف أم كان رسالة ExoPlayer غامضة.
         _retryCurrentQuality();
       });
     } else {
+      _autoRetryTimer?.cancel();
       setState(() {
         _isError = true;
         _errorMessage = 'تعذر تشغيل الفيديو حالياً. تحقق من اتصالك وحاول مرة أخرى لاحقاً.';
