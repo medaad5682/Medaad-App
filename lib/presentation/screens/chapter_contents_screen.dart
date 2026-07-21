@@ -297,7 +297,11 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => NativeVideoPlayerScreen(streams: qualities, title: videoTitle),
+                  builder: (_) => NativeVideoPlayerScreen(
+                    streams: qualities,
+                    title: videoTitle,
+                    lessonId: video['id'].toString(),
+                  ),
                 ),
               );
             } else {

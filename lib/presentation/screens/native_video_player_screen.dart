@@ -9,10 +9,14 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+import 'package:dio/dio.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../core/services/audio_protection_service.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/api_constants.dart';
+import '../../core/services/api_client.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/floating_video_controller.dart'; // إضافة متحكم الفيديو العائم
 import '../../main.dart' show navigatorKey;
@@ -20,6 +24,13 @@ import '../../main.dart' show navigatorKey;
 class NativeVideoPlayerScreen extends StatefulWidget {
   final Map<String, String> streams;
   final String title;
+
+  /// Lesson/video ID used to re-fetch a fresh signed stream URL from
+  /// `/api/secure/get-video-id` when the user retries after a playback
+  /// error. Optional so screens that don't have an ID handy still work —
+  /// retry then simply reuses the original (possibly stale/expired) URLs,
+  /// same as before this fix.
+  final String? lessonId;
 
   /// Playback handoff — set when returning from the floating (PiP) player,
   /// so full-screen resumes at the same position, speed and quality
@@ -33,6 +44,7 @@ class NativeVideoPlayerScreen extends StatefulWidget {
     super.key,
     required this.streams,
     required this.title,
+    this.lessonId,
     this.initialPosition,
     this.initialSpeed,
     this.initialQuality,
@@ -52,6 +64,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   StreamSubscription? _recordingSubscription;
   bool _isRecordingDetected = false;
 
+  // ✅ نسخة قابلة للتعديل من widget.streams. تبدأ بنفس القيم الممرَّرة من
+  // الشاشة السابقة، لكن _retryCurrentQuality() قد يستبدلها بروابط جديدة
+  // موقّعة حديثًا (بعد استدعاء get-video-id من جديد) بدل الاعتماد إلى الأبد
+  // على نفس الخريطة الأصلية التي قد تحتوي روابط منتهية الصلاحية.
+  late Map<String, String> _streamsMap;
+
   String _currentQuality = "";
   List<String> _sortedQualities = [];
 
@@ -67,6 +85,17 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   // معروف لحظة ظهور الخطأ، لنتمكن من العودة إليه بعد إعادة إنشاء المشغّل
   // من جديد في _retryCurrentQuality() (انظر التعليق هناك لتفاصيل السبب).
   Duration? _pendingRetryPosition;
+
+  // ✅ آخر موضع طُبِّق فعليًا كـ seekTo() بعد إعادة محاولة سابقة. يُستخدَم في
+  // _applyRetryStateIfNeeded() لتفادي إعادة الالتصاق بنفس النقطة التي فشل
+  // التشغيل عندها للتو (انظر التعليق هناك).
+  Duration? _lastRetrySeekTarget;
+
+  // ✅ عداد وتايمر إعادة المحاولة التلقائية عند اكتشاف خطأ من نوع "خطأ خادم"
+  // (يوجد اتصال إنترنت لكن البث نفسه فشل) — انظر _classifyAndHandleNetworkError.
+  int _autoRetryAttempt = 0;
+  Timer? _autoRetryTimer;
+  static const int _maxAutoRetries = 3;
 
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
@@ -148,6 +177,16 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       if (!_isSeekBarDragging) _position = value.position;
       _videoDuration = value.duration ?? Duration.zero;
     });
+
+    // ✅ التشغيل تجاوز نقطة إعادة المحاولة الأخيرة بأمان (5 ثوانٍ) دون فشل
+    // جديد — نعتبر أن التعافي نجح فعليًا ونمسح علامة "نفس نقطة الفشل" حتى
+    // لا تُستخدَم بالخطأ في مقارنة مستقبلية غير ذات صلة.
+    final lastTarget = _lastRetrySeekTarget;
+    if (lastTarget != null &&
+        value.isPlaying &&
+        value.position - lastTarget > const Duration(seconds: 5)) {
+      _lastRetrySeekTarget = null;
+    }
   }
 
   void _onSeekStart(double _) {
@@ -180,6 +219,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _streamsMap = Map<String, String>.from(widget.streams);
     if (widget.initialSpeed != null) {
       _currentSpeed = widget.initialSpeed!;
     }
@@ -190,7 +230,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   }
 
   void _sortQualities() {
-    _sortedQualities = widget.streams.keys.toList();
+    _sortedQualities = _streamsMap.keys.toList();
     _sortedQualities.sort((a, b) {
       final numA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       final numB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
@@ -322,7 +362,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       ]);
       await WakelockPlus.enable();
 
-      if (_currentQuality.isEmpty || widget.streams[_currentQuality] == null) {
+      if (_currentQuality.isEmpty || _streamsMap[_currentQuality] == null) {
         throw Exception("No playable stream available");
       }
 
@@ -381,14 +421,14 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   void _initializePlayer() {
     if (!mounted || _isDisposing) return;
 
-    final initialUrl = widget.streams[_currentQuality]!;
+    final initialUrl = _streamsMap[_currentQuality]!;
 
     final dataSource = BetterPlayerDataSource(
       BetterPlayerDataSourceType.network,
       initialUrl,
       headers: _headers,
       videoFormat: BetterPlayerVideoFormat.hls,
-      resolutions: widget.streams,
+      resolutions: _streamsMap,
       cacheConfiguration: const BetterPlayerCacheConfiguration(useCache: false),
       notificationConfiguration: const BetterPlayerNotificationConfiguration(
         showNotification: false,
@@ -444,16 +484,35 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
     switch (event.betterPlayerEventType) {
       case BetterPlayerEventType.exception:
-        final errMsg = (event.parameters?['exception'] ??
-                event.parameters?['error'] ??
-                'Unknown player exception')
-            .toString();
+        // ✅ إصلاح: كنا نسجّل فقط النص المُستخرج (errMsg) في Crashlytics،
+        // وهو أحيانًا مجرد غلاف عام (مثل "ExoPlaybackException: Source
+        // error") لا يوضّح السبب *الفعلي* القادم من خادم بث Bunny (رمز HTTP
+        // حقيقي، رسالة الخادم، اسم المضيف...). نحتفظ الآن بالكائن الأصلي
+        // (rawCause) كما هو ونمرره لـ recordError مباشرة (بدل .toString())
+        // حتى يظهر نوعه وتفاصيله الكاملة في تقرير Crashlytics، مع تسجيل
+        // الجودة والمضيف (host) الحاليين في سياق منفصل لتسهيل تتبع أعطال
+        // بث Bunny تحديدًا.
+        final rawCause =
+            event.parameters?['exception'] ?? event.parameters?['error'];
+        final errMsg = (rawCause ?? 'Unknown player exception').toString();
+        final currentUrl = _streamsMap[_currentQuality] ?? '';
+        final currentHost = Uri.tryParse(currentUrl)?.host ?? 'unknown-host';
         FirebaseCrashlytics.instance.log(
-          '⚠️ Native Player (better_player) exception: $errMsg (quality: $_currentQuality)',
+          '⚠️ Native Player (Bunny stream) exception: $errMsg | quality=$_currentQuality | host=$currentHost | params=${event.parameters}',
+        );
+        FirebaseCrashlytics.instance.recordError(
+          rawCause ?? errMsg,
+          null,
+          reason: 'Native Player Bunny Stream Playback Error ($_currentQuality @ $currentHost)',
+          fatal: false,
         );
         _handlePlayerError(errMsg, isCodecRelated: _isCodecError(errMsg));
         break;
       case BetterPlayerEventType.initialized:
+        // ✅ نجحت التهيئة: أوقف أي إعادة محاولة تلقائية مجدولة وصفّر عداد
+        // محاولات "خطأ الخادم" حتى تُحسَب من جديد بشكل مستقل عند أي فشل لاحق.
+        _autoRetryTimer?.cancel();
+        _autoRetryAttempt = 0;
         if (_isError) {
           setState(() {
             _isError = false;
@@ -516,7 +575,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
       if (nextIndex != -1) {
         final fallbackQuality = _sortedQualities[nextIndex];
-        final fallbackUrl = widget.streams[fallbackQuality];
+        final fallbackUrl = _streamsMap[fallbackQuality];
 
         if (fallbackUrl != null) {
           FirebaseCrashlytics.instance.log(
@@ -557,20 +616,115 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           _isInitializing = false;
         });
       }
+      return;
+    }
+
+    // ✅ إصلاح: كل خطأ غير متعلق بالكوديك كان يُعرَض دائمًا كنفس رسالة واحدة
+    // ("تحقق من اتصال الإنترنت") — حتى لو كان الجهاز متصلاً فعليًا بالإنترنت
+    // وكان الفشل الحقيقي من الخادم/CDN الخاص بـ Bunny (رابط منتهي الصلاحية،
+    // خطأ 5xx مؤقت، محتوى تالف عند نقطة معينة...)، أو حتى لو كانت الرسالة
+    // القادمة من ExoPlayer غير معروفة أصلاً ولا تطابق أي نمط شبكة حقيقي. هذا
+    // كان يُضلّل المستخدم (يطلب منه فحص اتصاله رغم أنه سليم) ولا يفرّق بين
+    // حالة تستحق إعادة محاولة تلقائية (خطأ خادم مؤقت) وحالة يجب أن ينتظر
+    // فيها المستخدم عودة الإنترنت فعليًا.
+    //
+    // الحل: نصنّف الآن أخطاء اللا-كوديك إلى فئتين إضافيتين (باستخدام
+    // connectivity_plus لمعرفة الحالة الحقيقية للاتصال):
+    //   1) رسالة تطابق نمط خطأ شبكة معروف (_isNetworkError) — نتحقق فعليًا
+    //      إن كان الجهاز غير متصل بالإنترنت، وإن كان كذلك نعرض رسالة واضحة
+    //      ونتوقف (لا فائدة من إعادة محاولة تلقائية بلا إنترنت أصلاً). أما
+    //      إن كان متصلاً فعلاً، فالمشكلة على الأرجح من الخادم، ونعرض رسالة
+    //      "جارٍ إعادة المحاولة..." مع إعادة محاولة تلقائية بتأخير متزايد
+    //      (backoff) بدل ترك المستخدم بلا أي فعل تلقائي.
+    //   2) رسالة لا تطابق أي نمط شبكة معروف (فئة ثالثة جديدة) — لا نفترض
+    //      إطلاقًا أنها مشكلة اتصال، بل نعرض رسالة عامة محايدة تدفع المستخدم
+    //      لإعادة المحاولة (والتي ستجلب رابط بث جديدًا تلقائيًا الآن — انظر
+    //      _retryCurrentQuality) دون اتهام اتصاله بالإنترنت ظلمًا.
+    final looksLikeNetworkError = _isNetworkError(errorDescription);
+    if (looksLikeNetworkError) {
+      unawaited(_classifyAndHandleNetworkOrServerError());
     } else {
+      _autoRetryTimer?.cancel();
+      _autoRetryAttempt = 0;
       if (mounted) {
         setState(() {
           _isError = true;
           _errorMessage =
-              'تعذر تشغيل الفيديو. تحقق من اتصال الإنترنت وأعد المحاولة.';
+              'حدث خطأ أثناء تشغيل هذا الفيديو. اضغط "إعادة المحاولة" لجلب رابط بث جديد.';
           _isInitializing = false;
         });
       }
     }
   }
 
+  /// Handles the "not a codec error" case once we know [errorDescription]
+  /// matched a known network-failure pattern. Uses connectivity_plus to
+  /// distinguish "the device is actually offline" (show a clear message,
+  /// no point auto-retrying) from "the device has internet but the
+  /// stream/server request still failed" (very likely a transient Bunny
+  /// CDN/server hiccup — show a "retrying..." message and auto-retry a
+  /// few times with increasing backoff before falling back to asking the
+  /// user to retry manually).
+  Future<void> _classifyAndHandleNetworkOrServerError() async {
+    if (!mounted || _isDisposing) return;
+
+    final hasInternet = await _hasInternetConnection();
+    if (!mounted || _isDisposing) return;
+
+    if (!hasInternet) {
+      _autoRetryTimer?.cancel();
+      _autoRetryAttempt = 0;
+      setState(() {
+        _isError = true;
+        _errorMessage = 'لا يوجد اتصال بالإنترنت. تحقق من اتصالك وحاول مرة أخرى.';
+        _isInitializing = false;
+      });
+      return;
+    }
+
+    if (_autoRetryAttempt < _maxAutoRetries) {
+      final attempt = _autoRetryAttempt + 1;
+      _autoRetryAttempt = attempt;
+      final delay = Duration(seconds: 2 * attempt); // 2s, 4s, 6s
+
+      setState(() {
+        _isError = true;
+        _errorMessage = 'حدث خطأ في الخادم، جارٍ إعادة المحاولة... ($attempt/$_maxAutoRetries)';
+        _isInitializing = false;
+      });
+
+      FirebaseCrashlytics.instance.log(
+        '🔁 Native Player auto-retry $attempt/$_maxAutoRetries scheduled in ${delay.inSeconds}s (server error, has connectivity)',
+      );
+
+      _autoRetryTimer?.cancel();
+      _autoRetryTimer = Timer(delay, () {
+        if (!mounted || _isDisposing) return;
+        _retryCurrentQuality();
+      });
+    } else {
+      setState(() {
+        _isError = true;
+        _errorMessage = 'تعذر تشغيل الفيديو حالياً. تحقق من اتصالك وحاول مرة أخرى لاحقاً.';
+        _isInitializing = false;
+      });
+    }
+  }
+
+  /// Best-effort connectivity check via connectivity_plus. If the check
+  /// itself throws for any reason, we assume connectivity is fine rather
+  /// than blocking retry logic on an unreliable signal.
+  Future<bool> _hasInternetConnection() async {
+    try {
+      final results = await Connectivity().checkConnectivity();
+      return results.isNotEmpty && !results.contains(ConnectivityResult.none);
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<void> _switchQuality(String quality) async {
-    if (quality == _currentQuality || !widget.streams.containsKey(quality)) {
+    if (quality == _currentQuality || !_streamsMap.containsKey(quality)) {
       return;
     }
     final newIndex = _sortedQualities.indexOf(quality);
@@ -583,7 +737,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       // في setResolution (مثلاً إذا أُغلقت الشاشة أو تمت إزالة الـ
       // controller أثناء تبديل الجودة) يتحول إلى Unhandled Future
       // rejection قاتل ولا يصل إلى الـ catch أدناه إطلاقًا.
-      await _betterPlayerController?.setResolution(widget.streams[quality]!);
+      await _betterPlayerController?.setResolution(_streamsMap[quality]!);
       if (mounted && !_isDisposing) {
         _reapplySpeedAfterSourceChange();
       }
@@ -638,8 +792,27 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _pendingRetryPosition = null;
     if (pos <= Duration.zero) return;
 
+    // ✅ إصلاح: لو فشل التشغيل مرة أخرى مباشرة عند (تقريبًا) نفس النقطة التي
+    // أعدنا الالتصاق بها في آخر محاولة (_lastRetrySeekTarget)، فإن العودة
+    // لنفس تلك النقطة بالضبط مرة أخرى سيعيد على الأرجح نفس الخطأ فورًا
+    // (لحظة تالفة في الملف أو حد جزء منتهي الصلاحية عند خادم Bunny تحديدًا
+    // عند هذا الـ offset) — فيدخل المستخدم في حلقة "إعادة محاولة ⇽⇾ نفس
+    // الخطأ" بلا أي تقدّم فعلي. نتراجع ثانيتين إضافيتين في هذه الحالة
+    // تحديدًا بدل الإعادة للنقطة نفسها بالضبط.
+    Duration seekTarget = pos;
+    final lastTarget = _lastRetrySeekTarget;
+    if (lastTarget != null &&
+        (pos - lastTarget).abs() <= const Duration(milliseconds: 1500)) {
+      final nudged = pos - const Duration(seconds: 2);
+      seekTarget = nudged.isNegative ? Duration.zero : nudged;
+      FirebaseCrashlytics.instance.log(
+        '↩️ Native Player retry landed on same failed position ($pos) — nudging back to $seekTarget',
+      );
+    }
+    _lastRetrySeekTarget = seekTarget;
+
     try {
-      _betterPlayerController?.seekTo(pos);
+      _betterPlayerController?.seekTo(seekTarget);
     } catch (_) {}
 
     if (_currentSpeed != 1.0) {
@@ -897,9 +1070,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
   Future<void> _retryCurrentQuality() async {
     if (!mounted || _isDisposing) return;
-    if (_currentQuality.isEmpty || widget.streams[_currentQuality] == null) {
-      return;
-    }
+    if (_currentQuality.isEmpty) return;
 
     // ✅ إصلاح: زر "إعادة المحاولة" كان يتوقف عن العمل بعد أول محاولة فاشلة
     // بسبب انقطاع الشبكة — حتى بعد عودة الإنترنت فعليًا.
@@ -914,18 +1085,33 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     // "exception" جديد يصل لاحقًا)، فيبقى الـ Future المنتظر بلا استجابة
     // ويظل زر إعادة المحاولة بلا أي أثر ملحوظ للمستخدم.
     //
-    // الحل: نتخلّص تمامًا من الـ controller القديم (المشتبه بتعطّله) وننشئ
-    // واحدًا جديدًا بالكامل من الصفر عبر _initializePlayer() — تمامًا كما
-    // يحدث عند فتح الشاشة لأول مرة — لضمان محاولة اتصال نظيفة تمامًا في كل
-    // مرة يضغط فيها المستخدم "إعادة المحاولة"، بغض النظر عن حالة المحاولة
-    // السابقة. حتى لا يبدأ الفيديو من الصفر بعد ذلك، نحفظ آخر موضع تشغيل
-    // معروف في _pendingRetryPosition (انظر _handlePlayerError) ونطبّقه
-    // تلقائيًا بعد نجاح التهيئة الجديدة (انظر _applyRetryStateIfNeeded التي
-    // تُستدعى من حدث "initialized" في _onPlayerEvent).
+    // ✅ [جديد] إضافةً لذلك، إعادة المحاولة كانت تعيد استخدام نفس روابط
+    // widget.streams الأصلية دائمًا — وهي روابط Bunny **موقّعة ومحدودة
+    // الصلاحية زمنيًا**. لو كان سبب الفشل الفعلي هو انتهاء صلاحية التوقيع
+    // (شائع لو ظل المستخدم على الشاشة لفترة طويلة أو كان الجهاز نائمًا)،
+    // فإن إعادة المحاولة بنفس الرابط المنتهي كانت ستفشل مجددًا حتمًا مهما
+    // أعاد المستخدم الضغط. الحل: قبل إعادة إنشاء المشغّل، نحاول أولاً جلب
+    // مجموعة روابط بث جديدة وموقّعة حديثًا لنفس الفصل عبر
+    // _refreshStreamUrlsIfPossible() (تتطلب widget.lessonId؛ إن لم يتوفر،
+    // أو فشل الجلب لأي سبب، نكمل بأمان بنفس الروابط القديمة الموجودة في
+    // _streamsMap تمامًا كالسابق — لا يوجد أي تراجع في السلوك).
     setState(() {
       _isError = false;
       _isInitializing = true;
     });
+
+    await _refreshStreamUrlsIfPossible();
+    if (!mounted || _isDisposing) return;
+
+    if (_streamsMap[_currentQuality] == null) {
+      // لا يوجد أي رابط صالح لهذه الجودة حتى بعد محاولة تحديث الروابط.
+      setState(() {
+        _isError = true;
+        _errorMessage = 'تعذر العثور على رابط بث صالح لهذا الفيديو.';
+        _isInitializing = false;
+      });
+      return;
+    }
 
     try {
       final oldController = _betterPlayerController;
@@ -944,10 +1130,80 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (!mounted || _isDisposing) return;
 
     // _initializePlayer() ينشئ BetterPlayerController جديدًا تمامًا بنفس
-    // الجودة الحالية (_currentQuality) وسيستكمل حالة _isInitializing/_isError
-    // تلقائيًا لاحقًا عبر أحداث "initialized"/"exception" في _onPlayerEvent —
-    // تمامًا كما يحدث في التهيئة الأولى للشاشة.
+    // الجودة الحالية (_currentQuality) — والآن بالرابط الجديد إن نجح
+    // التحديث أعلاه — وسيستكمل حالة _isInitializing/_isError تلقائيًا لاحقًا
+    // عبر أحداث "initialized"/"exception" في _onPlayerEvent — تمامًا كما
+    // يحدث في التهيئة الأولى للشاشة.
     _initializePlayer();
+  }
+
+  /// Re-fetches fresh, newly-signed stream URLs for the current lesson from
+  /// `/api/secure/get-video-id` (the same endpoint used when the video was
+  /// first opened — see chapter_contents_screen.dart._fetchAndPlayVideo) and
+  /// merges them into [_streamsMap], preserving [_currentQuality] where
+  /// possible. Silently does nothing if [NativeVideoPlayerScreen.lessonId]
+  /// wasn't provided, or if the request fails for any reason — in both
+  /// cases [_retryCurrentQuality] simply falls back to retrying with
+  /// whatever URLs are already in [_streamsMap], same as before this fix.
+  Future<void> _refreshStreamUrlsIfPossible() async {
+    final lessonId = widget.lessonId;
+    if (lessonId == null || lessonId.isEmpty) return;
+
+    try {
+      final res = await ApiClient.instance.get(
+        '${ApiConstants.baseUrl}/api/secure/get-video-id',
+        queryParameters: {'lessonId': lessonId},
+        options: Options(
+          receiveTimeout: const Duration(seconds: 20),
+          sendTimeout: const Duration(seconds: 20),
+        ),
+      );
+
+      if (res.statusCode != 200) return;
+      final data = res.data;
+
+      final Map<String, String> freshQualities = {};
+      if (data['availableQualities'] != null) {
+        for (final q in (data['availableQualities'] as List)) {
+          if (q['url'] != null && q['quality'] != null) {
+            freshQualities["${q['quality']}p"] = q['url'].toString();
+          }
+        }
+      }
+      if (freshQualities.isEmpty && data['url'] != null) {
+        freshQualities['Auto'] = data['url'].toString();
+      }
+
+      if (freshQualities.isEmpty || !mounted || _isDisposing) return;
+
+      setState(() {
+        _streamsMap = freshQualities;
+        _sortedQualities = _streamsMap.keys.toList();
+        _sortedQualities.sort((a, b) {
+          final numA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+          final numB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+          return numB.compareTo(numA);
+        });
+        if (_streamsMap.containsKey(_currentQuality)) {
+          _currentQualityIndex = _sortedQualities.indexOf(_currentQuality);
+        } else if (_sortedQualities.isNotEmpty) {
+          // الجودة الحالية لم تعد متوفرة في الاستجابة الجديدة (نادر جدًا) —
+          // نختار أقرب جودة متاحة بدلاً من ترك الشاشة بلا رابط صالح.
+          _currentQualityIndex =
+              _currentQualityIndex.clamp(0, _sortedQualities.length - 1);
+          _currentQuality = _sortedQualities[_currentQualityIndex];
+        }
+      });
+
+      FirebaseCrashlytics.instance.log(
+        '🔄 Native Player retry: refreshed stream URLs for lesson $lessonId (${freshQualities.length} qualities)',
+      );
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(e, stack,
+          reason: 'Native Player Refresh Stream URL Error');
+      // نتجاهل الفشل بصمت ونكمل بمحاولة إعادة الاتصال بنفس الروابط القديمة
+      // الموجودة أصلاً في _streamsMap — أفضل من عدم فعل أي شيء إطلاقًا.
+    }
   }
 
   void _showQualitySheet() {
@@ -1058,6 +1314,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       _controlsAutoHideTimer?.cancel();
       _watermarkTimer?.cancel();
       _seekIndicatorTimer?.cancel();
+      _autoRetryTimer?.cancel();
       await _recordingSubscription?.cancel();
 
       final controllerToDispose = _betterPlayerController;
@@ -1122,6 +1379,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _controlsAutoHideTimer?.cancel();
     _watermarkTimer?.cancel();
     _seekIndicatorTimer?.cancel();
+    _autoRetryTimer?.cancel();
     _recordingSubscription?.cancel();
     _protectionService.stopMonitoring();
     
@@ -1456,11 +1714,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                   final wasPlaying = _betterPlayerController
                                           ?.isPlaying() ??
                                       _isPlaying;
-                                  final streams = widget.streams;
+                                  final streams = _streamsMap;
                                   final title = widget.title;
                                   final watermarkText = _watermarkText;
                                   final speed = _currentSpeed;
                                   final quality = _currentQuality;
+                                  final lessonId = widget.lessonId;
 
                                   // 2. ✅ فعّل وضع الفيديو العائم أولاً — قبل إغلاق هذه
                                   //    الشاشة، وليس بعده. هذا الاستدعاء لا يفعل أكثر من
@@ -1489,6 +1748,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                     playbackSpeed: speed,
                                     initialQuality: quality,
                                     wasPlaying: wasPlaying,
+                                    lessonId: lessonId,
                                   );
 
                                   // 3. الآن أغلق المشغل الحالي وحرر الـ decoder/Surface
