@@ -311,6 +311,18 @@ void main() async {
           '⚠️ Ignoring benign App Check token-listener MissingPluginException (not sent to Crashlytics): $error');
       return;
     }
+    // ✅ راجع _isBenignVideoPlayerError أعلاه: أخطاء تشغيل الفيديو الطبيعية
+    // (PlatformException برمز 'VideoError') تُسجَّل كغير قاتلة بدلاً من
+    // قاتلة، لأنها مُعالَجة أصلاً داخل شاشة المشغّل ولا تمثل انهيارًا حقيقيًا
+    // للتطبيق.
+    if (_isBenignVideoPlayerError(error)) {
+      debugPrint(
+          '⚠️ Downgrading benign video-player PlatformException(VideoError) to non-fatal: $error');
+      if (Firebase.apps.isNotEmpty) {
+        await FirebaseCrashlytics.instance.recordError(error, stack, fatal: false);
+      }
+      return;
+    }
     if (Firebase.apps.isNotEmpty) {
       await FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
     }
@@ -354,6 +366,31 @@ bool _isBenignAppCheckTokenListenerError(Object error) {
   return message.contains('firebase_app_check/token');
 }
 
+// ✅ [إصلاح] "Fatal Exception: PlatformException(VideoError, ...)" كان
+// يُسجَّل في Crashlytics كـ crash **قاتل** رغم أنه ليس كذلك فعليًا.
+//
+// السبب: مشغلات الفيديو (better_player_plus / media_kit) تُبلّغ عن أخطاء
+// تشغيل طبيعية وغير قاتلة (انقطاع شبكة مؤقت، رابط بث منتهي الصلاحية من
+// Bunny، فشل مؤقت في فك الترميز...) عبر PlatformException برمز 'VideoError'
+// على قناة المنصّة الخاصة بالمشغّل. هذه الأخطاء تُعالَج وتُعرَض للمستخدم
+// بالفعل داخل شاشات المشغّل نفسها (انظر native_video_player_screen.dart —
+// _handlePlayerError) — لكن نفس الاستثناء قد يفلت أيضًا بشكل غير متزامن من
+// كود أصلي للمنصّة خارج نطاق أي try/catch في شجرة الودجت، فيصل إلى
+// FlutterError.onError أو onError الخاص بـ runZonedGuarded، وكلاهما كان
+// يسجّل أي شيء يصله كـ fatal: true بلا تمييز — فيُحتسَب كـ crash حقيقي يؤثر
+// على نسبة "crash-free users" رغم أن المستخدم لم ير أي انهيار فعلي للتطبيق،
+// فقط رسالة خطأ عادية داخل شاشة الفيديو.
+//
+// الحل: تمييز هذا النوع تحديدًا (PlatformException برمز 'VideoError') —
+// بنفس نمط _isBenignAppCheckTokenListenerError أعلاه تمامًا — وتسجيله كخطأ
+// غير قاتل (fatal: false) بدلاً من قاتل. أي PlatformException آخر (رموز
+// مختلفة) يبقى يُعامَل كقاتل كما كان، لتفادي إخفاء مشاكل حقيقية أخرى بنفس
+// النوع من الاستثناءات.
+bool _isBenignVideoPlayerError(Object error) {
+  if (error is! PlatformException) return false;
+  return error.code == 'VideoError';
+}
+
 /// Wraps [FirebaseCrashlytics.instance.recordFlutterFatalError] so the known
 /// benign App Check token-listener [MissingPluginException] (see comment on
 /// [_isBenignAppCheckTokenListenerError]) is recorded as non-fatal instead of
@@ -362,6 +399,16 @@ Future<void> _handleFlutterFatalError(FlutterErrorDetails details) async {
   if (_isBenignAppCheckTokenListenerError(details.exception)) {
     debugPrint(
         '⚠️ Ignoring benign App Check token-listener MissingPluginException (non-fatal): ${details.exception}');
+    if (Firebase.apps.isNotEmpty) {
+      await FirebaseCrashlytics.instance
+          .recordError(details.exception, details.stack, fatal: false);
+    }
+    return;
+  }
+  // ✅ راجع _isBenignVideoPlayerError أعلاه.
+  if (_isBenignVideoPlayerError(details.exception)) {
+    debugPrint(
+        '⚠️ Downgrading benign video-player PlatformException(VideoError) to non-fatal: ${details.exception}');
     if (Firebase.apps.isNotEmpty) {
       await FirebaseCrashlytics.instance
           .recordError(details.exception, details.stack, fatal: false);
