@@ -79,6 +79,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   // ✅ متغير لحفظ مكان توقف الفيديو عند انقطاع الشبكة
   Duration _errorPosition = Duration.zero;
 
+  // ✅ [RETRY-SEEK-FIX] آخر موضع تشغيل معروف — يُحدَّث باستمرار من مستمع
+  // position أثناء التشغيل الطبيعي. عند وقوع خطأ شبكة، قد يُعيد MediaKit
+  // _player.state.position إلى صفر قبل وصول callback الخطأ، لذا نحفظ
+  // القيمة هنا بشكل مستقل حتى لا تضيع.
+  Duration _lastKnownPosition = Duration.zero;
+
   bool _isVideoLoading = true;
   bool _isOfflineMode = false;
 
@@ -299,10 +305,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
         if (isTransientNetworkError) {
           if (mounted && !_isDisposing) {
-            final currentPos = _player.state.position;
+            // ✅ [RETRY-SEEK-FIX] نستخدم _lastKnownPosition بدلاً من
+            // _player.state.position لأن MediaKit قد يُصفّر الموضع
+            // الداخلي قبل وصول هذا الـ callback عند انقطاع الشبكة.
             setState(() {
               _isError = true;
-              _errorPosition = currentPos;
+              _errorPosition = _lastKnownPosition;
               _errorMessage = AppLocalizations.of(context)!.networkConnectionProblemMessage;
               _isVideoLoading = false;
             });
@@ -355,8 +363,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       });
 
       _player.stream.position.listen((pos) {
-        // Nothing to do here anymore — stall detection is handled
-        // by mpv's own cache-pause / audio-desync-correction properties.
+        // ✅ [RETRY-SEEK-FIX] نحفظ آخر موضع حقيقي هنا باستمرار.
+        // عند وقوع خطأ شبكة قد يُصفَّر _player.state.position قبل
+        // وصول callback الخطأ، فنستخدم هذه القيمة بدلاً منه.
+        if (pos > Duration.zero && !_isError) {
+          _lastKnownPosition = pos;
+        }
       });
 
       _loadUserData();
@@ -396,6 +408,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     // قابلاً للـ seek فعلياً — انظر الشرح هناك.
     _pendingResumePosition =
         (startAt != null && startAt != Duration.zero) ? startAt : null;
+
+    // ✅ [RETRY-SEEK-FIX] نصفّر آخر موضع معروف فقط عند بدء مصدر جديد من الصفر
+    // (لا عند الاستئناف بعد خطأ شبكة) حتى لا تُلوَّث القيمة بموضع مصدر سابق.
+    if (startAt == null || startAt == Duration.zero) {
+      _lastKnownPosition = Duration.zero;
+    }
 
     setState(() {
       _isVideoLoading = true;
