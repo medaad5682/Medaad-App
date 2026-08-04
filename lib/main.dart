@@ -161,7 +161,9 @@ Future<void> _setupFirebaseMessaging(dynamic authBox) async {
     }());
 
     if (fcmToken != null) {
-      await authBox.put('fcm_token', fcmToken);
+      // ✅ [FIX] authBox قد تكون null الآن إذا فشل فتح auth_box بأمان عند
+      // الإقلاع (راجع _openBoxSafely). لا نريد رمي استثناء آخر هنا.
+      await authBox?.put('fcm_token', fcmToken);
     }
   } catch (e, stack) {
     // ✅ أي فشل هنا (بما فيه FlutterError من _APNSTokenCheck) يُسجَّل كخطأ
@@ -170,6 +172,30 @@ Future<void> _setupFirebaseMessaging(dynamic authBox) async {
     if (Firebase.apps.isNotEmpty) {
       await FirebaseCrashlytics.instance.recordError(e, stack, fatal: false);
     }
+  }
+}
+
+// ✅ [FIX] غلاف آمن حول StorageService.openBox(): يمنع فشل فتح أي صندوق
+// (وبالأخص فشل الحصول على مفتاح التشفير من Keychain/Keystore بعد تحديث
+// App Store — راجع StorageKeyUnavailableException في storage_service.dart)
+// من التصعيد إلى كراش قاتل يمنع إقلاع التطبيق. عند الفشل: نسجّل الخطأ
+// كغير قاتل ونعيد null، فيقلع التطبيق بحالة "بدون بيانات محفوظة مؤقتاً"
+// (مثلاً: يُعامل كضيف حتى تعود القراءة للعمل) بدل الانهيار الكامل أو حذف
+// أي بيانات فعلياً.
+Future<Box?> _openBoxSafely(String boxName) async {
+  try {
+    return await StorageService.openBox(boxName);
+  } catch (e, st) {
+    debugPrint('⚠️ Failed to open box "$boxName" safely at startup: $e');
+    if (Firebase.apps.isNotEmpty) {
+      await FirebaseCrashlytics.instance.recordError(
+        e,
+        st,
+        reason: 'Startup: could not open Hive box "$boxName" (app continues without it)',
+        fatal: false,
+      );
+    }
+    return null;
   }
 }
 
@@ -208,11 +234,21 @@ void main() async {
     await initializeBackgroundService();
 
     // Hive — [FIX F-06] All boxes now opened with encryption via StorageService
+    //
+    // ✅ [FIX] هذه الاستدعاءات كانت بلا أي try/catch من حولها. عندما كانت
+    // StorageService.openBox() تفشل بشكل غير متوقع (راجع تقرير
+    // Crashlytics: FlutterError عند storage_service.dart:44 عبر
+    // main.dart:212)، كان الاستثناء يصعد بلا حماية ليتحول إلى كراش قاتل
+    // يمنع التطبيق من الوصول لـ runApp() إطلاقاً. الآن: نلتقط أي فشل هنا
+    // (بما فيه StorageKeyUnavailableException) ونكمل الإقلاع بأمان —
+    // التطبيق سيُقلع بحالة "بدون جلسة محفوظة مؤقتاً" بدل أن ينهار كلياً،
+    // وستُسترجع البيانات تلقائياً في المحاولة التالية عندما يعود التخزين
+    // الآمن للعمل الطبيعي، دون أن يتم حذف أي بيانات.
     await Hive.initFlutter();
-    var authBox = await StorageService.openBox('auth_box');
-    await StorageService.openBox('settings_box');
-    await StorageService.openBox('downloads_box');
-    await StorageService.openBox('pdf_drawings_db');
+    Box? authBox = await _openBoxSafely('auth_box');
+    await _openBoxSafely('settings_box');
+    await _openBoxSafely('downloads_box');
+    await _openBoxSafely('pdf_drawings_db');
 
     // ✅ إعداد Firebase Messaging (الإذن + التوكن) انتُقل إلى ما بعد
     // runApp() أسفل هذه الدالة — انظر _setupFirebaseMessaging() أعلاه
