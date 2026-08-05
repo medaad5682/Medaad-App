@@ -361,11 +361,12 @@ void main() async {
     // Start periodic check
     SecurityManager.instance.startPeriodicCheck();
 
-    // Theme
-    await AppState().initTheme();
-
-    // Locale (EN/AR)
-    await AppState().initLocale();
+    // ✅ [FIX] Theme/Locale removed from here — see explanation below at
+    // runApp(). Both used to call AppState().initTheme()/initLocale(),
+    // which read settings_box via StorageService, which now waits on
+    // _AppReadyGate — and that gate cannot resolve before runApp() has
+    // run at least once. Leaving these calls here would deadlock every
+    // single cold launch for the full 5-second gate timeout.
 
     runApp(
       SecureScreenWidget(useBlur: true,
@@ -374,6 +375,27 @@ void main() async {
         ),
       ),
     );
+
+    // ✅ [FIX] نقلنا AppState().initTheme() و initLocale() إلى هنا، بعد
+    // runApp() مباشرة، بدل تشغيلهما قبله كما كانا سابقاً.
+    //
+    // السبب: كلتا الدالتين تستدعيان StorageService.openBox('settings_box')
+    // داخلياً، وهذا الاستدعاء يمر الآن عبر _AppReadyGate التي أضفناها في
+    // storage_service.dart — والتي لا يمكنها إطلاقاً أن تتحقق (الإطار
+    // الأول + resumed) قبل أن يُستدعى runApp() فعلياً ويُبنى الشجرة أول
+    // مرة. لو تُركت هاتان الدالتان في مكانهما القديم (قبل runApp())، لكان
+    // كل إقلاع للتطبيق يتجمّد لمدة 5 ثوانٍ كاملة (مهلة الأمان القصوى في
+    // البوابة) قبل ظهور أي واجهة على الإطلاق — تراجع خطير كان سيصيب كل
+    // مستخدم في كل مرة، بعكس هدف هذا الإصلاح تماماً.
+    //
+    // هذا آمن لأن EduVantageApp (راجع app.dart) تلف الشجرة بالفعل بـ
+    // ValueListenableBuilder على AppState().themeNotifier و localeNotifier،
+    // ولكليهما قيمة افتراضية معقولة (dark / en) مضبوطة سلفاً في AppState.
+    // أي أن أول إطار يُرسم بالقيم الافتراضية فوراً دون أي انتظار، ثم
+    // يتحدّث تلقائياً (عادة خلال أجزاء من الثانية) فور اكتمال القراءة
+    // الفعلية من التخزين — بدل تجميد الإقلاع بالكامل في انتظارها.
+    unawaited(AppState().initTheme());
+    unawaited(AppState().initLocale());
 
     // ✅ [FIX] تهيئة Hive وفتح الصناديق تُستدعى الآن أيضاً بعد runApp()
     // (fire-and-forget) — انظر توثيق _initStorageAfterAppReady() أدناه.
