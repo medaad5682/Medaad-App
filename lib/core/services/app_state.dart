@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'; // ✅ ضروري لـ ThemeMode و ValueNotifier
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/models/course_model.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
@@ -38,12 +40,51 @@ class AppState {
   // ✅ 2. دالة ثابتة (Static Getter) لمعرفة هل الوضع الحالي داكن (تستخدمها AppColors)
   static bool get isDark => _instance.themeNotifier.value == ThemeMode.dark;
 
+  // ✅ [FIX] مفاتيح SharedPreferences المستخدمة كـ"ذاكرة تخزين مؤقت" سريعة
+  // وغير حسّاسة للثيم واللغة — راجع شرح initLocaleFast()/initThemeFast()
+  // أدناه لسبب وجودها.
+  static const String _kCachedIsDarkModeKey = 'cached_is_dark_mode_fast_v1';
+  static const String _kCachedLanguageCodeKey =
+      'cached_language_code_fast_v1';
+
   // ✅ 3. دالة تهيئة الثيم عند فتح التطبيق (تستدعى في main.dart)
   Future<void> initTheme() async {
     var box = await StorageService.openBox('settings_box');
     // القيمة الافتراضية هي الوضع الداكن (true)
     bool storedIsDark = box.get('is_dark_mode', defaultValue: true);
     themeNotifier.value = storedIsDark ? ThemeMode.dark : ThemeMode.light;
+    unawaited(_cacheIsDarkMode(storedIsDark));
+  }
+
+  // ✅ [FIX] راجع initLocaleFast() أسفل قسم اللغة لشرح كامل للمشكلة والحل —
+  // هذه هي نفس المعالجة تماماً لكن للثيم بدل اللغة. تُستدعى في main.dart
+  // *قبل* runApp() مباشرة (بعكس initTheme() أعلاه التي تبقى تُستدعى بعد
+  // runApp() كمصدر رسمي) حتى لا يُرسم أول إطار دائماً بالوضع الداكن
+  // الافتراضي قبل أن يتحول لاحقاً للوضع الفاتح إن كان هذا اختيار المستخدم
+  // الفعلي.
+  Future<void> initThemeFast() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedIsDark = prefs.getBool(_kCachedIsDarkModeKey);
+      if (cachedIsDark != null) {
+        themeNotifier.value = cachedIsDark ? ThemeMode.dark : ThemeMode.light;
+      }
+      // لا يوجد قيمة مخزنة مؤقتاً بعد (أول تشغيل على الإطلاق) → نُبقي
+      // القيمة الافتراضية (dark) كما هي؛ initTheme() اللاحقة ستضبطها من
+      // Hive على أي حال ولا يوجد "وميض" لأن لا تفضيل سابق أصلاً ليُخالَف.
+    } catch (_) {
+      // فشل غير متوقع لقراءة SharedPreferences: نُبقي القيمة الافتراضية؛
+      // initTheme() اللاحقة ستصحّحها من Hive.
+    }
+  }
+
+  Future<void> _cacheIsDarkMode(bool isDark) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kCachedIsDarkModeKey, isDark);
+    } catch (_) {
+      // تجاهل: هذا تحسين لتفادي وميض الثيم فقط، وليس مصدر البيانات الرسمي.
+    }
   }
 
   // ✅ 4. دالة التبديل بين الوضعين (عند ضغط الزر)
@@ -56,6 +97,9 @@ class AppState {
     // حفظ التفضيل الجديد في التخزين المحلي
     var box = await StorageService.openBox('settings_box');
     await box.put('is_dark_mode', !currentIsDark);
+
+    // ✅ [FIX] تحديث النسخة المخزنة مؤقتاً أيضاً — راجع initThemeFast().
+    await _cacheIsDarkMode(!currentIsDark);
   }
 
   // ============================================================
@@ -73,6 +117,25 @@ class AppState {
   // ✅ اللغات المدعومة فعلياً في التطبيق (يجب أن تطابق AppLocalizations.supportedLocales)
   static const List<String> _supportedLanguageCodes = ['en', 'ar'];
 
+  // ✅ [FIX] عند عدم وجود أي تفضيل محفوظ (أول تشغيل فعلي للتطبيق)، كنا
+  // نتحقق فقط من platformDispatcher.locale (اللغة الأولى/الأساسية على
+  // الجهاز). لكن بعض الأجهزة تُرتّب أكثر من لغة مفضّلة (Settings > General
+  // > Language & Region > Preferred Languages على iOS، ونظام مشابه على
+  // أندرويد) — فإن كانت اللغة الأساسية غير مدعومة (مثلاً فرنسية) بينما
+  // العربية أو الإنجليزية مدرجتان كلغة مفضّلة ثانية، كنا نتجاهل ذلك تماماً
+  // ونذهب مباشرة لـ 'en' كافتراضي أخير. الآن نمر على كامل القائمة
+  // المرتّبة بحسب أفضلية المستخدم (platformDispatcher.locales) ونختار أول
+  // لغة مدعومة فعلياً في التطبيق، ولا نلجأ لـ 'en' إلا إن لم تكن أي لغة
+  // من قائمة تفضيلات الجهاز بأكملها مدعومة.
+  static String _resolveSystemLanguageCode() {
+    for (final locale in WidgetsBinding.instance.platformDispatcher.locales) {
+      if (_supportedLanguageCodes.contains(locale.languageCode)) {
+        return locale.languageCode;
+      }
+    }
+    return 'en';
+  }
+
   // ✅ 3. دالة تهيئة اللغة عند فتح التطبيق (تستدعى في main.dart)
   //    - إن كان المستخدم قد اختار لغة من قبل، نستخدمها.
   //    - وإلا، نعتمد لغة نظام الجهاز إن كانت مدعومة (عربي أو إنجليزي).
@@ -84,26 +147,82 @@ class AppState {
     if (storedLanguageCode != null &&
         _supportedLanguageCodes.contains(storedLanguageCode)) {
       localeNotifier.value = Locale(storedLanguageCode);
+      unawaited(_cacheLanguageCode(storedLanguageCode));
       return;
     }
 
-    // لا يوجد تفضيل محفوظ بعد → استخدم لغة النظام إن كانت مدعومة
-    final systemLanguageCode =
-        WidgetsBinding.instance.platformDispatcher.locale.languageCode;
-    final resolvedCode = _supportedLanguageCodes.contains(systemLanguageCode)
-        ? systemLanguageCode
-        : 'en';
+    // لا يوجد تفضيل محفوظ بعد (أول تشغيل فعلي) → استخدم لغة الجهاز
+    final resolvedCode = _resolveSystemLanguageCode();
 
     localeNotifier.value = Locale(resolvedCode);
+    unawaited(_cacheLanguageCode(resolvedCode));
+  }
+
+  // ✅ [FIX - جذر مشكلة "شاشة البداية تظهر بالإنجليزية ثم تتحول للعربية
+  // بعد ثانيتين"] initLocale() أعلاه تقرأ تفضيل اللغة من settings_box،
+  // وهو صندوق Hive مشفّر — وفتح أي صندوق Hive مشفّر يمر عبر _AppReadyGate
+  // في storage_service.dart، والتي تنتظر عمداً حتى يُرسم *الإطار الأول*
+  // وتصبح حالة دورة الحياة resumed قبل لمس Keychain/Keystore (إصلاح ضروري
+  // لسباق -25308 على iOS — راجع توثيقها). بسبب هذا، لا يمكن لـ
+  // initLocale() أن تكتمل قبل أول إطار على الإطلاق، فيُرسم ذلك الإطار
+  // الأول دائماً بالقيمة الافتراضية المضبوطة سلفاً في localeNotifier
+  // (الإنجليزية) — بصرف النظر عمّا اختاره المستخدم فعلياً — ثم يتحول
+  // للعربية فور اكتمال القراءة الحقيقية من Hive في الخلفية. وهذا بالضبط
+  // "الوميض" الذي يظهر لمستخدمي اللغة العربية عند كل إقلاع بارد للتطبيق.
+  //
+  // الحل: نحتفظ بنسخة "ذاكرة تخزين مؤقت" من رمز اللغة داخل
+  // SharedPreferences (تخزين عادي غير مشفّر — NSUserDefaults على iOS،
+  // وليس Keychain — لذا لا تمر إطلاقاً عبر _AppReadyGate ويمكن قراءتها
+  // بأمان قبل runApp() مباشرة). هذه الدالة تُستدعى في main.dart قبل
+  // runApp() لتضبط localeNotifier على القيمة الصحيحة *قبل* أول إطار،
+  // فلا يظهر أي وميض. initLocale() الأصلية أعلاه تبقى تُستدعى بعد
+  // runApp() كما هي تماماً وتبقى المصدر الرسمي/النهائي (وتُحدّث الذاكرة
+  // المؤقتة لأي تشغيل لاحق)، لكنها الآن غالباً تجد القيمة متطابقة أصلاً
+  // فلا يظهر أي تغيّر ملحوظ للمستخدم.
+  Future<void> initLocaleFast() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedCode = prefs.getString(_kCachedLanguageCodeKey);
+
+      if (cachedCode != null && _supportedLanguageCodes.contains(cachedCode)) {
+        localeNotifier.value = Locale(cachedCode);
+        return;
+      }
+
+      // لا يوجد شيء مخزن مؤقتاً بعد (أول تشغيل على الإطلاق) → استخدم لغة
+      // الجهاز، بنفس منطق initLocale()/_resolveSystemLanguageCode() تماماً.
+      // لا "وميض" هنا لأنه لا يوجد تفضيل سابق أصلاً ليُخالَف — وهذه القيمة
+      // نفسها ستؤكدها initLocale() لاحقاً من Hive (وتُخزَّن مؤقتاً حينها
+      // لأول مرة عبر _cacheLanguageCode) لأنه لا يوجد فرق بينهما أصلاً.
+      final resolvedCode = _resolveSystemLanguageCode();
+      localeNotifier.value = Locale(resolvedCode);
+    } catch (_) {
+      // فشل غير متوقع لقراءة SharedPreferences: نُبقي القيمة الافتراضية
+      // (en) كما هي؛ initLocale() اللاحقة ستصحّحها من Hive على أي حال.
+    }
+  }
+
+  Future<void> _cacheLanguageCode(String code) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kCachedLanguageCodeKey, code);
+    } catch (_) {
+      // تجاهل: هذا تحسين لتفادي وميض اللغة فقط، وليس مصدر البيانات الرسمي.
+    }
   }
 
   // ✅ 4. دالة تغيير اللغة (تستدعى من شاشة الإعدادات/البروفايل)
   Future<void> setLocale(Locale newLocale) async {
     localeNotifier.value = newLocale;
 
-    // حفظ التفضيل الجديد في التخزين المحلي
+    // حفظ التفضيل الجديد في التخزين المحلي (المصدر الرسمي)
     var box = await StorageService.openBox('settings_box');
     await box.put('language_code', newLocale.languageCode);
+
+    // ✅ [FIX] تحديث النسخة المخزنة مؤقتاً في SharedPreferences أيضاً —
+    // راجع initLocaleFast() أعلاه — لضمان ظهور اللغة الصحيحة فوراً في
+    // الإقلاع القادم دون أي وميض بلغة أخرى.
+    await _cacheLanguageCode(newLocale.languageCode);
   }
 
   // ============================================================
