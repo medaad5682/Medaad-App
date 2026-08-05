@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -14,6 +16,62 @@ class StorageKeyUnavailableException implements Exception {
   StorageKeyUnavailableException(this.message);
   @override
   String toString() => 'StorageKeyUnavailableException: $message';
+}
+
+/// ✅ [FIX] بوابة تمنع أي محاولة لمس Keychain/Keystore قبل أن يكون
+/// التطبيق مؤكداً "نشطاً" فعلياً: الإطار الأول رُسم بالفعل *و* حالة دورة
+/// الحياة resumed. هذان الشرطان معاً هما بالضبط ما تحتاجه iOS لضمان أن
+/// طبقة حماية البيانات (Data Protection) انتهت من فك قفل الـ Keychain —
+/// معالجة الأعراض بإعادة المحاولة (كما في `_readKeyWithRetry`) كانت تقلل
+/// الاحتمال فقط، بينما هذه البوابة تمنع السباق الزمني من الأساس بدل
+/// إعادة محاولة تلو الأخرى أثناء حدوثه.
+///
+/// أي مسار لا يمر إطلاقاً بواجهة مستخدم (مثال: معالج إشعارات الخلفية
+/// المعزول `_firebaseMessagingBackgroundHandler`) لن يصل أبداً لحالة
+/// resumed — لذا هناك مهلة زمنية قصوى (5 ثوانٍ) نتجاوزها بعدها ونكمل
+/// عبر منطق إعادة المحاولة الحالي بدل تعليق الـ isolate للأبد.
+class _AppReadyGate with WidgetsBindingObserver {
+  _AppReadyGate._();
+  static final _AppReadyGate instance = _AppReadyGate._();
+
+  bool _ready = false;
+  bool _observing = false;
+  Completer<void> _completer = Completer<void>();
+
+  Future<void> waitUntilReady() {
+    if (_ready) return Future.value();
+    _ensureObserving();
+    return _completer.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {},
+    );
+  }
+
+  void _ensureObserving() {
+    if (_observing) return;
+    _observing = true;
+    WidgetsBinding.instance.addObserver(this);
+    // قد يكون الإطار الأول قد رُسم بالفعل وحالة دورة الحياة resumed
+    // فعلاً بحلول أول استدعاء لهذه الدالة (مثال: مستخدم فتح شاشة تستدعي
+    // openBox() بعد أن كان التطبيق يعمل بالفعل) — نتحقق فوراً بدل انتظار
+    // إطار جديد لن يأتي.
+    _checkAndSignal();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkAndSignal());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) => _checkAndSignal();
+
+  void _checkAndSignal() {
+    if (_ready) return;
+    final binding = WidgetsBinding.instance;
+    final isResumed = binding.lifecycleState == AppLifecycleState.resumed;
+    if (isResumed && binding.firstFrameRasterized) {
+      _ready = true;
+      if (!_completer.isCompleted) _completer.complete();
+      WidgetsBinding.instance.removeObserver(this);
+    }
+  }
 }
 
 class StorageService {
@@ -179,6 +237,11 @@ class StorageService {
   static Future<List<int>> _getKey() async {
     // 1. إذا كان المفتاح موجوداً في الذاكرة، استخدمه فوراً
     if (_encryptionKey != null) return _encryptionKey!;
+
+    // ✅ [FIX] لا نلمس Keychain/Keystore إطلاقاً قبل أن يكون التطبيق نشطاً
+    // فعلاً — هذا هو الإصلاح الجذري لسباق -25308، وليس مجرد إعادة محاولة
+    // خلاله. راجع توثيق _AppReadyGate أعلاه.
+    await _AppReadyGate.instance.waitUntilReady();
 
     final prefs = await SharedPreferences.getInstance();
     final bool keyProvisionedBefore = prefs.getBool(_kKeyProvisionedFlag) ?? false;
