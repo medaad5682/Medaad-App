@@ -115,6 +115,25 @@ class StorageService {
 
   static List<int>? _encryptionKey;
 
+  // ✅ [FIX] يمنع تعدد التنفيذ المتزامن لـ _getKey(). بعد جعل initTheme()،
+  // initLocale()، و _initStorageAfterAppReady() تعمل جميعاً بالتوازي فور
+  // runApp() (بدل التتابع كما كانت)، أصبح من الممكن أن تستدعي أكثر من
+  // شاشة/دالة _getKey() في نفس اللحظة تقريباً. في أول تشغيل فعلي للتطبيق
+  // (لا يوجد مفتاح بعد)، كان هذا يعني احتمال أن يولّد أكثر من استدعاء
+  // متزامن مفتاحاً عشوائياً مختلفاً، فتُشفَّر بعض الصناديق بمفتاح وبعضها
+  // الآخر بمفتاح مختلف ضمن نفس الجلسة — يظهر لاحقاً كفشل فك تشفير
+  // "تلف بيانات" رغم أن كل شيء كان سليماً وقت الكتابة. هذا القفل يضمن أن
+  // كل الاستدعاءات المتزامنة تنتظر نتيجة نفس عملية التوليد/الكتابة الوحيدة
+  // بدل تكرارها.
+  static Future<List<int>>? _keyResolutionInFlight;
+
+  static Future<List<int>> _getKey() {
+    if (_encryptionKey != null) return Future.value(_encryptionKey!);
+    return _keyResolutionInFlight ??= _resolveKey().whenComplete(() {
+      _keyResolutionInFlight = null;
+    });
+  }
+
   // ✅ [FIX] علم دائم (يبقى عبر تحديثات التطبيق، ويُمسح فقط عند إلغاء
   // التثبيت) يسجّل أننا سبق ونجحنا في توفير hive_key على هذا الجهاز.
   // هذا هو الفيصل الوحيد الموثوق لمعرفة: هل هذا أول تشغيل فعلاً (لا يوجد
@@ -234,10 +253,7 @@ class StorageService {
   /// الآن: نميّز بوضوح بين "لا يوجد مفتاح بعد" و"يوجد مفتاح لكن يتعذر
   /// قراءته الآن" عبر علم دائم في shared_preferences، ولا نقوم أبداً
   /// بالكتابة فوق مفتاح موجود مسبقاً.
-  static Future<List<int>> _getKey() async {
-    // 1. إذا كان المفتاح موجوداً في الذاكرة، استخدمه فوراً
-    if (_encryptionKey != null) return _encryptionKey!;
-
+  static Future<List<int>> _resolveKey() async {
     // ✅ [FIX] لا نلمس Keychain/Keystore إطلاقاً قبل أن يكون التطبيق نشطاً
     // فعلاً — هذا هو الإصلاح الجذري لسباق -25308، وليس مجرد إعادة محاولة
     // خلاله. راجع توثيق _AppReadyGate أعلاه.
