@@ -199,6 +199,45 @@ Future<Box?> _openBoxSafely(String boxName) async {
   }
 }
 
+// ✅ [FIX] يُستدعى بعد runApp() فقط (fire-and-forget) بدل أن يُنفَّذ قبله
+// ويحجبه كما كان سابقاً. يفتح Hive والصناديق المشفّرة، ثم يُشغّل إعداد
+// Firebase Messaging بعد ذلك مباشرة (بدل استدعائه بمعزل تام من مسار
+// التخزين كما كان). واجهة التطبيق (runApp) لم تعد تنتظر أياً من هذا
+// إطلاقاً — يظهر التطبيق فوراً بحالة "بدون بيانات محفوظة مؤقتاً" إلى أن
+// تكتمل هذه الدالة في الخلفية، وStorageService._getKey() ستنتظر داخلياً
+// تأكيد أن التطبيق نشط فعلاً (_AppReadyGate) قبل أي محاولة قراءة من
+// Keychain/Keystore على أي حال.
+Future<void> _initStorageAfterAppReady() async {
+  Box? authBox;
+  try {
+    await Hive.initFlutter();
+    authBox = await _openBoxSafely('auth_box');
+    await _openBoxSafely('settings_box');
+    await _openBoxSafely('downloads_box');
+    await _openBoxSafely('pdf_drawings_db');
+  } catch (e, st) {
+    // ✅ حماية إضافية: حتى لو حدث خطأ غير متوقع خارج نطاق try/catch
+    // الخاص بـ _openBoxSafely نفسها (مثال: فشل Hive.initFlutter() ذاته)،
+    // لا يجب أن يصل هذا إلى الـ Zone الرئيسي كـ crash قاتل — التطبيق
+    // ظاهر بالفعل للمستخدم عبر runApp() بحلول هذه اللحظة.
+    debugPrint('⚠️ Storage initialization failed (non-fatal, app already running): $e');
+    if (Firebase.apps.isNotEmpty) {
+      await FirebaseCrashlytics.instance.recordError(
+        e,
+        st,
+        reason: 'Deferred storage init failed after runApp()',
+        fatal: false,
+      );
+    }
+  }
+
+  // ✅ يُستدعى بعد اكتمال (أو فشل) تهيئة التخزين — واجهة التطبيق تظهر
+  // فورًا للمستخدم بغض النظر عن مدى سرعة/بطء تسجيل الإشعارات مع Apple أو
+  // فتح الصناديق. الدالة نفسها معزولة بالكامل بـ try/catch فلا يمكن لأي
+  // فشل بداخلها أن يصل لهذا الـ Zone أو يُسجَّل كـ fatal.
+  await _setupFirebaseMessaging(authBox);
+}
+
 void main() async {
   runZonedGuarded<Future<void>>(() async {
     WidgetsFlutterBinding.ensureInitialized();
@@ -235,21 +274,25 @@ void main() async {
 
     // Hive — [FIX F-06] All boxes now opened with encryption via StorageService
     //
-    // ✅ [FIX] هذه الاستدعاءات كانت بلا أي try/catch من حولها. عندما كانت
-    // StorageService.openBox() تفشل بشكل غير متوقع (راجع تقرير
-    // Crashlytics: FlutterError عند storage_service.dart:44 عبر
-    // main.dart:212)، كان الاستثناء يصعد بلا حماية ليتحول إلى كراش قاتل
-    // يمنع التطبيق من الوصول لـ runApp() إطلاقاً. الآن: نلتقط أي فشل هنا
-    // (بما فيه StorageKeyUnavailableException) ونكمل الإقلاع بأمان —
-    // التطبيق سيُقلع بحالة "بدون جلسة محفوظة مؤقتاً" بدل أن ينهار كلياً،
-    // وستُسترجع البيانات تلقائياً في المحاولة التالية عندما يعود التخزين
-    // الآمن للعمل الطبيعي، دون أن يتم حذف أي بيانات.
-    await Hive.initFlutter();
-    Box? authBox = await _openBoxSafely('auth_box');
-    await _openBoxSafely('settings_box');
-    await _openBoxSafely('downloads_box');
-    await _openBoxSafely('pdf_drawings_db');
-
+    // ✅ [FIX] هذه الاستدعاءات كانت بلا أي try/catch من حولها، **وكانت
+    // تُنفَّذ قبل runApp() وتحجبه** — أي أن التطبيق كان يحاول الوصول إلى
+    // Keychain/Keystore قبل أن يُصبح "نشطاً" فعلياً بأي معنى (لا واجهة
+    // مرسومة بعد، ولا حتى تأكيد أن حالة دورة الحياة resumed)، بالضبط
+    // اللحظة الأكثر عرضة لسباق -25308. عندما تفشل، كان الاستثناء يصعد بلا
+    // حماية ليتحول إلى كراش قاتل يمنع التطبيق من الوصول لـ runApp()
+    // إطلاقاً (راجع تقرير Crashlytics: FlutterError عند
+    // storage_service.dart:44 عبر main.dart:212).
+    //
+    // الآن: لا شيء هنا يحجب runApp() إطلاقاً. تهيئة Hive وفتح الصناديق
+    // انتقلت بالكامل إلى _initStorageAfterAppReady() أسفل هذه الدالة،
+    // والتي تُستدعى (fire-and-forget) بعد runApp() تماماً مثل
+    // _setupFirebaseMessaging(). واجهة التطبيق تظهر فوراً بغض النظر عن
+    // حالة التخزين الآمن، و StorageService._getKey() نفسها لديها الآن
+    // بوابة داخلية (_AppReadyGate) تنتظر تأكيد أن الإطار الأول رُسم
+    // وأن حالة دورة الحياة resumed قبل لمس Keychain — هذا يحمي أيضاً أي
+    // مسار آخر يفتح صندوقاً لاحقاً (شاشات التطبيق المختلفة تفتح auth_box
+    // عند الحاجة بشكل مستقل عن هذا الاستدعاء أصلاً).
+    //
     // ✅ إعداد Firebase Messaging (الإذن + التوكن) انتُقل إلى ما بعد
     // runApp() أسفل هذه الدالة — انظر _setupFirebaseMessaging() أعلاه
     // لشرح السبب الكامل لهذا التغيير.
@@ -332,11 +375,11 @@ void main() async {
       ),
     );
 
-    // ✅ يُستدعى بعد runApp() عن قصد (fire-and-forget) — واجهة التطبيق
-    // تظهر فورًا للمستخدم بغض النظر عن مدى سرعة/بطء تسجيل الإشعارات مع
-    // Apple. الدالة نفسها معزولة بالكامل بـ try/catch فلا يمكن لأي فشل
-    // بداخلها أن يصل لهذا الـ Zone أو يُسجَّل كـ fatal.
-    unawaited(_setupFirebaseMessaging(authBox));
+    // ✅ [FIX] تهيئة Hive وفتح الصناديق تُستدعى الآن أيضاً بعد runApp()
+    // (fire-and-forget) — انظر توثيق _initStorageAfterAppReady() أدناه.
+    // نمرر authBox الناتج إلى _setupFirebaseMessaging بمجرد جاهزيته بدل
+    // انتظاره قبل runApp() كما كان سابقاً.
+    unawaited(_initStorageAfterAppReady());
   }, (error, stack) async {
     // ✅ الخطأ المعروف وغير الضار (راجع _isBenignAppCheckTokenListenerError
     // أدناه) لا يُرسَل إلى Crashlytics إطلاقاً الآن — لم يعد كافياً تخفيضه
