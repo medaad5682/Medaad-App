@@ -17,8 +17,44 @@ class StorageKeyUnavailableException implements Exception {
 }
 
 class StorageService {
-  // التخزين الآمن للمفاتيح فقط
-  static const _secureStorage = FlutterSecureStorage();
+  // ✅ [FIX - جذر مشكلة "شاشة تسجيل الدخول تظهر بدون سبب على iOS"]
+  // النسخة القديمة كانت بلا iOptions صريحة، أي أنها تستخدم افتراضياً على
+  // iOS صنف الحماية kSecAttrAccessibleWhenUnlocked: "مقروء فقط إن كان
+  // الجهاز مفتوحاً الآن هذه اللحظة بالذات". هذا الصنف معروف بأنه يفشل
+  // بشكل متقطع (errSecInteractionNotAllowed / OSStatus -25308) في لحظات
+  // طبيعية جداً: إطلاق بارد فور فتح القفل، عودة من الخلفية أثناء استكمال
+  // iOS لتفعيل الـ scene، أو تشغيل الكود مبكراً جداً في main() قبل أن
+  // يُعلن التطبيق نشطاً بالكامل. هذا سباق زمني بين "الجهاز يبدو مفتوحاً
+  // للمستخدم" و"طبقة حماية البيانات انتهت فعلياً من تحديث حالتها" — وهو
+  // السبب الجذري وراء وصول بعض مستخدمي iOS لشاشة تسجيل الدخول رغم كونهم
+  // مسجّلين دخول فعلياً، بينما هذا لا يحدث إطلاقاً إن أعادوا فتح التطبيق
+  // بعد إغلاقه مباشرة (لا سباق زمني في تلك الحالة).
+  //
+  // الحل: first_unlock_this_device يجعل العنصر قابلاً للقراءة بمجرد فتح
+  // قفل الجهاز مرة واحدة منذ الإقلاع، ويبقى كذلك لبقية دورة الإقلاع تلك —
+  // بلا تقيّد بلحظة "مفتوح الآن بالضبط". يبقى مقصوراً على هذا الجهاز فقط
+  // (ThisDeviceOnly)، فلا يُستعاد عبر نسخة iCloud احتياطية على جهاز آخر —
+  // نفس مستوى الحماية الحالي فعلياً، لكن بدون السباق الزمني.
+  static const _secureStorage = FlutterSecureStorage(
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
+
+  // ✅ [FIX] مثيل "قديم" بإعدادات افتراضية بلا iOptions صريحة — تطابق
+  // تماماً الإعدادات التي كُتب بها عنصر hive_key لدى كل قاعدة المستخدمين
+  // الحالية قبل هذا التحديث. تغيير iOptions على مثيل FlutterSecureStorage
+  // لا يُرحّل تلقائياً عنصراً مكتوباً مسبقاً بصنف حماية مختلف؛ والقراءة
+  // بالمثيل الجديد قد تُرجع null لعنصر موجود فعلياً بصنف قديم (حالة
+  // موثّقة في مكتبة flutter_secure_storage عند تغيير accessibility لقاعدة
+  // مستخدمين قائمة بالفعل). هذا المثيل يُستخدم فقط كمسار احتياطي أثناء
+  // الترحيل، وليس للاستخدام العادي.
+  static const _secureStorageLegacy = FlutterSecureStorage();
+
+  // ✅ [FIX] علم دائم يمنع إعادة محاولة الترحيل في كل قراءة بعد نجاحه مرة.
+  static const String _kAccessibilityMigratedFlag =
+      'storage_service_keychain_migrated_v1';
+
   static List<int>? _encryptionKey;
 
   // ✅ [FIX] علم دائم (يبقى عبر تحديثات التطبيق، ويُمسح فقط عند إلغاء
@@ -52,8 +88,20 @@ class StorageService {
     const attempts = 3;
     for (var i = 0; i < attempts; i++) {
       try {
+        // نحاول أولاً بالمثيل الجديد (first_unlock_this_device). ينجح
+        // مباشرة للتثبيتات الجديدة، ولأي مستخدم سبق ترحيله بنجاح.
         final value = await _secureStorage.read(key: 'hive_key');
         if (value != null) return value;
+
+        // ✅ [FIX] لم نجد شيئاً بالمثيل الجديد — هذا لا يعني بالضرورة "لا
+        // يوجد مفتاح إطلاقاً"، فقد يكون العنصر لا يزال مكتوباً بصنف
+        // الحماية القديم لمستخدم حالي لم يُرحَّل بعد. نتحقق صراحة بالمثيل
+        // القديم قبل أن نستنتج غياب المفتاح.
+        final legacyValue = await _secureStorageLegacy.read(key: 'hive_key');
+        if (legacyValue != null) {
+          await _migrateAccessibilityIfNeeded(legacyValue);
+          return legacyValue;
+        }
       } catch (_) {
         // نتجاهل ونعيد المحاولة أدناه؛ الفشل الأخير فقط هو ما سيُعتمد عليه
       }
@@ -62,6 +110,35 @@ class StorageService {
       }
     }
     return null;
+  }
+
+  /// ✅ [FIX] يُرحّل عنصر hive_key من صنف الحماية القديم (WhenUnlocked
+  /// الافتراضي) إلى first_unlock_this_device، مرة واحدة فقط لكل جهاز.
+  ///
+  /// بالترتيب: (1) يكتب القيمة عبر المثيل الجديد، (2) يتحقق بإعادة قراءتها
+  /// فعلياً من نفس المثيل الجديد قبل تصديق نجاح الكتابة، (3) لا يحذف
+  /// العنصر القديم ولا يضبط علم "تم الترحيل" إلا بعد نجاح ذلك التحقق.
+  /// هذا الترتيب مقصود: إن فشلت الكتابة أو التحقق لأي سبب، يبقى العنصر
+  /// القديم سليماً كما هو ونعيد محاولة الترحيل تلقائياً في القراءة
+  /// الناجحة التالية — لا يوجد أي احتمال لفقدان المفتاح أثناء الترحيل.
+  static Future<void> _migrateAccessibilityIfNeeded(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_kAccessibilityMigratedFlag) ?? false) return;
+
+    try {
+      await _secureStorage.write(key: 'hive_key', value: value);
+      final verify = await _secureStorage.read(key: 'hive_key');
+      if (verify == value) {
+        // نجحت الكتابة والتحقق تحت صنف الحماية الجديد — الآن فقط يمكن
+        // حذف النسخة القديمة بأمان.
+        await _secureStorageLegacy.delete(key: 'hive_key');
+        await prefs.setBool(_kAccessibilityMigratedFlag, true);
+      }
+      // إن لم يتطابق التحقق (نادر جداً)، لا نغيّر شيئاً — العنصر القديم
+      // ما زال موجوداً وسيُعتمد عليه حتى تنجح محاولة ترحيل لاحقة.
+    } catch (_) {
+      // فشل الكتابة/التحقق غير مؤذٍ هنا: العنصر القديم لم يُمس بعد.
+    }
   }
 
   /// دالة داخلية: توليد أو استرجاع مفتاح التشفير من المنطقة الآمنة للهاتف
