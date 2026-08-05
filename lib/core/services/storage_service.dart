@@ -141,6 +141,31 @@ class StorageService {
     }
   }
 
+  /// ✅ [FIX] نفس فلسفة `_readKeyWithRetry` تماماً، لكن للكتابة. كتابة أول
+  /// تشغيل وكتابة "الحل الأخير" كانتا بلا أي حماية محلية — لو رمت الكتابة
+  /// نفسها `PlatformException(-25308)` بسبب نفس سباق "مفتوح الآن بالضبط"،
+  /// كانت تفلت من هنا دون أي إعادة محاولة، معتمدة بالكامل على المستدعي
+  /// البعيد (`_openBoxSafely` في main.dart) لمنع كراش قاتل — وقد يتسبب ذلك
+  /// أيضاً في أن يتعامل openBox() مع الفشل كـ"تلف بيانات" ويحذف صندوقاً حديث
+  /// الإنشاء بلا داعٍ. الآن: نعيد المحاولة محلياً أولاً بنفس نمط القراءة، ولا
+  /// نرمي أبداً من هنا — نُرجع false عند فشل كل المحاولات فيقرر المستدعي كيف
+  /// يتصرف (الاستمرار بمفتاح في الذاكرة فقط لهذه الجلسة، دون رمي استثناء).
+  static Future<bool> _writeKeyWithRetry(List<int> key) async {
+    const attempts = 3;
+    for (var i = 0; i < attempts; i++) {
+      try {
+        await _secureStorage.write(key: 'hive_key', value: base64Url.encode(key));
+        return true;
+      } catch (_) {
+        // نتجاهل ونعيد المحاولة أدناه؛ نعتمد على النتيجة النهائية فقط
+      }
+      if (i < attempts - 1) {
+        await Future.delayed(Duration(milliseconds: 300 * (i + 1)));
+      }
+    }
+    return false;
+  }
+
   /// دالة داخلية: توليد أو استرجاع مفتاح التشفير من المنطقة الآمنة للهاتف
   ///
   /// ✅ [FIX - جذر مشكلة تسجيل الخروج التلقائي بعد التحديث / الكراش عند
@@ -217,8 +242,24 @@ class StorageService {
       );
 
       final key = Hive.generateSecureKey();
-      await _secureStorage.write(key: 'hive_key', value: base64Url.encode(key));
-      await prefs.setInt(_kUnavailableStreakKey, 0);
+      final persisted = await _writeKeyWithRetry(key);
+      if (persisted) {
+        await prefs.setInt(_kUnavailableStreakKey, 0);
+      } else {
+        // ✅ [FIX] فشلت حتى كتابة المفتاح الجديد بعد إعادة المحاولة (نفس
+        // السباق أصاب الكتابة أيضاً، حالة نادرة جداً). لا نرمي استثناءً هنا
+        // — نكمل بمفتاح في الذاكرة فقط لهذه الجلسة (التطبيق يعمل بشكل طبيعي
+        // الآن) بدل تحويل هذا لكراش أو حذف صندوق. نترك عداد streak كما هو
+        // فيُعاد تقييم الوضع من جديد في التشغيل القادم.
+        FirebaseCrashlytics.instance.recordError(
+          StorageKeyUnavailableException(
+            'Failed to persist last-resort hive_key after retries — continuing with in-memory-only key for this session.',
+          ),
+          StackTrace.current,
+          reason: 'last-resort hive_key write also failed after retries',
+          fatal: false,
+        );
+      }
       _encryptionKey = key;
       return _encryptionKey!;
     }
@@ -226,8 +267,25 @@ class StorageService {
     // 5. أول تشغيل فعلي فعلاً (لا يوجد سجل سابق لمفتاح على هذا الجهاز):
     // نولّد مفتاحاً عشوائياً جديداً ونحفظه، ونضبط العلم.
     final key = Hive.generateSecureKey();
-    await _secureStorage.write(key: 'hive_key', value: base64Url.encode(key));
-    await prefs.setBool(_kKeyProvisionedFlag, true);
+    final persisted = await _writeKeyWithRetry(key);
+    if (persisted) {
+      await prefs.setBool(_kKeyProvisionedFlag, true);
+    } else {
+      // ✅ [FIX] لم نتمكن من حفظ مفتاح أول تشغيل بعد إعادة المحاولة. عمداً
+      // لا نضبط _kKeyProvisionedFlag هنا: بما أنه لا توجد بيانات مشفّرة
+      // بعد بهذا المفتاح (أول تشغيل فعلاً)، لا خطر من معاملة التشغيل
+      // القادم كـ"أول تشغيل" من جديد حتى تنجح الكتابة فعلياً — بدل الدخول
+      // في مسار "مفتاح مفقود"/streak دون داعٍ. نكمل هذه الجلسة بمفتاح في
+      // الذاكرة فقط حتى لا ينهار التطبيق.
+      FirebaseCrashlytics.instance.recordError(
+        StorageKeyUnavailableException(
+          'Failed to persist first-run hive_key after retries — continuing with in-memory-only key for this session.',
+        ),
+        StackTrace.current,
+        reason: 'first-run hive_key write failed after retries',
+        fatal: false,
+      );
+    }
     _encryptionKey = key;
     return _encryptionKey!;
   }
