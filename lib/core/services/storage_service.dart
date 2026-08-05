@@ -369,6 +369,30 @@ class StorageService {
     return _encryptionKey!;
   }
 
+  // ✅ [FIX] يمنع فتح نفس الصندوق (بالاسم) أكثر من مرة بالتوازي. بعد أن
+  // أصبحت initTheme()، initLocale()، و _initStorageAfterAppReady() تعمل
+  // كلها بالتوازي فور runApp() بدل التتابع، أصبح من الممكن فعلياً أن
+  // يستدعي أكثر من مسار openBox('settings_box') في نفس اللحظة تقريباً —
+  // وHive لا يحمي تلقائياً من فتح نفس الصندوق غير المفتوح بعد بالتوازي.
+  // بلا هذا القفل: قد يتزامن استدعاءان مع مسار "تلف البيانات" فيتسابقا
+  // على حذف/إعادة إنشاء نفس الصندوق. هذا القفل يضمن أن كل الاستدعاءات
+  // المتزامنة لنفس الاسم تنتظر نتيجة عملية فتح واحدة فقط وتتقاسمها.
+  static final Map<String, Future<Box>> _openInFlight = {};
+
+  static Future<Box> openBox(String boxName) {
+    // صندوق مفتوح بالفعل بالكامل: لا حاجة لأي قفل، Hive نفسها تُرجع
+    // المثيل المخزَّن فوراً.
+    if (Hive.isBoxOpen(boxName)) {
+      return Future.value(Hive.box(boxName));
+    }
+    return _openInFlight.putIfAbsent(
+      boxName,
+      () => _openBoxInternal(boxName).whenComplete(() {
+        _openInFlight.remove(boxName);
+      }),
+    );
+  }
+
   /// الدالة الرئيسية: فتح أي صندوق بنظام التشفير
   ///
   /// ✅ [FIX] لم نعد نحذف الصندوق إلا في حالة تلف/عدم تطابق فعلي مؤكد
@@ -379,7 +403,7 @@ class StorageService {
   /// الاستعادة نفسه أصبح محمياً بـ try/catch منفصل حتى لا يتسبب فشله في
   /// كراش غير معالج يصعد إلى main() (وهو بالضبط ما ظهر في تقرير
   /// Crashlytics على السطر 44 القديم).
-  static Future<Box> openBox(String boxName) async {
+  static Future<Box> _openBoxInternal(String boxName) async {
     try {
       final key = await _getKey();
       return await Hive.openBox(
