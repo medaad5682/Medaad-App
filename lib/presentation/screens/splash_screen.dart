@@ -41,6 +41,14 @@ class _SplashScreenState extends State<SplashScreen>
 
   final String _baseUrl = ApiConstants.baseUrl;
 
+  // ✅ [FIX] عدد محاولات إعادة تشغيل التهيئة عند مواجهة
+  // StorageKeyUnavailableException تحديداً (مفتاح موجود مسبقاً لكن تعذّرت
+  // قراءته الآن). هذا منفصل تماماً عن عدّاد الفشل المتتالي عبر عمليات
+  // الإقلاع الموجود داخل StorageService — هذا هنا لإعادة محاولة سريعة
+  // ضمن نفس فتحة التطبيق قبل الاستسلام والذهاب لشاشة تسجيل الدخول.
+  int _storageUnavailableRetryCount = 0;
+  static const int _maxStorageUnavailableRetries = 2;
+
   @override
   void initState() {
     super.initState();
@@ -237,7 +245,54 @@ class _SplashScreenState extends State<SplashScreen>
       }
 
       await _initAsUser(userId, deviceId, box);
+    } on StorageKeyUnavailableException catch (e, stack) {
+      // ✅ [FIX - جذر مشكلة "شاشة تسجيل دخول تظهر بدون سبب"] هذا الاستثناء
+      // تحديداً يعني: المفتاح موجود ومزوّد مسبقاً على هذا الجهاز (المستخدم
+      // مسجّل دخول فعلياً وبياناته سليمة)، لكن تعذّرت قراءته من Keychain
+      // في هذه اللحظة بالذات — وهي غالباً حالة عابرة جداً (مللي ثوانٍ) وليست
+      // "المستخدم غير مسجل دخول". من قبل، كانت هذه الحالة تسقط في الـ catch
+      // العام أدناه وتُرسل المستخدم مباشرة لشاشة تسجيل الدخول دون أي محاولة
+      // لاستدعاء get-app-init-data — وهذا بالضبط ما وصفتَه: "لا يوجد نداء
+      // لـ API فشاشة البداية تذهب لشاشة تسجيل الدخول مباشرة".
+      //
+      // الآن: نعيد محاولة كامل التهيئة (والتي تتضمن إعادة قراءة المفتاح عبر
+      // StorageService، بما في ذلك مسار الترحيل بين صنفي الحماية) عدداً
+      // محدوداً من المرات ضمن نفس فتحة التطبيق قبل الاستسلام، بدل الحكم على
+      // أول فشل بأنه "غير مسجل دخول".
+      FirebaseCrashlytics.instance.log(
+        "Splash: StorageKeyUnavailableException, retry "
+        "${_storageUnavailableRetryCount + 1}/$_maxStorageUnavailableRetries: $e",
+      );
+
+      if (_storageUnavailableRetryCount < _maxStorageUnavailableRetries) {
+        _storageUnavailableRetryCount++;
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) await _initializeApp();
+        return;
+      }
+
+      // استنفدنا المحاولات ضمن هذه الفتحة — نسجّل الحدث (وليس كخطأ فادح،
+      // فالبيانات سليمة ولم تُحذف) وننتقل لشاشة تسجيل الدخول كحل أخير، مع
+      // ترك مسار last-resort reset داخل StorageService (بعد 3 إقلاعات
+      // متتالية فاشلة) ليتعامل مع الحالة النادرة لفقدان المفتاح الفعلي.
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        stack,
+        reason:
+            'Splash: exhausted in-session retries for StorageKeyUnavailableException, falling back to Login (data preserved)',
+        fatal: false,
+      );
+      if (mounted) {
+        if (!await SecurityManager.instance.checkSecurity()) return;
+
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
     } catch (e, stack) {
+      // أي خطأ آخر غير متوقع (تلف بيانات فعلي، فشل Hive، إلخ) — نحافظ على
+      // السلوك الأصلي: تسجيل الخطأ والذهاب لشاشة تسجيل الدخول.
       FirebaseCrashlytics.instance.recordError(e, stack);
       if (mounted) {
         if (!await SecurityManager.instance.checkSecurity()) return;
