@@ -361,12 +361,27 @@ void main() async {
     // Start periodic check
     SecurityManager.instance.startPeriodicCheck();
 
-    // ✅ [FIX] Theme/Locale removed from here — see explanation below at
-    // runApp(). Both used to call AppState().initTheme()/initLocale(),
-    // which read settings_box via StorageService, which now waits on
-    // _AppReadyGate — and that gate cannot resolve before runApp() has
-    // run at least once. Leaving these calls here would deadlock every
-    // single cold launch for the full 5-second gate timeout.
+    // ✅ [FIX] Theme/Locale full init (AppState().initTheme()/initLocale())
+    // removed from here — see explanation below at runApp(). Both read
+    // settings_box via StorageService, which now waits on _AppReadyGate —
+    // and that gate cannot resolve before runApp() has run at least once.
+    // Leaving those calls here would deadlock every single cold launch for
+    // the full 5-second gate timeout.
+    //
+    // ✅ [FIX - root cause of "splash shows English then flips to Arabic
+    // after ~2s"] However, doing *nothing* here meant the very first frame
+    // was always painted with the hardcoded default locale ('en')/theme
+    // (dark) in AppState's notifiers, regardless of what the user had
+    // actually chosen last time — the real preference could only be read
+    // from encrypted Hive storage after the gate opened, a moment after
+    // that first frame. Below, we await a fast, *unencrypted* read from
+    // SharedPreferences (not gated — see initLocaleFast()/initThemeFast()
+    // docs in app_state.dart) so the notifiers already hold the correct
+    // value before runApp() ever builds a frame. This is safe to await
+    // here: SharedPreferences never touches Keychain/Keystore, so it can't
+    // hit the -25308 race the gate exists to prevent.
+    await AppState().initLocaleFast();
+    await AppState().initThemeFast();
 
     runApp(
       SecureScreenWidget(useBlur: true,
@@ -376,24 +391,23 @@ void main() async {
       ),
     );
 
-    // ✅ [FIX] نقلنا AppState().initTheme() و initLocale() إلى هنا، بعد
-    // runApp() مباشرة، بدل تشغيلهما قبله كما كانا سابقاً.
+    // ✅ [FIX] AppState().initTheme() و initLocale() تبقيان تُستدعيان هنا
+    // أيضاً، بعد runApp() مباشرة (fire-and-forget)، كمصدر رسمي/نهائي
+    // للتفضيل — لكنهما الآن ليستا المصدر الوحيد الذي يحدد أول إطار (راجع
+    // initLocaleFast()/initThemeFast() المُستدعاتين أعلاه قبل runApp()
+    // مباشرة، وشرحهما الكامل في app_state.dart).
     //
-    // السبب: كلتا الدالتين تستدعيان StorageService.openBox('settings_box')
-    // داخلياً، وهذا الاستدعاء يمر الآن عبر _AppReadyGate التي أضفناها في
-    // storage_service.dart — والتي لا يمكنها إطلاقاً أن تتحقق (الإطار
-    // الأول + resumed) قبل أن يُستدعى runApp() فعلياً ويُبنى الشجرة أول
-    // مرة. لو تُركت هاتان الدالتان في مكانهما القديم (قبل runApp())، لكان
+    // السبب في بقائهما هنا بعد runApp(): كلتاهما تستدعيان
+    // StorageService.openBox('settings_box') داخلياً، وهذا الاستدعاء يمر
+    // عبر _AppReadyGate في storage_service.dart — والتي لا يمكنها إطلاقاً
+    // أن تتحقق (الإطار الأول + resumed) قبل أن يُستدعى runApp() فعلياً
+    // ويُبنى الشجرة أول مرة. لو استُدعيتا قبل runApp() (وانتُظرتا)، لكان
     // كل إقلاع للتطبيق يتجمّد لمدة 5 ثوانٍ كاملة (مهلة الأمان القصوى في
-    // البوابة) قبل ظهور أي واجهة على الإطلاق — تراجع خطير كان سيصيب كل
-    // مستخدم في كل مرة، بعكس هدف هذا الإصلاح تماماً.
+    // البوابة) قبل ظهور أي واجهة على الإطلاق.
     //
-    // هذا آمن لأن EduVantageApp (راجع app.dart) تلف الشجرة بالفعل بـ
-    // ValueListenableBuilder على AppState().themeNotifier و localeNotifier،
-    // ولكليهما قيمة افتراضية معقولة (dark / en) مضبوطة سلفاً في AppState.
-    // أي أن أول إطار يُرسم بالقيم الافتراضية فوراً دون أي انتظار، ثم
-    // يتحدّث تلقائياً (عادة خلال أجزاء من الثانية) فور اكتمال القراءة
-    // الفعلية من التخزين — بدل تجميد الإقلاع بالكامل في انتظارها.
+    // بفضل initLocaleFast()/initThemeFast() أعلاه، القيمة التي يرسمها أول
+    // إطار الآن هي غالباً نفسها التي ستؤكدها هاتان الدالتان من Hive، لذا
+    // لا يوجد أي "وميض" ملحوظ بلغة أو ثيم مختلفين بعد اكتمالهما.
     unawaited(AppState().initTheme());
     unawaited(AppState().initLocale());
 
