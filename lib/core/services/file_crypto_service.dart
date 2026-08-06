@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
@@ -114,10 +115,27 @@ class FileCryptoService {
         final cipherText = encryptedBlock.sublist(NONCE_LENGTH, encryptedBlock.length - MAC_LENGTH);
         final macBytes = encryptedBlock.sublist(encryptedBlock.length - MAC_LENGTH); // ✅ استخراج الـ MAC
 
-        final decryptedChunk = await _algorithm.decrypt(
-          SecretBox(cipherText, nonce: nonce, mac: Mac(macBytes)),
-          secretKey: _key!,
-        );
+        // ── Fix: don't let one bad chunk silently blank the entire read ──
+        // This used to be inside the outer try/catch, so a single failed
+        // chunk (wrong MAC, truncated block, etc.) made the *whole* read
+        // return empty bytes with no signal. That empty/partial buffer was
+        // then fed straight to PDFium via the pdfrx custom read callback,
+        // which is exactly the kind of malformed input that produced the
+        // native EXC_BREAKPOINT crash inside PDFium's cross-ref/stream
+        // parser. Now we isolate the decrypt call per chunk, log it, and
+        // stop cleanly — returning whatever valid bytes were already
+        // decrypted — instead of masking a real corruption as "0 bytes".
+        List<int> decryptedChunk;
+        try {
+          decryptedChunk = await _algorithm.decrypt(
+            SecretBox(cipherText, nonce: nonce, mac: Mac(macBytes)),
+            secretKey: _key!,
+          );
+        } catch (e) {
+          debugPrint(
+              "FileCryptoService: chunk $chunkIndex failed to decrypt/authenticate ($e) — stopping read at offset $currentReadOffset instead of returning corrupted data.");
+          break;
+        }
 
         int startInChunk = currentReadOffset % CHUNK_SIZE;
         int availableInChunk = decryptedChunk.length - startInChunk;
