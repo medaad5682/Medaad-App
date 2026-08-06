@@ -288,8 +288,22 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
           int numChunks =
               (totalSize / FileCryptoService.ENCRYPTED_CHUNK_SIZE).ceil();
-          int originalSize =
-              totalSize - (numChunks * FileCryptoService.NONCE_LENGTH);
+          // ── Fix: PDF crash on specific offline files (EXC_BREAKPOINT in
+          // PDFium RebuildCrossRef) ──
+          // Each chunk on disk has NONCE_LENGTH + MAC_LENGTH bytes of overhead,
+          // not just NONCE_LENGTH. Omitting MAC_LENGTH here made
+          // `originalSize` (the size we tell pdfrx/PDFium the decrypted PDF
+          // is) too large by (MAC_LENGTH * numChunks) bytes. For files where
+          // that drift pushed PDFium's reads past the real end of the
+          // decrypted stream, it read garbage/short data for the xref
+          // table/trailer, fell back to RebuildCrossRef, and crashed while
+          // parsing the corrupted object stream. This matches
+          // FileCryptoService.readAndDecryptRange's own chunk math and the
+          // (correct) equivalent calculation in local_proxy.dart.
+          int originalSize = totalSize -
+              (numChunks *
+                  (FileCryptoService.NONCE_LENGTH +
+                      FileCryptoService.MAC_LENGTH));
 
           if (mounted) {
             // ── Fix: force fresh PdfViewer to avoid first-open stuck loading ──
