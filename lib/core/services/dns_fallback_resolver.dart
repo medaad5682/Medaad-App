@@ -16,26 +16,43 @@ import 'dart:convert';
 /// الأصلي (uri.host) بيفضل هو المستخدم في TLS SNI والتحقق من الشهادة
 /// (بما فيها Certificate Pinning لو مفعّل)، فمفيش أي تأثير على الأمان.
 class DnsFallbackResolver {
-  /// يحاول DNS العادي أولاً، ولو فشل يستخدم DoH (Cloudflare ثم Google).
-  static Future<InternetAddress?> resolve(String host) async {
-    // المحاولة 1: DNS العادي بتاع الجهاز/الشبكة
+  /// يجمع كل العناوين المتاحة من DNS العادي + DoH (مش عنوان واحد بس)،
+  /// عشان لو الاتصال بأول عنوان فشل، يكون فيه بدائل جاهزة نجرّبها.
+  static Future<List<InternetAddress>> _collectCandidates(String host) async {
+    final List<InternetAddress> candidates = [];
+
+    // المحاولة 1: DNS العادي بتاع الجهاز/الشبكة (كل العناوين، مش أول واحد)
     try {
-      final addresses = await InternetAddress.lookup(host)
-          .timeout(const Duration(seconds: 3));
-      if (addresses.isNotEmpty) return addresses.first;
-    } catch (_) {
-      // فشل - ننتقل لـ DoH تحت
+      final addresses =
+          await InternetAddress.lookup(host).timeout(const Duration(seconds: 3));
+      candidates.addAll(addresses);
+    } catch (e) {
+      // ignore: avoid_print
+      print('🚨 DNS العادي فشل لـ $host: $e');
     }
 
-    // المحاولة 2: DNS-over-HTTPS
-    return _resolveViaDoH(host);
+    // المحاولة 2: DNS-over-HTTPS — دايمًا نضيفها كبدائل احتياطية، حتى لو
+    // نجح DNS العادي، عشان نضمن وجود مرشحين تانيين لو أول عنوان فشل اتصاله
+    try {
+      final dohAddresses = await _resolveViaDoH(host);
+      for (final addr in dohAddresses) {
+        if (!candidates.any((c) => c.address == addr.address)) {
+          candidates.add(addr);
+        }
+      }
+    } catch (_) {
+      // تجاهل - عندنا بالفعل نتائج DNS العادي (لو نجحت)
+    }
+
+    return candidates;
   }
 
-  static Future<InternetAddress?> _resolveViaDoH(String host) async {
+  static Future<List<InternetAddress>> _resolveViaDoH(String host) async {
     final dohClient = HttpClient();
     dohClient.connectionTimeout = const Duration(seconds: 4);
 
-    Future<InternetAddress?> query(String dohUrl) async {
+    Future<List<InternetAddress>> query(String dohUrl) async {
+      final List<InternetAddress> found = [];
       try {
         final uri = Uri.parse('$dohUrl?name=$host&type=A');
         final request = await dohClient.getUrl(uri);
@@ -49,22 +66,25 @@ class DnsFallbackResolver {
           for (final a in answers) {
             if (a['type'] == 1) {
               // A record = IPv4
-              return InternetAddress(a['data'] as String);
+              found.add(InternetAddress(a['data'] as String));
             }
           }
         }
-      } catch (_) {
-        // فشل هذا المزود، جرّب التالي
+      } catch (e) {
+        // ignore: avoid_print
+        print('🚨 DoH query فشل ($dohUrl) لـ $host: $e');
       }
-      return null;
+      return found;
     }
 
     try {
       // 1) Cloudflare أولاً
-      var result = await query('https://cloudflare-dns.com/dns-query');
+      var results = await query('https://cloudflare-dns.com/dns-query');
       // 2) Google كخط دفاع ثاني لو Cloudflare نفسه محجوب على شبكة المستخدم
-      result ??= await query('https://dns.google/resolve');
-      return result;
+      if (results.isEmpty) {
+        results = await query('https://dns.google/resolve');
+      }
+      return results;
     } finally {
       dohClient.close(force: true);
     }
@@ -72,12 +92,34 @@ class DnsFallbackResolver {
 
   /// خطاف جاهز للاستخدام مباشرة كـ HttpClient.connectionFactory:
   ///   client.connectionFactory = DnsFallbackResolver.connectionFactory;
+  ///
+  /// الفرق الجوهري عن النسخة القديمة: بيجرّب **كل** العناوين المتاحة
+  /// (من DNS العادي و DoH) بالترتيب، والاتصال الفعلي نفسه (مش بس
+  /// الـ DNS lookup) ملفوف بـ try/catch. لو عنوان معين رفض الاتصال
+  /// (IPv6 معطّل، فايروول، إلخ)، ننتقل للعنوان التالي تلقائيًا بدل
+  /// ما نفشل فورًا.
   static Future<ConnectionTask<Socket>> connectionFactory(
       Uri uri, String? proxyHost, int? proxyPort) async {
-    final target = await resolve(uri.host);
-    if (target == null) {
+    final candidates = await _collectCandidates(uri.host);
+
+    if (candidates.isEmpty) {
       throw SocketException('تعذّر حل الدومين (DNS): ${uri.host}');
     }
-    return Socket.startConnect(target, uri.port);
+
+    Object? lastError;
+    for (final address in candidates) {
+      try {
+        return await Socket.startConnect(address, uri.port)
+            .timeout(const Duration(seconds: 6));
+      } catch (e) {
+        lastError = e;
+        // ignore: avoid_print
+        print('🚨 فشل الاتصال بـ ${address.address} لـ ${uri.host}: $e — تجربة التالي');
+        continue;
+      }
+    }
+
+    throw SocketException(
+        'تعذّر الاتصال بأي عنوان متاح لـ ${uri.host}: $lastError');
   }
 }
