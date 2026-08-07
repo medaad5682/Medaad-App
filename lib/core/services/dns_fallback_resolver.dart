@@ -7,10 +7,10 @@ import 'dart:convert';
 /// المجانية (زي dpdns.org) بسبب سمعة النطاق الأساسي المشترك، حتى لو
 /// الدومين الفرعي نفسه سليم 100%.
 ///
-/// الحل: لو فشل DNS العادي بتاع الجهاز/الشبكة، نستخدم DNS-over-HTTPS
-/// (طلب HTTPS عادي، مش بروتوكول DNS تقليدي) لنسأل Cloudflare ثم Google
-/// عن الـ IP الصحيح. طلب HTTPS العادي ده بيعدي من أي فلترة بتستهدف
-/// بروتوكول DNS بس.
+/// الحل: نجمع كل عناوين IP الممكنة للدومين من مصدرين — DNS العادي
+/// بتاع الجهاز/الشبكة، و DNS-over-HTTPS (طلب HTTPS عادي، مش بروتوكول
+/// DNS تقليدي) لسؤال Cloudflare ثم Google عن الـ IP الصحيح — وبعدين
+/// نجرب الاتصال الفعلي بكل عنوان بالترتيب لحد ما واحد ينجح.
 ///
 /// ملاحظة أمان: الدالة دي بترجع IP فقط لغرض فتح الـ Socket. اسم الدومين
 /// الأصلي (uri.host) بيفضل هو المستخدم في TLS SNI والتحقق من الشهادة
@@ -93,27 +93,12 @@ class DnsFallbackResolver {
   /// خطاف جاهز للاستخدام مباشرة كـ HttpClient.connectionFactory:
   ///   client.connectionFactory = DnsFallbackResolver.connectionFactory;
   ///
-  /// الفرق الجوهري عن النسخة القديمة: بيجرّب **كل** العناوين المتاحة
-  /// (من DNS العادي و DoH) بالترتيب، والاتصال الفعلي نفسه (مش بس
-  /// الـ DNS lookup) ملفوف بـ try/catch. لو عنوان معين رفض الاتصال
-  /// (IPv6 معطّل، فايروول، إلخ)، ننتقل للعنوان التالي تلقائيًا بدل
-  /// ما نفشل فورًا.
+  /// بيجرّب **كل** العناوين المتاحة (من DNS العادي و DoH) بالترتيب،
+  /// وبيتأكد إن الاتصال الفعلي نجح فعلاً (مش بس بدأ) قبل ما يعتبر
+  /// العنوان ده ناجح. لو عنوان معين رفض الاتصال (IPv6 معطّل، فايروول،
+  /// IP قديم، إلخ)، ننتقل للعنوان التالي تلقائيًا بدل ما نفشل فورًا.
   static Future<ConnectionTask<Socket>> connectionFactory(
       Uri uri, String? proxyHost, int? proxyPort) async {
-    // ✅ الخطوة 1: المحاولة الافتراضية بالظبط زي الإصدار القديم —
-    // بنمرر اسم الدومين كـ String عادي، فـ Dart/نظام التشغيل هو اللي
-    // بيعمل الـ DNS lookup والاتصال زي ما كان بيحصل قبل أي تعديل.
-    // لو الشبكة سليمة (زي شبكتك) هيا دي اللي هتشتغل دايمًا، ومفيش أي
-    // استدعاء إضافي لـ DoH أو تأخير زيادة.
-    try {
-      return await Socket.startConnect(uri.host, uri.port);
-    } catch (e) {
-      // ignore: avoid_print
-      print('🚨 الاتصال الافتراضي (DNS العادي) فشل لـ ${uri.host}: $e — الانتقال للاحتياطي');
-    }
-
-    // ✅ الخطوة 2: لو وبس لو الطريقة العادية فشلت (فشل فك الرابط لـ IP)،
-    // ننتقل للمنطق الاحتياطي: DNS يدوي + DNS-over-HTTPS.
     final candidates = await _collectCandidates(uri.host);
 
     if (candidates.isEmpty) {
@@ -128,9 +113,11 @@ class DnsFallbackResolver {
         // الاتصال ينجح. لو ما استنيناش .socket، عنوان فاشل هيتحسب
         // "نجح" غلط ومش هنعدي للعنوان التالي.
         final task = await Socket.startConnect(address, uri.port);
-        final socket = await task.socket.timeout(const Duration(seconds: 6));
-        return ConnectionTask<Socket>.fromSocket(
-            Future.value(socket), task.cancel);
+        await task.socket.timeout(const Duration(seconds: 6));
+        // ✅ الـ task.socket بقى متحلّ (resolved) خلاص بعد الـ await
+        // فوق، فلما الـ HttpClient الداخلي يعمل await عليه تاني
+        // (زي ما بيعمل عادي) هياخده فورًا من غير أي تكرار حقيقي للاتصال.
+        return task;
       } catch (e) {
         lastError = e;
         // ignore: avoid_print
