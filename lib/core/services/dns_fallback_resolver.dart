@@ -93,12 +93,26 @@ class DnsFallbackResolver {
   /// خطاف جاهز للاستخدام مباشرة كـ HttpClient.connectionFactory:
   ///   client.connectionFactory = DnsFallbackResolver.connectionFactory;
   ///
-  /// بيجرّب **كل** العناوين المتاحة (من DNS العادي و DoH) بالترتيب،
-  /// وبيتأكد إن الاتصال الفعلي نجح فعلاً (مش بس بدأ) قبل ما يعتبر
-  /// العنوان ده ناجح. لو عنوان معين رفض الاتصال (IPv6 معطّل، فايروول،
-  /// IP قديم، إلخ)، ننتقل للعنوان التالي تلقائيًا بدل ما نفشل فورًا.
+  /// الخطوة 1 (الأساسية): بالظبط زي الإصدار القديم 100% — بنمرر اسم
+  /// الدومين كـ String عادي لـ Socket.startConnect، فـ Dart/نظام
+  /// التشغيل هو اللي بيعمل الـ DNS lookup والاتصال زي ما كان بيحصل
+  /// قبل أي تعديل، من غير أي استدعاء DoH ولا أي تأخير إضافي. لو
+  /// الشبكة سليمة هيا دي اللي هتشتغل دايمًا.
+  ///
+  /// الخطوة 2 (الاحتياطية): تتفعّل بس لو الخطوة 1 فشلت (فشل فك رابط
+  /// الدومين). بتجمع عناوين من DNS العادي + DoH وتجرب الاتصال الفعلي
+  /// بكل عنوان بالترتيب لحد ما واحد ينجح فعلاً.
   static Future<ConnectionTask<Socket>> connectionFactory(
       Uri uri, String? proxyHost, int? proxyPort) async {
+    // ✅ الخطوة 1: المحاولة الافتراضية بالظبط زي القديم.
+    try {
+      return await Socket.startConnect(uri.host, uri.port);
+    } catch (e) {
+      // ignore: avoid_print
+      print('🚨 الاتصال الافتراضي (DNS العادي) فشل لـ ${uri.host}: $e — الانتقال للاحتياطي');
+    }
+
+    // ✅ الخطوة 2: لو وبس لو الطريقة العادية فشلت، ننتقل للاحتياطي.
     final candidates = await _collectCandidates(uri.host);
 
     if (candidates.isEmpty) {
