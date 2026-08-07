@@ -6,7 +6,6 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // ✅ إضافة Crashlytics
 import 'storage_service.dart';
 import 'package:flutter/foundation.dart'; // ✅ هذا هو الحل للخطأ
-import 'dns_fallback_resolver.dart'; // ✅ DNS Fallback المشترك
 
 // ✅ 1. شهادة الجذور طويلة الأمد (GlobalSign & GTS) لتجنب التحديث كل 90 يوم
 const String secureRootCert = """-----BEGIN CERTIFICATE-----
@@ -46,14 +45,7 @@ class ApiClient {
         // إجبار التطبيق على الثقة بهذه الشهادة المحددة فقط
         securityContext.setTrustedCertificatesBytes(certBytes);
 
-        final client = HttpClient(context: securityContext);
-
-        // ✅ DNS Fallback: نتحكم يدويًا في خطوة الاتصال (Socket) فقط.
-        // اسم الدومين (uri.host) لسه هو نفسه اللي بيتستخدم في TLS SNI
-        // والتحقق من الشهادة، فالـ Certificate Pinning يفضل شغال بدون أي تأثير.
-        client.connectionFactory = DnsFallbackResolver.connectionFactory;
-
-        return client;
+        return HttpClient(context: securityContext);
       },
     )
     // ✅ 3. إضافة الانترسبتورز الخاصة بك (لم تتغير)
