@@ -123,8 +123,14 @@ class DnsFallbackResolver {
     Object? lastError;
     for (final address in candidates) {
       try {
-        return await Socket.startConnect(address, uri.port)
-            .timeout(const Duration(seconds: 6));
+        // ⚠️ لازم نستنى .socket فعليًا هنا مش بس startConnect، لأن
+        // startConnect بيرجع الـ task بمجرد ما يبدأ المحاولة، مش لما
+        // الاتصال ينجح. لو ما استنيناش .socket، عنوان فاشل هيتحسب
+        // "نجح" غلط ومش هنعدي للعنوان التالي.
+        final task = await Socket.startConnect(address, uri.port);
+        final socket = await task.socket.timeout(const Duration(seconds: 6));
+        return ConnectionTask<Socket>.fromSocket(
+            Future.value(socket), task.cancel);
       } catch (e) {
         lastError = e;
         // ignore: avoid_print
