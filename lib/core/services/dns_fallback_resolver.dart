@@ -100,6 +100,20 @@ class DnsFallbackResolver {
   /// ما نفشل فورًا.
   static Future<ConnectionTask<Socket>> connectionFactory(
       Uri uri, String? proxyHost, int? proxyPort) async {
+    // ✅ الخطوة 1: المحاولة الافتراضية بالظبط زي الإصدار القديم —
+    // بنمرر اسم الدومين كـ String عادي، فـ Dart/نظام التشغيل هو اللي
+    // بيعمل الـ DNS lookup والاتصال زي ما كان بيحصل قبل أي تعديل.
+    // لو الشبكة سليمة (زي شبكتك) هيا دي اللي هتشتغل دايمًا، ومفيش أي
+    // استدعاء إضافي لـ DoH أو تأخير زيادة.
+    try {
+      return await Socket.startConnect(uri.host, uri.port);
+    } catch (e) {
+      // ignore: avoid_print
+      print('🚨 الاتصال الافتراضي (DNS العادي) فشل لـ ${uri.host}: $e — الانتقال للاحتياطي');
+    }
+
+    // ✅ الخطوة 2: لو وبس لو الطريقة العادية فشلت (فشل فك الرابط لـ IP)،
+    // ننتقل للمنطق الاحتياطي: DNS يدوي + DNS-over-HTTPS.
     final candidates = await _collectCandidates(uri.host);
 
     if (candidates.isEmpty) {
