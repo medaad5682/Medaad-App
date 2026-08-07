@@ -6,7 +6,6 @@ import 'dart:isolate';
 import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:dio/dio.dart';
-import 'package:dio/io.dart'; // ✅ لازم لتطبيق DNS Fallback
 import 'package:path_provider/path_provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -22,7 +21,6 @@ import 'notification_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../constants/api_constants.dart';
-import 'dns_fallback_resolver.dart'; // ✅ DNS Fallback المشترك
 
 class DownloadManager with WidgetsBindingObserver {
   static final DownloadManager _instance = DownloadManager._internal();
@@ -44,15 +42,7 @@ class DownloadManager with WidgetsBindingObserver {
     connectTimeout: const Duration(seconds: 60),
     receiveTimeout: const Duration(seconds: 60),
     sendTimeout: const Duration(seconds: 60),
-  ))
-    // ✅ DNS Fallback: لو فشل DNS العادي (مشكلة dpdns.org)، يستخدم DoH تلقائيًا
-    ..httpClientAdapter = IOHttpClientAdapter(
-      createHttpClient: () {
-        final client = HttpClient();
-        client.connectionFactory = DnsFallbackResolver.connectionFactory;
-        return client;
-      },
-    );
+  ));
 
   static final Set<String> _activeDownloads = {};
   final Map<String, String> activeTitles = {};
@@ -759,15 +749,7 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
 
     final dio = Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 60),
-        receiveTimeout: const Duration(seconds: 60)))
-      // ✅ DNS Fallback: نفس منطق الحماية من فشل حل النطاق
-      ..httpClientAdapter = IOHttpClientAdapter(
-        createHttpClient: () {
-          final client = HttpClient();
-          client.connectionFactory = DnsFallbackResolver.connectionFactory;
-          return client;
-        },
-      );
+        receiveTimeout: const Duration(seconds: 60)));
 
     if (url.contains('.m3u8') || url.contains('.m3u')) {
       final response = await dio.get(url, options: Options(headers: headers));
