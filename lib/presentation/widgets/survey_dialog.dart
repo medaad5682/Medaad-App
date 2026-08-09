@@ -30,6 +30,10 @@ class _SurveyDialogContentState extends State<_SurveyDialogContent> {
   bool _submitting = false;
   String? _errorText;
 
+  // يبدأ العرض دايماً بشاشة ترحيبية (اسم + وصف الاستبيان فقط + زر "ابدأ")
+  // قبل عرض الأسئلة، حسب طلب Ahmed. لو ضغط "ابدأ" بننتقل لعرض الأسئلة.
+  bool _started = false;
+
   bool get _isArabic => Localizations.localeOf(context).languageCode == 'ar';
 
   @override
@@ -126,105 +130,189 @@ class _SurveyDialogContentState extends State<_SurveyDialogContent> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480, maxHeight: 640),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: _started
+                ? _buildQuestionsView(context, obligatory, cardColor, textColor, subTextColor)
+                : _buildWelcomeView(context, obligatory, cardColor, textColor, subTextColor),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── شاشة الترحيب: اسم الاستبيان + الوصف فقط + زر "ابدأ" ──────────────
+  Widget _buildWelcomeView(BuildContext context, bool obligatory, Color cardColor, Color textColor, Color subTextColor) {
+    return Column(
+      key: const ValueKey('survey_welcome'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!obligatory)
+          Align(
+            alignment: AlignmentDirectional.topEnd,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8, end: 8),
+              child: IconButton(
+                icon: Icon(Icons.close, color: subTextColor),
+                onPressed: _handleSkip,
+                tooltip: _t(ar: 'تخطي', en: 'Skip'),
+              ),
+            ),
+          ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(28, obligatory ? 36 : 4, 28, 32),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 12, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.survey.title,
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
-                          ),
-                          if (widget.survey.description != null && widget.survey.description!.trim().isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                widget.survey.description!,
-                                style: TextStyle(fontSize: 13, color: subTextColor),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (!obligatory)
-                      IconButton(
-                        icon: Icon(Icons.close, color: subTextColor),
-                        onPressed: _submitting ? null : _handleSkip,
-                        tooltip: _t(ar: 'تخطي', en: 'Skip'),
-                      ),
-                  ],
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  color: AppColors.accentYellow.withOpacity(0.15),
+                  shape: BoxShape.circle,
                 ),
+                child: const Icon(Icons.assignment_outlined, color: AppColors.accentYellow, size: 34),
               ),
+              const SizedBox(height: 18),
               if (obligatory)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.error.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        _t(ar: 'إلزامي', en: 'Required'),
-                        style: TextStyle(color: AppColors.error, fontSize: 12, fontWeight: FontWeight.bold),
-                      ),
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _t(ar: 'إلزامي', en: 'Required'),
+                      style: TextStyle(color: AppColors.error, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
-              const SizedBox(height: 8),
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: widget.survey.questions
-                        .map((q) => _buildQuestion(q, textColor, subTextColor))
-                        .toList(),
-                  ),
-                ),
+              Text(
+                widget.survey.title,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: textColor),
               ),
-              if (_errorText != null)
+              if (widget.survey.description != null && widget.survey.description!.trim().isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                  child: Text(_errorText!, style: TextStyle(color: AppColors.error, fontSize: 13)),
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    widget.survey.description!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: subTextColor, height: 1.5),
+                  ),
                 ),
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _submitting ? null : _handleSubmit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.accentYellow,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.black),
-                          )
-                        : Text(
-                            _t(ar: 'إرسال', en: 'Submit'),
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                          ),
+              const SizedBox(height: 26),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => setState(() => _started = true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.accentYellow,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text(
+                    _t(ar: 'ابدأ', en: 'Start'),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                   ),
                 ),
               ),
             ],
           ),
         ),
-      ),
+      ],
+    );
+  }
+
+  // ── شاشة الأسئلة نفسها (بعد الضغط على "ابدأ") ─────────────────────────
+  Widget _buildQuestionsView(BuildContext context, bool obligatory, Color cardColor, Color textColor, Color subTextColor) {
+    return Column(
+      key: const ValueKey('survey_questions'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 12, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.survey.title,
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: textColor),
+                ),
+              ),
+              if (!obligatory)
+                IconButton(
+                  icon: Icon(Icons.close, color: subTextColor),
+                  onPressed: _submitting ? null : _handleSkip,
+                  tooltip: _t(ar: 'تخطي', en: 'Skip'),
+                ),
+            ],
+          ),
+        ),
+        if (obligatory)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _t(ar: 'إلزامي', en: 'Required'),
+                  style: TextStyle(color: AppColors.error, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 8),
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: widget.survey.questions
+                  .map((q) => _buildQuestion(q, textColor, subTextColor))
+                  .toList(),
+            ),
+          ),
+        ),
+        if (_errorText != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Text(_errorText!, style: TextStyle(color: AppColors.error, fontSize: 13)),
+          ),
+        Padding(
+          padding: const EdgeInsets.all(20),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _submitting ? null : _handleSubmit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accentYellow,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: _submitting
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.black),
+                    )
+                  : Text(
+                      _t(ar: 'إرسال', en: 'Submit'),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
