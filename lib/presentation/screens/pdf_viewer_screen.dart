@@ -123,19 +123,43 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     super.initState();
     _sessionToken = _generateSecureToken();
     _store = PdfAnnotationStore(widget.pdfId);
+    // ── Fix: "Null check operator used on a null value" في setState ──
+    // كل هذه الـ controllers تنفّذ عمليات غير متزامنة (مثل تحميل نص
+    // الصفحة) وتستدعي onChanged() لاحقاً بعد اكتمالها. إن أغلق المستخدم
+    // الشاشة (زر الرجوع) قبل اكتمال هذه العملية — وهو بالضبط ما يحدث عند
+    // الفتح الأول البطيء بعد إغلاق التطبيق — يُستدعى onChanged() على شاشة
+    // تم التخلص منها (disposed)، فيحاول setState() الوصول لعنصر (element)
+    // لم يعد موجوداً فيرمي هذا الخطأ ويُسقط التطبيق بالكامل. فحص `mounted`
+    // هنا يجعل onChanged() لا تفعل شيئاً بأمان إن كانت الشاشة قد أُغلقت.
     _highlightController = PdfHighlightController(
       store: _store,
       textCache: _textCache,
-      onChanged: () => setState(() {}),
+      onChanged: () {
+        if (!mounted) return;
+        setState(() {});
+      },
     );
-    _shapeController =
-        PdfShapeController(store: _store, onChanged: () => setState(() {}));
-    _textNoteController =
-        PdfTextNoteController(store: _store, onChanged: () => setState(() {}));
+    _shapeController = PdfShapeController(
+      store: _store,
+      onChanged: () {
+        if (!mounted) return;
+        setState(() {});
+      },
+    );
+    _textNoteController = PdfTextNoteController(
+      store: _store,
+      onChanged: () {
+        if (!mounted) return;
+        setState(() {});
+      },
+    );
     _imageController = PdfImageAnnotationController(
       pdfId: widget.pdfId,
       store: _store,
-      onChanged: () => setState(() {}),
+      onChanged: () {
+        if (!mounted) return;
+        setState(() {});
+      },
     );
     _initWatermarkText();
     _loadToolSettings();

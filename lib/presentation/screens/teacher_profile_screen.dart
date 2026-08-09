@@ -145,6 +145,11 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
                         ? DecorationImage(
                             image: NetworkImage(_teacher!['profile_image']),
                             fit: BoxFit.cover,
+                            // ✅ Fix: صورة معطوبة/محذوفة (404) كانت ترمي
+                            // استثناء غير مُلتقط عبر NetworkImage ويُسقط
+                            // التطبيق. onError يمنع ذلك ويعرض الأيقونة
+                            // الافتراضية بدلاً من الكراش.
+                            onError: (exception, stackTrace) {},
                           )
                         : null,
                   ),

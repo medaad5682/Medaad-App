@@ -390,7 +390,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                             ? DecorationImage(
                                                 image: NetworkImage(
                                                     _currentImageUrl!),
-                                                fit: BoxFit.cover)
+                                                fit: BoxFit.cover,
+                                                // ✅ Fix: يمنع كراش عند فشل
+                                                // تحميل صورة الأفاتار (404).
+                                                onError: (exception,
+                                                        stackTrace) {})
                                             : null),
                                   ),
                                   child: (_selectedImage == null &&

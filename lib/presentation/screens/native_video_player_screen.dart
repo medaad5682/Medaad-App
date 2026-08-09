@@ -199,10 +199,22 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   }
 
   void _onSeekEnd(double value) {
+    // ── Fix: "Bad state: The video has not been initialized yet." ──
+    // seekTo() هي دالة async؛ إن رمت الاستثناء بعد نقطة await داخلية
+    // (وهو ما يحدث عندما يسحب المستخدم شريط التقدّم قبل اكتمال تهيئة
+    // المشغّل بلحظات)، فإن try/catch متزامن حول الاستدعاء لا يلتقطه إطلاقاً
+    // لأن الاستدعاء يُرجع Future فوراً قبل أن يُنفَّذ الجزء اللاحق للـ await.
+    // استخدام catchError() على الـ Future المُرجعة يضمن التقاط الخطأ في
+    // الحالتين (المتزامنة وغير المتزامنة) بدل أن يتحول إلى كراش قاتل.
     try {
-      _betterPlayerController?.seekTo(Duration(milliseconds: value.toInt()));
-    } catch (e) {
-      FirebaseCrashlytics.instance.recordError(e, null, reason: 'Native Player Seekbar Error');
+      _betterPlayerController
+          ?.seekTo(Duration(milliseconds: value.toInt()))
+          .catchError((Object e, StackTrace st) {
+        FirebaseCrashlytics.instance
+            .recordError(e, st, reason: 'Native Player Seekbar Error');
+      });
+    } catch (e, st) {
+      FirebaseCrashlytics.instance.recordError(e, st, reason: 'Native Player Seekbar Error');
     }
     _isSeekBarDragging = false;
     _resetAutoHideTimer();

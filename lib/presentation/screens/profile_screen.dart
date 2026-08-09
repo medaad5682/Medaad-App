@@ -290,6 +290,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ? _profileImage!
                                     : '$_baseUrl/api/public/get-avatar?file=$_profileImage'),
                                 fit: BoxFit.cover,
+                                // ✅ Fix: 404/فشل شبكة على صورة الأفاتار كان
+                                // يُسقط التطبيق. onError يمنع الكراش.
+                                onError: (exception, stackTrace) {},
                               )
                             : null,
                       ),
