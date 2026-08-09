@@ -500,8 +500,25 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         FirebaseCrashlytics.instance.log(
           '⚠️ Native Player (Bunny stream) exception: $errMsg | quality=$_currentQuality | host=$currentHost | params=${event.parameters}',
         );
+        // ✅ [FIX] لا نمرر rawCause كما هو إلى recordError(). rawCause قد
+        // يكون كائناً خاماً قادماً من قناة المنصّة (Map، PlatformException
+        // بمحتوى غير قياسي...) — وقد رأينا حالات فعلية كان فيها استدعاء
+        // recordError() *نفسه* هو من يرمي أثناء محاولة تحويل rawCause إلى
+        // نص، فيتحول خطأ تشغيل غير قاتل إلى Uncaught Error حقيقي يصعد إلى
+        // معالج runZonedGuarded العام في main.dart ويُسجَّل هناك كـ
+        // fatal:true — أي أن كراش "قاتل" مزعج كان في الأصل مجرد فشل تسجيل
+        // خطأ الفيديو العادي. الآن نحوّل rawCause دائماً إلى Exception/نص
+        // آمن قبل تمريره.
+        Object safeCause;
+        try {
+          safeCause = (rawCause is Exception || rawCause is Error)
+              ? rawCause!
+              : Exception(errMsg);
+        } catch (_) {
+          safeCause = Exception('Unserializable player exception');
+        }
         FirebaseCrashlytics.instance.recordError(
-          rawCause ?? errMsg,
+          safeCause,
           null,
           reason: 'Native Player Bunny Stream Playback Error ($_currentQuality @ $currentHost)',
           fatal: false,
