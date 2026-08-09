@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
+import 'storage_service.dart';
 
 class FileCryptoService {
   // ✅ [FIX F-02] استخدام Poly1305 لضمان سلامة وموثوقية التشفير (AEAD)
@@ -18,22 +19,44 @@ class FileCryptoService {
   static const int ENCRYPTED_CHUNK_SIZE = NONCE_LENGTH + CHUNK_SIZE + MAC_LENGTH;
 
   static SecretKey? _key;
-  static final _storage = const FlutterSecureStorage();
+  // ✅ [FIX] نحتفظ بالمفتاح كنص base64 أيضاً حتى تستطيع خدمات أخرى
+  // (LocalProxyService) الحصول عليه دون إعادة قراءته من Keychain بشكل
+  // مستقل ومكرر عبر مثيل FlutterSecureStorage خاص بها.
+  static String? keyBase64;
+
+  // ✅ [FIX] نفس صنف الحماية first_unlock_this_device المستخدم لـ hive_key
+  // و app_master_key — القيمة الافتراضية القديمة (whenUnlocked) كانت عرضة
+  // لنفس سباق -25308.
+  static final _storage = const FlutterSecureStorage(
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
 
   static Future<void> init() async {
     if (_key != null) return;
 
-    String? storedKey = await _storage.read(key: 'docs_chacha_key');
+    // ✅ [FIX] StorageService.readSecureValueSafely() ينتظر _AppReadyGate
+    // ويعيد المحاولة بدل قراءة Keychain مباشرة مرة واحدة.
+    String? storedKey = await StorageService.readSecureValueSafely(
+      'docs_chacha_key',
+      storage: _storage,
+    );
     List<int> keyBytes;
 
     if (storedKey == null) {
       keyBytes = List<int>.generate(32, (i) => Random.secure().nextInt(256));
-      await _storage.write(
-          key: 'docs_chacha_key', value: base64Encode(keyBytes));
+      storedKey = base64Encode(keyBytes);
+      await StorageService.writeSecureValueSafely(
+        'docs_chacha_key',
+        storedKey,
+        storage: _storage,
+      );
     } else {
       keyBytes = base64Decode(storedKey);
     }
 
+    keyBase64 = storedKey;
     _key = SecretKey(keyBytes);
   }
 

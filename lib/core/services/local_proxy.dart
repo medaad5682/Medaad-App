@@ -10,7 +10,6 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:cryptography/cryptography.dart' as crypto; // لتشفير ChaCha20
 import 'package:crypto/crypto.dart' as hmac_crypto; // ✅ [FIX F-08] مكتبة التوقيع HMAC
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../utils/encryption_helper.dart';
 import 'file_crypto_service.dart';
@@ -90,8 +89,12 @@ class LocalProxyService {
       // 2. جلب كلا المفتاحين (AES و ChaCha20)
       String aesKeyBase64 = EncryptionHelper.key.base64;
 
-      final storage = const FlutterSecureStorage();
-      String chachaKeyBase64 = (await storage.read(key: 'docs_chacha_key')) ?? '';
+      // ✅ [FIX] لم نعد نعيد قراءة docs_chacha_key من Keychain هنا بمثيل
+      // FlutterSecureStorage منفصل وغير محمي (بلا first_unlock_this_device
+      // وبلا انتظار _AppReadyGate). FileCryptoService.init() أعلاه قرأه أو
+      // ولّده بالفعل بأمان تام؛ نأخذه مباشرة من هناك بدل تكرار عملية
+      // Keychain كاملة (وتعريض الكود مجدداً لنفس سباق -25308).
+      final String chachaKeyBase64 = FileCryptoService.keyBase64 ?? '';
 
       if (chachaKeyBase64.isEmpty) {
         throw Exception("CRITICAL: ChaCha20 key is missing!");

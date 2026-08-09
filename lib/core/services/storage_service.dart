@@ -75,6 +75,64 @@ class _AppReadyGate with WidgetsBindingObserver {
 }
 
 class StorageService {
+  // ✅ [FIX] واجهة عامة تسمح لأي خدمة أخرى تلمس Keychain/Keystore
+  // (EncryptionHelper لمفتاح app_master_key، FileCryptoService لمفتاح
+  // docs_chacha_key...) بإعادة استخدام نفس حماية "-25308" المطبّقة هنا على
+  // hive_key، بدل أن يقرأ كل مفتاح Keychain مباشرة وبإعدادات افتراضية
+  // متسرّعة (accessibility الافتراضي whenUnlocked + بلا انتظار _AppReadyGate
+  // + بلا إعادة محاولة) — وهو تحديداً نمط الاستدعاء الذي كان لا يزال ينتج
+  // كراش "Fatal Exception" حقيقي عبر EncryptionHelper.init() حتى بعد أن
+  // أُصلحت هذه المشكلة لمفتاح hive_key فقط.
+  static Future<void> waitUntilAppReady() =>
+      _AppReadyGate.instance.waitUntilReady();
+
+  /// قراءة آمنة عامة لأي مفتاح Keychain/Keystore (وليس hive_key فقط):
+  /// تنتظر جهوزية التطبيق فعلياً ثم تعيد المحاولة 3 مرات بنفس نمط
+  /// `_readKeyWithRetry` أعلاه. تستخدم افتراضياً نفس صنف الحماية الآمن
+  /// (first_unlock_this_device) عبر [storage]، أو مثيلاً مخصصاً إن مُرِّر.
+  static Future<String?> readSecureValueSafely(
+    String key, {
+    FlutterSecureStorage? storage,
+  }) async {
+    await waitUntilAppReady();
+    final s = storage ?? _secureStorage;
+    const attempts = 3;
+    for (var i = 0; i < attempts; i++) {
+      try {
+        final value = await s.read(key: key);
+        if (value != null) return value;
+        return null;
+      } catch (_) {
+        if (i < attempts - 1) {
+          await Future.delayed(Duration(milliseconds: 300 * (i + 1)));
+        }
+      }
+    }
+    return null;
+  }
+
+  /// كتابة آمنة عامة، بنفس فلسفة `_writeKeyWithRetry` أعلاه.
+  static Future<bool> writeSecureValueSafely(
+    String key,
+    String value, {
+    FlutterSecureStorage? storage,
+  }) async {
+    await waitUntilAppReady();
+    final s = storage ?? _secureStorage;
+    const attempts = 3;
+    for (var i = 0; i < attempts; i++) {
+      try {
+        await s.write(key: key, value: value);
+        return true;
+      } catch (_) {
+        if (i < attempts - 1) {
+          await Future.delayed(Duration(milliseconds: 300 * (i + 1)));
+        }
+      }
+    }
+    return false;
+  }
+
   // ✅ [FIX - جذر مشكلة "شاشة تسجيل الدخول تظهر بدون سبب على iOS"]
   // النسخة القديمة كانت بلا iOptions صريحة، أي أنها تستخدم افتراضياً على
   // iOS صنف الحماية kSecAttrAccessibleWhenUnlocked: "مقروء فقط إن كان
