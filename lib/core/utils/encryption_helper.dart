@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import '../services/storage_service.dart';
 
 class EncryptionHelper {
   // ✅ تم التعديل: 512KB (نصف ميجابايت)
@@ -22,18 +23,38 @@ class EncryptionHelper {
   // الاحتفاظ بمحرك التشفير لتجنب إعادة تهيئته (سرعة x10)
   static encrypt.Encrypter? _encrypter;
   
-  static final _storage = const FlutterSecureStorage();
+  // ✅ [FIX] نفس صنف الحماية first_unlock_this_device المستخدم لـ hive_key —
+  // بلا هذا، القراءة الافتراضية (whenUnlocked) تفشل بشكل متقطع
+  // (errSecInteractionNotAllowed / -25308) في نفس اللحظات التي كانت تسبب
+  // مشكلة hive_key: إطلاق بارد فور فتح القفل، أو عودة من الخلفية أثناء
+  // استكمال iOS لتفعيل الـ scene.
+  static final _storage = const FlutterSecureStorage(
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
 
   /// تهيئة المفتاح ومحرك التشفير
   static Future<void> init() async {
     try {
-      String? storedKey = await _storage.read(key: 'app_master_key');
-      
+      // ✅ [FIX] نمر عبر StorageService.readSecureValueSafely() بدل قراءة
+      // Keychain مباشرة: هذا ينتظر _AppReadyGate (الإطار الأول + resumed)
+      // ويعيد المحاولة 3 مرات — بالضبط نفس الحماية المطبّقة على hive_key،
+      // وهي التي كانت غائبة هنا وتسبب كراش "EncryptionHelper.init failed".
+      String? storedKey = await StorageService.readSecureValueSafely(
+        'app_master_key',
+        storage: _storage,
+      );
+
       if (storedKey == null) {
         // [FIX F-10] تم إزالة سجلات Crashlytics التي تفشي وقت توليد المفتاح
         final keyBytes = List<int>.generate(32, (i) => Random.secure().nextInt(256));
         storedKey = base64UrlEncode(keyBytes);
-        await _storage.write(key: 'app_master_key', value: storedKey);
+        await StorageService.writeSecureValueSafely(
+          'app_master_key',
+          storedKey,
+          storage: _storage,
+        );
       } else {
         // [FIX F-10] تم إزالة سجل تحميل المفتاح من التخزين
       }
@@ -44,11 +65,19 @@ class EncryptionHelper {
       _encrypter = encrypt.Encrypter(encrypt.AES(_key!, mode: encrypt.AESMode.gcm));
 
     } catch (e, stack) {
+      // ✅ [FIX] لم يعد fatal: true. هذا الاستثناء مُلتقَط ومُعالَج فعلياً من
+      // قِبل المستدعي (LocalProxyService.start() يوقف نفسه بأمان عبر
+      // stop() ولا ينهار التطبيق) — ترقيته إلى "قاتل" هنا كان يزيّف معدل
+      // Crashlytics بكراشات وهمية لخطأ تمت معالجته فعلاً، ويخفي في نفس
+      // الوقت الرسالة الأصلية (OSStatus) خلف موقع استدعاء recordError نفسه.
+      // بعد إصلاح سباق Keychain أعلاه، من المتوقع أن يصبح هذا نادراً جداً؛
+      // لو استمر تكراره رغم ذلك، هذا مؤشر حقيقي على مشكلة تستحق non-fatal
+      // لتتبعها، وليس فتح تنبيه "تعطل قاتل" كاذب.
       FirebaseCrashlytics.instance.recordError(
         e, 
         stack, 
-        reason: 'CRITICAL: EncryptionHelper.init failed',
-        fatal: true 
+        reason: 'EncryptionHelper.init failed',
+        fatal: false,
       );
       throw Exception("Failed to initialize encryption: $e");
     }
