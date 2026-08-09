@@ -45,6 +45,7 @@ class SurveyModel {
   final String title;
   final String? description;
   final bool isObligatory;
+  final String? startsAt;
   final String? expiresAt;
   final List<SurveyQuestionModel> questions;
 
@@ -53,6 +54,7 @@ class SurveyModel {
     required this.title,
     this.description,
     this.isObligatory = false,
+    this.startsAt,
     this.expiresAt,
     this.questions = const [],
   });
@@ -63,6 +65,7 @@ class SurveyModel {
       title: json['title'] ?? '',
       description: json['description'],
       isObligatory: json['is_obligatory'] ?? false,
+      startsAt: json['starts_at'],
       expiresAt: json['expires_at'],
       questions: json['questions'] != null
           ? List<SurveyQuestionModel>.from((json['questions'] as List)
