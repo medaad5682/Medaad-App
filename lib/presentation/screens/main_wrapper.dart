@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/app_state.dart';
+import '../../core/services/survey_service.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../widgets/survey_dialog.dart';
 import 'home_screen.dart';
 import 'my_courses_screen.dart';
 import 'profile_screen.dart';
@@ -23,6 +26,23 @@ class _MainWrapperState extends State<MainWrapper> {
     const DownloadedFilesScreen(), 
     const ProfileScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // ✅ التحقق من وجود استبيان/تقييم معلّق من الإدارة عند دخول المستخدم
+    // للتطبيق (مرة واحدة فقط لكل جلسة تشغيل، ولا يُعاد فوراً بعد التخطي).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkPendingSurvey());
+  }
+
+  Future<void> _checkPendingSurvey() async {
+    // فقط للمستخدمين المسجلين فعلياً (وليس الضيوف)
+    if (AppState().userData == null) return;
+    final survey = await SurveyService.fetchPendingSurveyIfNeeded();
+    if (survey != null && mounted) {
+      showSurveyDialog(context, survey);
+    }
+  }
 
   void _onTabTapped(int index) {
     setState(() {
