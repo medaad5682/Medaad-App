@@ -52,6 +52,17 @@ class VideoPlayerScreen extends StatefulWidget {
 class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   late final Player _player;
+  // ── Fix: "[Player] has been disposed" assertion in NativePlayer.seek/play ──
+  // هذه الاشتراكات (error/buffering/position) كانت تُنشأ بـ .listen(...) دون
+  // حفظها، أي أنها تبقى فعّالة حتى بعد _player.dispose(). عند مغادرة
+  // الشاشة، إن أطلق أي من هذه الـ streams حدثاً أخيراً أثناء stop()/dispose()
+  // (وهو أمر شائع لهذه الأنواع من الـ streams)، كان الـ listener يستدعي
+  // _player.seek()/play()/pause() على مشغّل تم التخلص منه بالفعل فيرمي هذا
+  // الخطأ ويُسقط التطبيق. حفظ الاشتراكات هنا وإلغاؤها أولاً في _safeExit()
+  // (قبل stop()/dispose()) يمنع وصول أي حدث متأخر لهذه الاستدعاءات إطلاقاً.
+  StreamSubscription? _playerErrorSubscription;
+  StreamSubscription? _playerBufferingSubscription;
+  StreamSubscription? _playerPositionSubscription;
   late final VideoController _controller;
 
   final LocalProxyService _proxyService = LocalProxyService();
@@ -284,7 +295,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         ),
       );
 
-      _player.stream.error.listen((error) {
+      _playerErrorSubscription = _player.stream.error.listen((error) {
         final errorString = error.toString().toLowerCase();
 
         // ✅ [CONSOLE-CLEANUP] Errors that are expected/transient on real
@@ -335,9 +346,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             .recordError(error, null, reason: 'MediaKit Stream Error', fatal: false);
       });
 
-      _player.stream.buffering.listen((buffering) {
+      _playerBufferingSubscription = _player.stream.buffering.listen((buffering) {
         if (!buffering && _isVideoLoading) {
-          if (mounted) {
+          // ✅ Fix: نفس فحص _isDisposing المستخدم بالفعل في مستمع الأخطاء
+          // أعلاه — mounted وحده لا يكفي لأن _isDisposing يُضبط بـ setState
+          // في بداية _safeExit() بينما تبقى الشاشة mounted حتى Navigator.pop()
+          // في النهاية، أي أن حدث buffering متأخر أثناء stop()/dispose() كان
+          // يجتاز فحص mounted فقط ثم يستدعي seek()/play() على مشغّل يُتخلّص
+          // منه في تلك اللحظة بالضبط.
+          if (mounted && !_isDisposing) {
             setState(() => _isVideoLoading = false);
             if (_isRecordingDetected) {
               _player.setVolume(0.0);
@@ -362,7 +379,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       });
 
-      _player.stream.position.listen((pos) {
+      _playerPositionSubscription = _player.stream.position.listen((pos) {
         // ✅ [RETRY-SEEK-FIX] نحفظ آخر موضع حقيقي هنا باستمرار.
         // عند وقوع خطأ شبكة قد يُصفَّر _player.state.position قبل
         // وصول callback الخطأ، فنستخدم هذه القيمة بدلاً منه.
@@ -963,6 +980,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     if (mounted) setState(() => _isDisposing = true);
 
     try {
+      // ✅ Fix: إلغاء اشتراكات الـ streams أولاً — قبل stop()/dispose() —
+      // حتى لا يصل أي حدث متأخر منها لاستدعاء seek()/play()/pause() على
+      // المشغّل أثناء أو بعد التخلص منه (راجع تعليق الحقول أعلاه).
+      _playerErrorSubscription?.cancel();
+      _playerBufferingSubscription?.cancel();
+      _playerPositionSubscription?.cancel();
       _seekDebounceTimer?.cancel();
       _watermarkTimer?.cancel();
       _countdownTimer?.cancel();

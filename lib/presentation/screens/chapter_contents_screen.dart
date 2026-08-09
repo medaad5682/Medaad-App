@@ -569,6 +569,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                             : null,
                         trailing: DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: Colors.black54, size: 16)), 
                         onTap: () {
+                          if (!mounted) return;
                           Navigator.pop(context);
                           String? targetAudio = (q['type'] == 'video_only') ? audioUrl : null;
                           _startVideoDownload(videoId, title, q['url'], targetAudio, "${q['quality']}p", duration);
@@ -587,6 +588,12 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
 
   void _startVideoDownload(String videoId, String videoTitle,
       String? downloadUrl, String? audioUrl, String quality, String duration) {
+    // ── Fix: "Null check operator used on a null value" في State.context ──
+    // إن أُغلقت هذه الشاشة (مثلاً بضغط زر الرجوع بسرعة) بينما نافذة اختيار
+    // الجودة لا تزال مفتوحة فوقها، فإن الضغط على أحد الخيارات يستدعي هذه
+    // الدالة على شاشة تم التخلص منها بالفعل. الوصول إلى context حينها
+    // يرمي هذا الخطأ ويُسقط التطبيق. هذا الفحص يمنع ذلك بأمان.
+    if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.downloadStartedMessage)));
     FirebaseCrashlytics.instance.log("⬇️ Starting download: $videoTitle ($quality)");
