@@ -55,7 +55,7 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
       _token = box.get('jwt_token');
 
       try {
-        _appCheckToken = await FirebaseAppCheck.instance.getToken();
+        _appCheckToken = await FirebaseAppCheck.instance.getToken().timeout(const Duration(seconds: 5));
       } catch (e) {
         debugPrint("App Check Error: $e");
       }

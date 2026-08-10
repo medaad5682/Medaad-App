@@ -359,7 +359,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       // ✅ 1. محاولة جلب توكن Firebase App Check
       String? appCheckToken;
       try {
-        appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+        appCheckToken = await FirebaseAppCheck.instance.getToken(false).timeout(const Duration(seconds: 5));
       } catch (e) {
         debugPrint("App Check Error in PDF: $e");
       }

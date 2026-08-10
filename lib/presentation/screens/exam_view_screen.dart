@@ -116,7 +116,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       final name = box.get('first_name') ?? 'Student';
 
       try {
-        _appCheckToken = await FirebaseAppCheck.instance.getToken();
+        _appCheckToken = await FirebaseAppCheck.instance.getToken().timeout(const Duration(seconds: 5));
       } catch (e) {
         debugPrint("App Check Error: $e");
       }
