@@ -12,7 +12,6 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 // ✅ إضافة استيراد Firebase App Check
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:cryptography/cryptography.dart';
 // ✅ [FIX F-13] استدعاء مكتبة التشفير لحساب بصمة الملفات المحملة
 import 'package:crypto/crypto.dart' as hash_crypto;
@@ -21,6 +20,7 @@ import 'notification_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../constants/api_constants.dart';
+import 'file_crypto_service.dart';
 
 class DownloadManager with WidgetsBindingObserver {
   static final DownloadManager _instance = DownloadManager._internal();
@@ -228,14 +228,31 @@ class DownloadManager with WidgetsBindingObserver {
     );
 
     try {
-      // ✅ جلب مفتاح التشفير ChaCha20 من التخزين الآمن وتمريره للـ Isolates
-      final storage = const FlutterSecureStorage();
-      String? storedKey = await storage.read(key: 'docs_chacha_key');
-      if (storedKey == null) {
-        final rand = Random.secure();
-        final kb = List<int>.generate(32, (_) => rand.nextInt(256));
-        storedKey = base64Encode(kb);
-        await storage.write(key: 'docs_chacha_key', value: storedKey);
+      // ✅ [FIX] جلب مفتاح التشفير ChaCha20 عبر FileCryptoService.init() بدل
+      // قراءة/كتابة Keychain مباشرة بمثيل FlutterSecureStorage خاص وغير
+      // محمي هنا. النسخة القديمة كانت تستخدم صنف الحماية الافتراضي
+      // (whenUnlocked) بلا انتظار _AppReadyGate وبلا إعادة محاولة — وهي
+      // بالضبط إعدادات -25308 التي أُصلحت في كل مكان آخر إلا هنا. كانت
+      // مشكلة مضاعفة: (أ) قد يفشل التحميل برسالة مضللة "تحقق من الإنترنت"
+      // حين تفشل قراءة Keychain فعلياً، و(ب) لو كان هذا أول مسار يلمس
+      // 'docs_chacha_key' على الجهاز (تحميل مباشر قبل فتح شاشة الملفات
+      // المحملة قط)، كان يُنشئ المفتاح بصنف حماية whenUnlocked بدل
+      // first_unlock_this_device المستخدم في بقية التطبيق — وaccessibility
+      // لا يُرحَّل تلقائياً لعنصر Keychain موجود بالفعل.
+      //
+      // FileCryptoService.init() يعيد استخدام المفتاح المخزَّن في الذاكرة
+      // إن كان قد هُيِّئ بالفعل (مثال: عبر LocalProxyService.start())، أو
+      // يقرأه/يولّده بأمان تام عبر StorageService.readSecureValueSafely /
+      // writeSecureValueSafely — بنفس صنف الحماية first_unlock_this_device
+      // ونفس منطق الانتظار وإعادة المحاولة المستخدم لكل مفتاح آخر في
+      // التطبيق. هذا يضمن أن كل مسار يلمس 'docs_chacha_key' (شاشة التحميلات،
+      // عارض PDF، بدء تحميل جديد) يمر بنفس البوابة الآمنة الوحيدة، فلا يوجد
+      // بعد الآن أي احتمال لمفتاحين مختلفين بصنفي حماية مختلفين لنفس العنصر.
+      await FileCryptoService.init();
+      final String? storedKey = FileCryptoService.keyBase64;
+      if (storedKey == null || storedKey.isEmpty) {
+        throw Exception(
+            "CRITICAL: docs_chacha_key unavailable — FileCryptoService.init() did not produce a key.");
       }
       final List<int> chachaKeyBytes = base64Decode(storedKey);
 
