@@ -173,7 +173,19 @@ class _SurveyDialogContentState extends State<_SurveyDialogContent> {
                 ),
                 child: Icon(Icons.assignment_outlined, color: AppColors.accentYellow, size: 34),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.accentYellow.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _t(ar: 'استبيان', en: 'Survey'),
+                  style: TextStyle(color: AppColors.accentYellow, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(height: 10),
               if (obligatory)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
@@ -203,6 +215,20 @@ class _SurveyDialogContentState extends State<_SurveyDialogContent> {
                     style: TextStyle(fontSize: 14, color: subTextColor, height: 1.5),
                   ),
                 ),
+              // رسالة توضيحية عامة تشرح للطالب معنى "الاستبيان" ولماذا
+              // بيظهر له، بغض النظر عن وصف الاستبيان اللي كتبه الأدمن.
+              // نص عادي بسيط بدون أي تنسيق أو خلفية.
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  _t(
+                    ar: 'ده استبيان رأي بسيط مش اختبار، هيساعدنا نفهم رأيك ونطوّر تجربتك في مداد. إجابتك سرية ومحدش هيشوفها غير فريق العمل.',
+                    en: 'This is a short opinion survey, not a test — it helps us understand your feedback and improve Medaad. Your answers are confidential.',
+                  ),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: subTextColor, height: 1.5),
+                ),
+              ),
               const SizedBox(height: 26),
               SizedBox(
                 width: double.infinity,
@@ -363,7 +389,16 @@ class _SurveyDialogContentState extends State<_SurveyDialogContent> {
         );
         break;
       case 'rating':
-        field = Row(
+        // لو عدد النجوم كبير (زي 10)، الصف العادي (Row) كان بيعمل overflow
+        // والنجوم الزيادة عن مساحة الشاشة تختفي تماماً من غير أي تحذير
+        // مرئي للمستخدم. استخدام Wrap بيخلي النجوم تنزل سطر جديد تلقائياً
+        // لو مساحة الصف مش كفاية، فكل النجوم بتفضل ظاهرة دايماً مهما كان
+        // عددها. وكمان بنقلل حجم النجمة شوية لو العدد كبير عشان تتظبط في
+        // سطر واحد على أغلب الشاشات.
+        final double starSize = q.maxRating > 7 ? 24 : (q.maxRating > 5 ? 28 : 32);
+        field = Wrap(
+          spacing: 2,
+          runSpacing: 4,
           children: List.generate(q.maxRating, (i) {
             final starIndex = i + 1;
             final filled = (draft.ratingValue ?? 0) >= starIndex;
@@ -373,7 +408,7 @@ class _SurveyDialogContentState extends State<_SurveyDialogContent> {
               icon: Icon(
                 filled ? Icons.star_rounded : Icons.star_border_rounded,
                 color: AppColors.accentYellow,
-                size: 32,
+                size: starSize,
               ),
               onPressed: () => setState(() => draft.ratingValue = starIndex),
             );
