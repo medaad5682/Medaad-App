@@ -102,7 +102,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
 
       // ✅ جلب توكن App Check لاستخدامه في تحميل الصور
       try {
-        _appCheckToken = await FirebaseAppCheck.instance.getToken();
+        _appCheckToken = await FirebaseAppCheck.instance.getToken().timeout(const Duration(seconds: 5));
       } catch (e) {
         debugPrint("App Check Error: $e");
       }
