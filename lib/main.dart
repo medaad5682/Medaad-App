@@ -312,7 +312,7 @@ void main() async {
 
     try {
       final connectivityResults =
-          await Connectivity().checkConnectivity().timeout(const Duration(seconds: 5));
+          await Connectivity().checkConnectivity().timeout(const Duration(seconds: 3));
       final isOffline =
           connectivityResults.every((r) => r == ConnectivityResult.none);
 
