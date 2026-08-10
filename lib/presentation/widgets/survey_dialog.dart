@@ -151,7 +151,7 @@ class _SurveyDialogContentState extends State<_SurveyDialogContent> {
           Align(
             alignment: AlignmentDirectional.topEnd,
             child: Padding(
-              padding: const EdgeInsets.only(top: 8, end: 8),
+              padding: const EdgeInsetsDirectional.only(top: 8, end: 8),
               child: IconButton(
                 icon: Icon(Icons.close, color: subTextColor),
                 onPressed: _handleSkip,
@@ -171,7 +171,7 @@ class _SurveyDialogContentState extends State<_SurveyDialogContent> {
                   color: AppColors.accentYellow.withOpacity(0.15),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.assignment_outlined, color: AppColors.accentYellow, size: 34),
+                child: Icon(Icons.assignment_outlined, color: AppColors.accentYellow, size: 34),
               ),
               const SizedBox(height: 18),
               if (obligatory)
