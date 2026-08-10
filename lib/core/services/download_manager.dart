@@ -264,7 +264,7 @@ class DownloadManager with WidgetsBindingObserver {
       // ✅ جلب توكن الـ App Check
       String? appCheckToken;
       try {
-        appCheckToken = await FirebaseAppCheck.instance.getToken();
+        appCheckToken = await FirebaseAppCheck.instance.getToken().timeout(const Duration(seconds: 5));
       } catch (e) {
         debugPrint("App Check Error: $e");
       }
