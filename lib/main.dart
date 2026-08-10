@@ -19,6 +19,7 @@ import 'package:secure_display/secure_display.dart';
 // ✅ استيراد حزمة App Check و Foundation لمعرفة وضع التطبيق
 import 'package:flutter/foundation.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 // ✅ استيراد حزمة الخلفية
 import 'package:flutter_background_service/flutter_background_service.dart';
@@ -271,41 +272,71 @@ void main() async {
     // الواجهة قد تظهر من كود أصلي (native) قبل أن تصل أصلاً كاستثناء إلى
     // try/catch في Dart.
     //
-    // ✅ [FIX 2] تمت إزالة فحص الاتصال المسبق (connectivity_plus) بالكامل —
-    // كان يُبلِّغ أحياناً بأن الجهاز Offline رغم وجود اتصال فعلي وسليم
-    // (سلوك معروف لـ checkConnectivity() على بعض الأجهزة/الشبكات: يفحص فقط
-    // وجود واجهة شبكة نشطة — WiFi/Data مفعّل — دون تأكيد وصول فعلي
-    // للإنترنت)، فكان هذا يجعل التطبيق يدخل في "وضع Offline" خطأً حتى
-    // والاتصال يعمل بشكل طبيعي. الحل الآن أبسط ويعتمد فقط على try/catch +
-    // timeout حول activate() نفسه: نحاول التفعيل دائماً مباشرة، وأي فشل
-    // (سواء بسبب Offline حقيقي أو مشكلة Play Integrity على أجهزة Huawei
-    // تحديداً) يُلتقط بأمان خلال 5 ثوانٍ كحد أقصى بلا التأثير على باقي
-    // التطبيق. runApp() يُستدعى دائماً بعدها، والطلبات تُرسَل بدون هيدر
-    // X-Firebase-AppCheck عند الفشل (الباك-إند يتعامل مع هذه الحالة عبر
-    // الـ whitelist).
+    // الحل بطبقتين:
+    // 1) فحص الاتصال أولاً عبر connectivity_plus (المستخدمة بالفعل في
+    //    bunny_tus_upload_service.dart وnative_video_player_screen.dart)،
+    //    وتخطّي استدعاء activate() تماماً حين يكون الجهاز Offline — لتفادي
+    //    استدعاء Play Integrity أصلاً وأي واجهة أصلية قد يُطلقها، بدل
+    //    الاعتماد فقط على التقاط استثناء بعد وقوعه.
+    // 2) الإبقاء على try/catch + timeout كخط دفاع ثانٍ لأي فشل آخر (جهاز
+    //    Online لكن الشبكة بطيئة/غير مستقرة، أو أي خطأ غير متوقع).
+    // في الحالتين: runApp() يُستدعى دائماً، والطلبات تُرسَل بدون هيدر
+    // X-Firebase-AppCheck (الباك-إند يتعامل مع هذه الحالة عبر الـ
+    // whitelist)، وFirebase App Check سيعاود المحاولة تلقائياً لاحقاً — إما
+    // من تلقاء نفسه عند أول getToken() ناجح، أو عبر مستمع الاتصال بالأسفل.
     // =========================================================
-    try {
-      await FirebaseAppCheck.instance
-          .activate(
-            // Play Integrity للأندرويد (الأقوى ضد الروت والتعديل) في وضع الإنتاج، أو Debug في وضع التطوير
-            providerAndroid: kReleaseMode ? const AndroidPlayIntegrityProvider() : const AndroidDebugProvider(),
-            // ✅ App Attest مع DeviceCheck كـ fallback للأجهزة القديمة التي لا تدعم App Attest
-            providerApple: kReleaseMode ? const AppleAppAttestWithDeviceCheckFallbackProvider() : const AppleDebugProvider(),
-          )
-          .timeout(const Duration(seconds: 5));
-    } catch (e, stack) {
-      // ✅ لا نمنع فتح التطبيق أبداً بسبب فشل/بطء App Check (خصوصاً على
-      // أجهزة بلا Google Play Services كاملة مثل Huawei، أو أي فشل/تعليق
-      // آخر في التفعيل).
-      debugPrint('⚠️ FirebaseAppCheck.activate() failed or timed out (non-fatal, app continues): $e');
-      if (Firebase.apps.isNotEmpty) {
-        await FirebaseCrashlytics.instance.recordError(
-          e,
-          stack,
-          reason: 'FirebaseAppCheck.activate() failed at startup (non-fatal)',
-          fatal: false,
-        );
+    Future<void> activateAppCheck() async {
+      try {
+        await FirebaseAppCheck.instance
+            .activate(
+              // Play Integrity للأندرويد (الأقوى ضد الروت والتعديل) في وضع الإنتاج، أو Debug في وضع التطوير
+              providerAndroid: kReleaseMode ? const AndroidPlayIntegrityProvider() : const AndroidDebugProvider(),
+              // ✅ App Attest مع DeviceCheck كـ fallback للأجهزة القديمة التي لا تدعم App Attest
+              providerApple: kReleaseMode ? const AppleAppAttestWithDeviceCheckFallbackProvider() : const AppleDebugProvider(),
+            )
+            .timeout(const Duration(seconds: 5));
+      } catch (e, stack) {
+        // ✅ لا نمنع فتح التطبيق أبداً بسبب فشل/بطء App Check (خصوصاً في وضع
+        // Offline أو على أجهزة بلا Google Play Services كاملة مثل Huawei).
+        debugPrint('⚠️ FirebaseAppCheck.activate() failed or timed out (non-fatal, app continues): $e');
+        if (Firebase.apps.isNotEmpty) {
+          await FirebaseCrashlytics.instance.recordError(
+            e,
+            stack,
+            reason: 'FirebaseAppCheck.activate() failed at startup (non-fatal)',
+            fatal: false,
+          );
+        }
       }
+    }
+
+    try {
+      final connectivityResults =
+          await Connectivity().checkConnectivity().timeout(const Duration(seconds: 3));
+      final isOffline =
+          connectivityResults.every((r) => r == ConnectivityResult.none);
+
+      if (isOffline) {
+        // ✅ Offline عند الإقلاع: لا نستدعي Play Integrity إطلاقاً الآن —
+        // نتجنّب بذلك أي واجهة خطأ أصلية قد يُطلقها بنفسه على بعض الأجهزة
+        // (Huawei خصوصاً). نحاول التفعيل مرة واحدة لاحقاً تلقائياً بمجرد
+        // عودة الاتصال (fire-and-forget، لا يحجب أي شيء).
+        debugPrint('⚠️ Device is offline at startup — skipping FirebaseAppCheck.activate() for now.');
+        late final StreamSubscription<List<ConnectivityResult>> sub;
+        sub = Connectivity().onConnectivityChanged.listen((results) {
+          if (results.any((r) => r != ConnectivityResult.none)) {
+            sub.cancel();
+            activateAppCheck();
+          }
+        });
+      } else {
+        await activateAppCheck();
+      }
+    } catch (e) {
+      // ✅ فشل فحص الاتصال نفسه (نادر) — لا نمنع الإقلاع، نحاول التفعيل
+      // العادي (محمي بالفعل بـ try/catch + timeout داخل activateAppCheck).
+      debugPrint('⚠️ Connectivity check before App Check activation failed: $e');
+      await activateAppCheck();
     }
     // =========================================================
 
