@@ -204,6 +204,75 @@
   "@registerFailedDefault": {
     "description": "Fallback error message when registration fails without a specific server message"
   },
+  "emailLabel": "Email",
+  "@emailLabel": {
+    "description": "Input field label for email on register"
+  },
+  "emailHint": "you@example.com",
+  "@emailHint": {
+    "description": "Hint text for the email field"
+  },
+  "emailInvalid": "Please enter a valid email address",
+  "@emailInvalid": {
+    "description": "Validation error when the email format is invalid"
+  },
+  "otpTitle": "Verify Your Email",
+  "@otpTitle": {
+    "description": "Title of the OTP verification screen"
+  },
+  "otpSubtitle": "We sent a 6-digit verification code to",
+  "@otpSubtitle": {
+    "description": "Subtitle explaining that a code was sent to the given email"
+  },
+  "otpCodeHint": "6-digit code",
+  "@otpCodeHint": {
+    "description": "Hint/placeholder for the OTP code input"
+  },
+  "otpVerifyButton": "Verify Code",
+  "@otpVerifyButton": {
+    "description": "Label of the button that confirms the entered OTP code"
+  },
+  "otpDidntReceive": "Didn't receive the code?",
+  "@otpDidntReceive": {
+    "description": "Prompt asking the user if they didn't receive the code"
+  },
+  "otpResendButton": "Resend Code",
+  "@otpResendButton": {
+    "description": "Label of the button/link to resend the OTP code"
+  },
+  "otpResendIn": "Resend in {seconds}s",
+  "@otpResendIn": {
+    "description": "Countdown label shown while resend is on cooldown, {seconds} is the remaining time",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "otpCodeRequired": "Please enter the 6-digit code",
+  "@otpCodeRequired": {
+    "description": "Error shown when the OTP code is empty or not 6 digits"
+  },
+  "otpSentMessage": "Verification code sent to your email",
+  "@otpSentMessage": {
+    "description": "Snackbar message shown after the code is emailed successfully"
+  },
+  "otpVerifiedMessage": "Email verified successfully",
+  "@otpVerifiedMessage": {
+    "description": "Snackbar message shown after the email is verified successfully"
+  },
+  "otpSendFailedDefault": "Failed to send verification code",
+  "@otpSendFailedDefault": {
+    "description": "Fallback error message when sending the OTP fails"
+  },
+  "otpVerifyFailedDefault": "Invalid or expired code",
+  "@otpVerifyFailedDefault": {
+    "description": "Fallback error message when verifying the OTP fails"
+  },
+  "otpChangeEmail": "Change email address",
+  "@otpChangeEmail": {
+    "description": "Link that lets the user go back and edit the email address"
+  },
   "registerSubtitle": "FILL IN THE DETAILS TO JOIN US.",
   "@registerSubtitle": {
     "description": "Subtitle under the register header"
