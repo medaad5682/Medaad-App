@@ -169,6 +169,56 @@ class AppLocalizationsAr extends AppLocalizations {
   String get registerFailedDefault => 'فشل إنشاء الحساب';
 
   @override
+  String get emailLabel => 'البريد الإلكتروني';
+
+  @override
+  String get emailHint => 'example@email.com';
+
+  @override
+  String get emailInvalid => 'يرجى إدخال بريد إلكتروني صحيح';
+
+  @override
+  String get otpTitle => 'تحقق من بريدك الإلكتروني';
+
+  @override
+  String get otpSubtitle => 'أرسلنا رمز تحقق مكوّن من 6 أرقام إلى';
+
+  @override
+  String get otpCodeHint => 'رمز التحقق المكوّن من 6 أرقام';
+
+  @override
+  String get otpVerifyButton => 'تأكيد الرمز';
+
+  @override
+  String get otpDidntReceive => 'لم يصلك الرمز؟';
+
+  @override
+  String get otpResendButton => 'إعادة إرسال الرمز';
+
+  @override
+  String otpResendIn(int seconds) {
+    return 'إعادة الإرسال بعد $seconds ث';
+  }
+
+  @override
+  String get otpCodeRequired => 'يرجى إدخال رمز التحقق المكوّن من 6 أرقام';
+
+  @override
+  String get otpSentMessage => 'تم إرسال رمز التحقق إلى بريدك الإلكتروني';
+
+  @override
+  String get otpVerifiedMessage => 'تم التحقق من البريد الإلكتروني بنجاح';
+
+  @override
+  String get otpSendFailedDefault => 'تعذر إرسال رمز التحقق';
+
+  @override
+  String get otpVerifyFailedDefault => 'الرمز غير صحيح أو منتهي الصلاحية';
+
+  @override
+  String get otpChangeEmail => 'تغيير البريد الإلكتروني';
+
+  @override
   String get registerSubtitle => 'املأ البيانات للانضمام إلينا.';
 
   @override

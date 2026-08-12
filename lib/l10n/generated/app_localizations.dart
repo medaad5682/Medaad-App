@@ -404,6 +404,102 @@ abstract class AppLocalizations {
   /// **'Registration failed'**
   String get registerFailedDefault;
 
+  /// Input field label for email on register
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get emailLabel;
+
+  /// Hint text for the email field
+  ///
+  /// In en, this message translates to:
+  /// **'you@example.com'**
+  String get emailHint;
+
+  /// Validation error when the email format is invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter a valid email address'**
+  String get emailInvalid;
+
+  /// Title of the OTP verification screen
+  ///
+  /// In en, this message translates to:
+  /// **'Verify Your Email'**
+  String get otpTitle;
+
+  /// Subtitle explaining that a code was sent to the given email
+  ///
+  /// In en, this message translates to:
+  /// **'We sent a 6-digit verification code to'**
+  String get otpSubtitle;
+
+  /// Hint/placeholder for the OTP code input
+  ///
+  /// In en, this message translates to:
+  /// **'6-digit code'**
+  String get otpCodeHint;
+
+  /// Label of the button that confirms the entered OTP code
+  ///
+  /// In en, this message translates to:
+  /// **'Verify Code'**
+  String get otpVerifyButton;
+
+  /// Prompt asking the user if they didn't receive the code
+  ///
+  /// In en, this message translates to:
+  /// **'Didn\'t receive the code?'**
+  String get otpDidntReceive;
+
+  /// Label of the button/link to resend the OTP code
+  ///
+  /// In en, this message translates to:
+  /// **'Resend Code'**
+  String get otpResendButton;
+
+  /// Countdown label shown while resend is on cooldown, {seconds} is the remaining time
+  ///
+  /// In en, this message translates to:
+  /// **'Resend in {seconds}s'**
+  String otpResendIn(int seconds);
+
+  /// Error shown when the OTP code is empty or not 6 digits
+  ///
+  /// In en, this message translates to:
+  /// **'Please enter the 6-digit code'**
+  String get otpCodeRequired;
+
+  /// Snackbar message shown after the code is emailed successfully
+  ///
+  /// In en, this message translates to:
+  /// **'Verification code sent to your email'**
+  String get otpSentMessage;
+
+  /// Snackbar message shown after the email is verified successfully
+  ///
+  /// In en, this message translates to:
+  /// **'Email verified successfully'**
+  String get otpVerifiedMessage;
+
+  /// Fallback error message when sending the OTP fails
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to send verification code'**
+  String get otpSendFailedDefault;
+
+  /// Fallback error message when verifying the OTP fails
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid or expired code'**
+  String get otpVerifyFailedDefault;
+
+  /// Link that lets the user go back and edit the email address
+  ///
+  /// In en, this message translates to:
+  /// **'Change email address'**
+  String get otpChangeEmail;
+
   /// Subtitle under the register header
   ///
   /// In en, this message translates to:

@@ -169,6 +169,56 @@ class AppLocalizationsEn extends AppLocalizations {
   String get registerFailedDefault => 'Registration failed';
 
   @override
+  String get emailLabel => 'Email';
+
+  @override
+  String get emailHint => 'you@example.com';
+
+  @override
+  String get emailInvalid => 'Please enter a valid email address';
+
+  @override
+  String get otpTitle => 'Verify Your Email';
+
+  @override
+  String get otpSubtitle => 'We sent a 6-digit verification code to';
+
+  @override
+  String get otpCodeHint => '6-digit code';
+
+  @override
+  String get otpVerifyButton => 'Verify Code';
+
+  @override
+  String get otpDidntReceive => 'Didn\'t receive the code?';
+
+  @override
+  String get otpResendButton => 'Resend Code';
+
+  @override
+  String otpResendIn(int seconds) {
+    return 'Resend in ${seconds}s';
+  }
+
+  @override
+  String get otpCodeRequired => 'Please enter the 6-digit code';
+
+  @override
+  String get otpSentMessage => 'Verification code sent to your email';
+
+  @override
+  String get otpVerifiedMessage => 'Email verified successfully';
+
+  @override
+  String get otpSendFailedDefault => 'Failed to send verification code';
+
+  @override
+  String get otpVerifyFailedDefault => 'Invalid or expired code';
+
+  @override
+  String get otpChangeEmail => 'Change email address';
+
+  @override
   String get registerSubtitle => 'FILL IN THE DETAILS TO JOIN US.';
 
   @override
