@@ -273,6 +273,66 @@
   "@otpChangeEmail": {
     "description": "Link that lets the user go back and edit the email address"
   },
+  "forgotPasswordLink": "Forgot password?",
+  "@forgotPasswordLink": {
+    "description": "Link on the login screen leading to the forgot-password flow"
+  },
+  "forgotPasswordTitle": "Reset Password",
+  "@forgotPasswordTitle": {
+    "description": "Header of the forgot-password screen"
+  },
+  "forgotPasswordSubtitle": "Enter your username, phone number, or email and we'll send a verification code to your registered email.",
+  "@forgotPasswordSubtitle": {
+    "description": "Subtitle explaining the forgot-password screen"
+  },
+  "forgotPasswordAllFieldsRequired": "Please enter your username, phone, or email",
+  "@forgotPasswordAllFieldsRequired": {
+    "description": "Validation error when the identifier field is empty on the forgot-password screen"
+  },
+  "identifierLabel": "Username, Phone, or Email",
+  "@identifierLabel": {
+    "description": "Label for the single identifier field on the forgot-password screen"
+  },
+  "identifierHint": "Enter your username, phone, or email",
+  "@identifierHint": {
+    "description": "Hint text for the identifier field on the forgot-password screen"
+  },
+  "forgotPasswordNoMatch": "No account matches the entered details",
+  "@forgotPasswordNoMatch": {
+    "description": "Fallback error when phone/username/email don't match the same account"
+  },
+  "sendCodeButton": "Send Code",
+  "@sendCodeButton": {
+    "description": "Button label to request the reset-password OTP code"
+  },
+  "backToLogin": "Back to Sign In",
+  "@backToLogin": {
+    "description": "Link back to the login screen"
+  },
+  "resetOtpSubtitle": "We sent a 6-digit code to",
+  "@resetOtpSubtitle": {
+    "description": "Subtitle on the reset-password OTP screen, followed by the masked email"
+  },
+  "newPasswordLabel": "New Password",
+  "@newPasswordLabel": {
+    "description": "Label for the new password field on the reset-password screen"
+  },
+  "confirmNewPasswordLabel": "Confirm New Password",
+  "@confirmNewPasswordLabel": {
+    "description": "Label for the confirm-new-password field on the reset-password screen"
+  },
+  "resetPasswordButton": "Reset Password",
+  "@resetPasswordButton": {
+    "description": "Button label to submit the new password"
+  },
+  "resetPasswordSuccessMessage": "Password changed successfully. Please sign in.",
+  "@resetPasswordSuccessMessage": {
+    "description": "Snackbar message shown after the password is reset successfully"
+  },
+  "resetPasswordFailedDefault": "Failed to reset password",
+  "@resetPasswordFailedDefault": {
+    "description": "Fallback error message when resetting the password fails"
+  },
   "registerSubtitle": "FILL IN THE DETAILS TO JOIN US.",
   "@registerSubtitle": {
     "description": "Subtitle under the register header"
