@@ -1,23 +1,27 @@
 import java.util.Properties
 import java.io.FileInputStream
+import com.android.build.api.dsl.ApplicationExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
-    id("kotlin-android")
+    // ✅ تمت إزالة id("kotlin-android") — Kotlin بقى مدمج داخل AGP 9 مباشرة
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
 }
 
-android {
+// ✅ الصيغة الجديدة (AGP 9 / newDsl=true): بنستخدم extensions.configure بدل
+// بلوك android{} القديم، ونحدد النوع صراحة كـ ApplicationExtension
+extensions.configure<ApplicationExtension> {
     ndkVersion = "28.2.13676358"
     namespace = "medaad.app.com"
-    compileSdk = 36 
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "medaad.app.com"
         minSdk = 24
-        targetSdk = 36 
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
@@ -36,18 +40,18 @@ android {
         release {
             // ربط التوقيع بالنسخة النهائية
             signingConfig = signingConfigs.getByName("release")
-            
+
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
-        
+
         // ✅ التعديل هنا: إجبار نسخة الـ Debug على استخدام توقيع الـ Release
         getByName("debug") {
             signingConfig = signingConfigs.getByName("release")
         }
     }
-    
+
     compileOptions {
         // ✅ 1. تفعيل Core Library Desugaring (مطلوب لمكتبة الإشعارات لتعمل على إصدارات أندرويد القديمة)
         isCoreLibraryDesugaringEnabled = true
@@ -55,9 +59,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
 
-    kotlinOptions {
-        jvmTarget = "17"
+// ✅ الصيغة الجديدة لإعداد Kotlin (compilerOptions DSL) — بره بلوك android{}
+// بدل kotlinOptions { jvmTarget = "17" } القديمة
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
