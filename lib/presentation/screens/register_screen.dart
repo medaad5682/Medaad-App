@@ -8,6 +8,7 @@ import '../../core/constants/api_constants.dart';
 import '../../core/services/api_client.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
+import 'otp_verification_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -21,6 +22,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _usernameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
@@ -28,6 +30,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nameFocus = FocusNode();
   final _phoneFocus = FocusNode();
   final _userFocus = FocusNode();
+  final _emailFocus = FocusNode();
   final _passFocus = FocusNode();
   final _confirmPassFocus = FocusNode();
 
@@ -44,6 +47,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _nameFocus,
       _phoneFocus,
       _userFocus,
+      _emailFocus,
       _passFocus,
       _confirmPassFocus
     ]) {
@@ -56,11 +60,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _nameController.dispose();
     _phoneController.dispose();
     _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _nameFocus.dispose();
     _phoneFocus.dispose();
     _userFocus.dispose();
+    _emailFocus.dispose();
     _passFocus.dispose();
     _confirmPassFocus.dispose();
     super.dispose();
@@ -72,11 +78,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
     final username = _usernameController.text.trim();
+    final email = _emailController.text.trim();
     final password = _passwordController.text;
     final confirmPassword = _confirmPasswordController.text;
 
     // Validation
-    if (name.isEmpty || username.isEmpty || password.isEmpty) {
+    if (name.isEmpty || username.isEmpty || email.isEmpty || password.isEmpty) {
       setState(() => _errorMessage = AppLocalizations.of(context)!.registerAllFieldsRequired);
       return;
     }
@@ -85,6 +92,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!usernameRegex.hasMatch(username)) {
       setState(() =>
           _errorMessage = AppLocalizations.of(context)!.registerUsernameInvalid);
+      return;
+    }
+
+    final emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+    if (!emailRegex.hasMatch(email)) {
+      setState(() => _errorMessage = AppLocalizations.of(context)!.emailInvalid);
       return;
     }
 
@@ -105,18 +118,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    // Call API
+    // 🆕 Step 1: request an OTP email for this address, then hand off to the
+    // OTP screen. Account creation itself happens after the code is verified.
     setState(() => _isLoading = true);
 
     try {
-      // ✅ الاعتماد على ApiClient بالكامل دون الحاجة لإرسال الهيدرز أو توكن AppCheck يدوياً
       final response = await ApiClient.instance.post(
-        '$_baseUrl/api/auth/signup',
+        '$_baseUrl/api/auth/send-otp',
         data: {
-          'firstName': name,
+          'email': email,
+          'purpose': 'signup',
           'username': username,
           'phone': phone.isEmpty ? null : phone,
-          'password': password,
         },
         options: Options(
           validateStatus: (status) => status! < 500,
@@ -129,19 +142,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content:
-                  Text(AppLocalizations.of(context)!.registerSuccessMessage),
+              content: Text(AppLocalizations.of(context)!.otpSentMessage),
               backgroundColor: AppColors.success,
             ),
           );
-          Navigator.pushReplacement(
+          Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => const LoginScreen()),
+            MaterialPageRoute(
+              builder: (context) => OtpVerificationScreen(
+                email: email,
+                registrationData: {
+                  'firstName': name,
+                  'username': username,
+                  'phone': phone.isEmpty ? null : phone,
+                  'password': password,
+                },
+              ),
+            ),
           );
         }
       } else {
         setState(
-            () => _errorMessage = data['message'] ?? AppLocalizations.of(context)!.registerFailedDefault);
+            () => _errorMessage = data['message'] ?? AppLocalizations.of(context)!.otpSendFailedDefault);
       }
     } catch (e, stack) {
       FirebaseCrashlytics.instance.recordError(e, stack);
@@ -258,6 +280,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 focusNode: _userFocus,
                 hint: AppLocalizations.of(context)!.usernameHint,
                 icon: LucideIcons.atSign,
+              ),
+              const SizedBox(height: 16),
+
+              _buildInputLabel(AppLocalizations.of(context)!.emailLabel),
+              const SizedBox(height: 4),
+              _buildTextField(
+                controller: _emailController,
+                focusNode: _emailFocus,
+                hint: AppLocalizations.of(context)!.emailHint,
+                icon: LucideIcons.mail,
+                inputType: TextInputType.emailAddress,
               ),
               const SizedBox(height: 16),
 
