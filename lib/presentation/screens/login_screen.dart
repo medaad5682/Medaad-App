@@ -38,6 +38,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final String _baseUrl = ApiConstants.baseUrl;
   bool _isLoading = false;
   String? _errorMessage;
+  bool _obscurePassword = true;
 
   @override
   void initState() {
@@ -354,6 +355,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 hint: "••••••••",
                 icon: LucideIcons.lock,
                 isPassword: true,
+                obscureText: _obscurePassword,
+                onToggleObscure: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
               const SizedBox(height: 12),
 
@@ -502,6 +506,8 @@ class _LoginScreenState extends State<LoginScreen> {
     required String hint,
     required IconData icon,
     bool isPassword = false,
+    bool obscureText = false,
+    VoidCallback? onToggleObscure,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -516,7 +522,7 @@ class _LoginScreenState extends State<LoginScreen> {
       child: TextField(
         controller: controller,
         focusNode: focusNode,
-        obscureText: isPassword,
+        obscureText: isPassword ? obscureText : false,
         style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
         cursorColor: AppColors.accentYellow,
         decoration: InputDecoration(
@@ -534,6 +540,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 ? AppColors.accentYellow
                 : AppColors.textSecondary,
           ),
+          suffixIcon: isPassword
+              ? IconButton(
+                  onPressed: onToggleObscure,
+                  icon: Icon(
+                    obscureText ? LucideIcons.eye : LucideIcons.eyeOff,
+                    size: 18,
+                    color: AppColors.textSecondary,
+                  ),
+                )
+              : null,
         ),
       ),
     );
