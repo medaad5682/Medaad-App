@@ -229,7 +229,7 @@ class _ManageContentScreenState extends State<ManageContentScreen> {
         await player!.open(Media(file.path), play: false);
         // ننتظر حتى تتوفر مدة حقيقية (> 0) أو تنتهي مهلة الانتظار
         for (int i = 0; i < 50; i++) {
-          final d = player.state.duration;
+          final d = player!.state.duration;
           if (d.inMilliseconds > 0) return d.inSeconds;
           await Future.delayed(const Duration(milliseconds: 100));
         }
