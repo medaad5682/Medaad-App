@@ -43,6 +43,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _isSubmitting = false;
   bool _isResending = false;
   String? _errorMessage;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   Timer? _resendTimer;
   int _resendSecondsLeft = 60;
@@ -372,6 +374,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               _buildPasswordField(
                 controller: _passwordController,
                 focusNode: _passFocus,
+                obscureText: _obscurePassword,
+                onToggleObscure: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
               const SizedBox(height: 16),
 
@@ -380,6 +385,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               _buildPasswordField(
                 controller: _confirmPasswordController,
                 focusNode: _confirmPassFocus,
+                obscureText: _obscureConfirmPassword,
+                onToggleObscure: () => setState(
+                    () => _obscureConfirmPassword = !_obscureConfirmPassword),
               ),
               const SizedBox(height: 32),
 
@@ -448,6 +456,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   Widget _buildPasswordField({
     required TextEditingController controller,
     required FocusNode focusNode,
+    required bool obscureText,
+    required VoidCallback onToggleObscure,
   }) {
     final isActive = controller.text.isNotEmpty || focusNode.hasFocus;
 
@@ -464,7 +474,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       child: TextField(
         controller: controller,
         focusNode: focusNode,
-        obscureText: true,
+        obscureText: obscureText,
         style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
         cursorColor: AppColors.accentYellow,
         decoration: InputDecoration(
@@ -479,6 +489,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             LucideIcons.lock,
             size: 18,
             color: isActive ? AppColors.accentYellow : AppColors.textSecondary,
+          ),
+          suffixIcon: IconButton(
+            onPressed: onToggleObscure,
+            icon: Icon(
+              obscureText ? LucideIcons.eye : LucideIcons.eyeOff,
+              size: 18,
+              color: AppColors.textSecondary,
+            ),
           ),
         ),
       ),
