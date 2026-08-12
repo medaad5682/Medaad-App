@@ -13,6 +13,7 @@ import '../../core/services/app_state.dart';
 import '../../core/services/notification_service.dart';
 import 'main_wrapper.dart';
 import 'register_screen.dart';
+import 'forgot_password_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../../core/constants/api_constants.dart';
@@ -354,7 +355,31 @@ class _LoginScreenState extends State<LoginScreen> {
                 icon: LucideIcons.lock,
                 isPassword: true,
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 12),
+
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const ForgotPasswordScreen()),
+                    );
+                  },
+                  child: Text(
+                    AppLocalizations.of(context)!.forgotPasswordLink,
+                    style: TextStyle(
+                      color: AppColors.accentYellow,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      decoration: TextDecoration.underline,
+                      decorationColor: AppColors.accentYellow,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
 
               // Login Button
               ElevatedButton(
