@@ -288,6 +288,8 @@
   "tapToChangePhoto": "اضغط لتغيير الصورة",
   "editFullNameHint": "أدخل اسمك الكامل",
   "nameRequiredValidation": "الاسم مطلوب",
+  "emailLabel": "البريد الإلكتروني",
+  "emailCannotBeChangedNotice": "لا يمكن تغيير البريد الإلكتروني",
   "phoneNumberLabel": "رقم الهاتف",
   "invalidPhoneNumberValidation": "رقم هاتف غير صالح",
   "usernameLabel": "اسم المستخدم",

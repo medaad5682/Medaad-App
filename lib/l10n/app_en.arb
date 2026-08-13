@@ -1235,6 +1235,14 @@
   "@nameRequiredValidation": {
     "description": "Validation error when the full name field is left empty"
   },
+  "emailLabel": "Email",
+  "@emailLabel": {
+    "description": "Label for the read-only email field on the edit profile screen"
+  },
+  "emailCannotBeChangedNotice": "Your email address cannot be changed",
+  "@emailCannotBeChangedNotice": {
+    "description": "Notice shown below the read-only email field on the edit profile screen"
+  },
   "phoneNumberLabel": "Phone Number",
   "@phoneNumberLabel": {
     "description": "Label for the phone number field on the edit profile screen"
