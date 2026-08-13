@@ -10,6 +10,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:cryptography/cryptography.dart' as crypto; // لتشفير ChaCha20
 import 'package:crypto/crypto.dart' as hmac_crypto; // ✅ [FIX F-08] مكتبة التوقيع HMAC
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../utils/encryption_helper.dart';
 import 'file_crypto_service.dart';
@@ -115,12 +116,12 @@ class LocalProxyService {
       // 2. جلب كلا المفتاحين (AES و ChaCha20)
       String aesKeyBase64 = EncryptionHelper.key.base64;
 
-      // ✅ [FIX] لم نعد نعيد قراءة docs_chacha_key من Keychain هنا بمثيل
-      // FlutterSecureStorage منفصل وغير محمي (بلا first_unlock_this_device
-      // وبلا انتظار _AppReadyGate). FileCryptoService.init() أعلاه قرأه أو
-      // ولّده بالفعل بأمان تام؛ نأخذه مباشرة من هناك بدل تكرار عملية
-      // Keychain كاملة (وتعريض الكود مجدداً لنفس سباق -25308).
-      final String chachaKeyBase64 = FileCryptoService.keyBase64 ?? '';
+      // ✅ [REVERTED to 2.0.2 pattern] رجوع للقراءة المباشرة بمثيل
+      // FlutterSecureStorage افتراضي — نفس بالضبط ما تستخدمه
+      // download_manager.dart وfile_crypto_service.dart لهذا المفتاح الآن.
+      // الاتساق بين الثلاث نقاط هو ما يهم هنا، وليس أي منها بمفرده.
+      final storage = const FlutterSecureStorage();
+      String chachaKeyBase64 = (await storage.read(key: 'docs_chacha_key')) ?? '';
 
       if (chachaKeyBase64.isEmpty) {
         throw Exception("CRITICAL: ChaCha20 key is missing!");
@@ -393,6 +394,29 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
     int currentReadOffset = reqStart;
     int remainingLength = requiredLength;
 
+    // ── Fix: single bad chunk was killing the whole response ──
+    // The decrypt call below used to sit inside the *outer* try/catch that
+    // wraps this entire while-loop. Any single chunk that failed AEAD
+    // verification (corrupted/truncated download, or a decrypt key that
+    // doesn't match the one the file was originally encrypted with) threw
+    // straight out of the loop, so streaming stopped immediately — often
+    // with zero bytes ever sent (totalSent stayed 0 if it was an early
+    // chunk). The `finally` block below only back-fills up to 1MB of
+    // zero-padding, so for any real video request (>1MB) the HTTP 206
+    // response ended up advertising a Content-Length it never actually
+    // delivered: a truncated/empty body. MediaKit/mpv then can't identify
+    // the container at all, which is exactly the "Failed to recognize file
+    // format" error being reported here — not a genuine unsupported format,
+    // but a proxy response that silently gave up mid-stream.
+    //
+    // Now each chunk's decrypt is isolated: a failure is logged and
+    // substituted with correctly-sized zero bytes (same recovery strategy
+    // already used in the legacy V1 stream and in
+    // FileCryptoService.readAndDecryptRange), and the loop continues so the
+    // rest of the file — which is very likely still intact — keeps
+    // streaming instead of the whole playback aborting.
+    int corruptedChunks = 0;
+
     while (remainingLength > 0) {
       if (totalSent >= requiredLength) break;
 
@@ -407,14 +431,27 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
       if (encryptedBlock.isEmpty || encryptedBlock.length <= NONCE_LENGTH + MAC_LENGTH)
         break;
 
-      final nonce = encryptedBlock.sublist(0, NONCE_LENGTH);
-      final cipherText = encryptedBlock.sublist(NONCE_LENGTH, encryptedBlock.length - MAC_LENGTH);
-      final macBytes = encryptedBlock.sublist(encryptedBlock.length - MAC_LENGTH);
+      List<int> decryptedChunk;
+      try {
+        final nonce = encryptedBlock.sublist(0, NONCE_LENGTH);
+        final cipherText = encryptedBlock.sublist(NONCE_LENGTH, encryptedBlock.length - MAC_LENGTH);
+        final macBytes = encryptedBlock.sublist(encryptedBlock.length - MAC_LENGTH);
 
-      final decryptedChunk = await algorithm.decrypt(
-        crypto.SecretBox(cipherText, nonce: nonce, mac: crypto.Mac(macBytes)),
-        secretKey: secretKey,
-      );
+        decryptedChunk = await algorithm.decrypt(
+          crypto.SecretBox(cipherText, nonce: nonce, mac: crypto.Mac(macBytes)),
+          secretKey: secretKey,
+        );
+      } catch (e) {
+        // AEAD verification failed for this one 32KB chunk — substitute
+        // silence/black frames of the expected plaintext size instead of
+        // aborting the whole response. expectedPlainSize matches CHUNK_SIZE
+        // except possibly for the final (shorter) chunk in the file.
+        corruptedChunks++;
+        _safePrint("⚠️ [PROXY_V2] $isolateName | Chunk #$chunkIndex failed AEAD decrypt (corrupted/mismatched key?): $e");
+        final int expectedPlainSize =
+            min(CHUNK_SIZE, encryptedBlock.length - NONCE_LENGTH - MAC_LENGTH);
+        decryptedChunk = Uint8List(max(0, expectedPlainSize));
+      }
 
       int startInChunk = currentReadOffset % CHUNK_SIZE;
       int availableInChunk = decryptedChunk.length - startInChunk;
@@ -431,13 +468,30 @@ Stream<List<int>> _createDecryptedStreamV2(File file, int reqStart, int reqEnd,
       remainingLength -= dataChunk.length;
     }
 
+    if (corruptedChunks > 0) {
+      // Non-fatal breadcrumb (not recordError — this path already recovers
+      // gracefully) so a spike in corrupted chunks for a given download is
+      // still visible without spamming the fatal/non-fatal Crashlytics feed.
+      _safePrint("⚠️ [PROXY_V2] $isolateName | $corruptedChunks corrupted chunk(s) recovered as silence for this request");
+    }
+
     _safePrint("✅ [PROXY_V2_DONE] $isolateName | Sent: $totalSent bytes | Time: ${streamStopwatch.elapsedMilliseconds}ms");
   } catch (e) {
     _safePrint("❌ Stream V2 Error: $e");
   } finally {
+    // ── Fix: always fulfill the declared Content-Length ──
+    // Previously this only padded when the shortfall was under 1MB, so any
+    // larger gap (the common case for an early failed chunk on a
+    // multi-hundred-KB request) left the response permanently short of what
+    // its own headers promised. An HTTP 206 body shorter than its
+    // Content-Length is itself enough to make mpv's demuxer give up on
+    // probing the format, independent of whether the missing bytes were
+    // video or silence. Always pad to the declared length so the response
+    // is at least well-formed; genuine corruption is now surfaced via the
+    // corruptedChunks log above instead of via a broken HTTP response.
     if (totalSent < requiredLength) {
       int missingBytes = requiredLength - totalSent;
-      if (missingBytes > 0 && missingBytes < 1024 * 1024) {
+      if (missingBytes > 0) {
         yield Uint8List(missingBytes);
       }
     }
