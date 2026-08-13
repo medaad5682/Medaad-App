@@ -164,11 +164,11 @@
   "@loginSubtitle": {
     "description": "Subtitle under the login header"
   },
-  "usernameOrPhoneLabel": "Username or Phone",
+  "usernameOrPhoneLabel": "Username, Phone or Email",
   "@usernameOrPhoneLabel": {
     "description": "Input field label for the login identifier field"
   },
-  "usernameOrPhoneHint": "Enter username or 01xxxxxxxxx",
+  "usernameOrPhoneHint": "Enter username, 01xxxxxxxxx or email",
   "@usernameOrPhoneHint": {
     "description": "Hint text for the login identifier field"
   },
