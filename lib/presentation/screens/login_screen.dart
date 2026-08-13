@@ -254,6 +254,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (response.statusCode == 200 && response.data['success'] == true) {
         AppState().updateFromInitData(response.data);
 
+        if (response.data['user'] != null &&
+            response.data['user']['email'] != null) {
+          await box.put('email', response.data['user']['email']);
+        }
+
         bool serverFreeMode = response.data['freeModeV6'] ?? false;
 
         // ⛔ إجبار الإغلاق للأندرويد دائماً

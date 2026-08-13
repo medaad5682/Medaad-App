@@ -29,6 +29,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
   late TextEditingController _usernameController;
+  late TextEditingController _emailController;
 
   // حقول المدرس الإضافية
   final TextEditingController _bioController = TextEditingController();
@@ -56,6 +57,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _nameController = TextEditingController();
     _phoneController = TextEditingController();
     _usernameController = TextEditingController();
+    _emailController = TextEditingController();
 
     // 2. بدء عملية التحقق من الدور وتحميل البيانات
     _checkRoleAndLoad();
@@ -85,6 +87,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _nameController.text = data['name'] ?? "";
         _phoneController.text = data['phone'] ?? "";
         _usernameController.text = data['username'] ?? "";
+        _emailController.text = data['email'] ??
+            AppState().userData?['email'] ??
+            "";
 
         _bioController.text = data['bio'] ?? "";
         _specialtyController.text = data['specialty'] ?? "";
@@ -161,6 +166,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _usernameController.text =
         userData?['username'] ?? box.get('username') ?? "";
 
+    _emailController.text = userData?['email'] ?? box.get('email') ?? "";
+
     if (_isTeacher) {
       // للمدرسين أيضاً نستخدم نفس المنطق للبيانات الإضافية
       _bioController.text = userData?['bio'] ?? box.get('bio') ?? "";
@@ -203,6 +210,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _nameController.dispose();
     _phoneController.dispose();
     _usernameController.dispose();
+    _emailController.dispose();
     _bioController.dispose();
     _specialtyController.dispose();
     _whatsappController.dispose();
@@ -435,6 +443,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         validator: (value) => value == null || value.isEmpty
                             ? AppLocalizations.of(context)!.nameRequiredValidation
                             : null,
+                      ),
+                      const SizedBox(height: 20),
+                      CustomTextField(
+                        label: AppLocalizations.of(context)!.emailLabel,
+                        controller: _emailController,
+                        hintText: "",
+                        prefixIcon: LucideIcons.mail,
+                        readOnly: true, // ✅ البريد الإلكتروني للعرض فقط ولا يمكن تعديله
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, left: 8, bottom: 0),
+                        child: Text(
+                            AppLocalizations.of(context)!.emailCannotBeChangedNotice,
+                            style: TextStyle(
+                                color: AppColors.textSecondary, fontSize: 11)),
                       ),
                       const SizedBox(height: 20),
                       CustomTextField(

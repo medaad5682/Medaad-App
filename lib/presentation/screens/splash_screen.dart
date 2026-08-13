@@ -459,6 +459,10 @@ class _SplashScreenState extends State<SplashScreen>
           if (userData['profile_image'] != null) {
             await box.put('profile_image', userData['profile_image']);
           }
+
+          if (userData['email'] != null) {
+            await box.put('email', userData['email']);
+          }
         }
 
         // ✅ 5. تحديث قنوات الإشعارات (Topics) للمستخدم المسجل بناءً على كورساته
