@@ -50,6 +50,15 @@ class LocalProxyService {
 
   Completer<void>? _readyCompleter;
 
+  // ✅ [FIX - RACE] يمنع أكثر من عملية start() من التنفيذ بالتوازي على نفس
+  // الـ singleton. قبل هذا الإصلاح، فتح شاشتي فيديو بسرعة (قبل أن تنتهي
+  // start() الأولى) كان يتسبب في: (1) تعارض على _readyCompleter يؤدي إلى
+  // "Bad state: Future already completed"، (2) تسريب Isolates لأن مرجع
+  // الـ Isolate الأول يُستبدل بمرجع الثاني قبل قتله، (3) توليد _hmacSecret
+  // جديد يُبطل روابط موقّعة سبق إنشاؤها. الحل: أي استدعاء ثانٍ يحدث أثناء
+  // تنفيذ استدعاء أول ينتظر نفس الـ Future بدل أن يبدأ عملية منافسة.
+  Future<void>? _startFuture;
+
   // ✅ [FIX F-08] دالة ذكية لتوليد روابط آمنة ومشفرة للمشغل مع وقت انتهاء الصلاحية
   String getSignedUrl(String filePath, {bool isAudio = false}) {
     if (_hmacSecret.isEmpty) throw Exception("Proxy not initialized");
@@ -79,6 +88,23 @@ class LocalProxyService {
       return;
     }
 
+    // ✅ [FIX - RACE] لو فيه عملية بدء شغّالة بالفعل (استدعاء سابق لم ينتهِ
+    // بعد)، ننتظر نتيجتها بدل ما نبدأ عملية ثانية منافسة تكتب فوق نفس
+    // الحقول (isolates, ports, hmacSecret, completer).
+    if (_startFuture != null) {
+      return _startFuture;
+    }
+
+    final future = _doStart();
+    _startFuture = future;
+    try {
+      await future;
+    } finally {
+      _startFuture = null;
+    }
+  }
+
+  Future<void> _doStart() async {
     _readyCompleter = Completer<void>();
 
     try {
