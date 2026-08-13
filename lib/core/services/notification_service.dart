@@ -110,28 +110,57 @@ class NotificationService {
   // ✅ دوال فايربيز الجديدة (FCM)
   // ==========================================
 
+  // ✅ [FIX] مهلة زمنية لكل عملية اشتراك/إلغاء اشتراك على حدة. بعض أجهزة
+  // Huawei (بدون خدمات Google Play كاملة/أصلية) لا تُرجع أي استثناء عند فشل
+  // subscribeToTopic/unsubscribeFromTopic — الـ Future ببساطة لا يكتمل أبداً
+  // لأن الاستدعاء الأصلي ينتظر توكن FCM من Play Services الذي لن يصل. بدون
+  // هذه المهلة، أي await على updateSubscriptions() (من شاشتي تسجيل الدخول
+  // والـ Splash) كان يُعلَّق التطبيق إلى الأبد رغم نجاح كل استدعاءات الـ API
+  // فعلياً (login و get-app-init-data)، لأن التعليق يحدث بعدهما مباشرة هنا.
+  static const Duration _topicOpTimeout = Duration(seconds: 5);
+
   // دالة ذكية للاشتراك في القنوات وإلغاء القديمة
   Future<void> updateSubscriptions(List<String> newTopics) async {
     try {
       FirebaseMessaging messaging = FirebaseMessaging.instance;
       var authBox = await Hive.openBox('auth_box');
-      
+
       // جلب القنوات القديمة التي كان مشتركاً بها مسبقاً
       List<String> oldTopics = authBox.get('subscribed_topics', defaultValue: <String>[]).cast<String>();
 
       // إلغاء الاشتراك من القنوات التي لم تعد موجودة في حساب الطالب (انتهى اشتراكه فيها)
       for (String oldTopic in oldTopics) {
         if (!newTopics.contains(oldTopic)) {
-          await messaging.unsubscribeFromTopic(oldTopic);
-          debugPrint("Unsubscribed from FCM Topic: $oldTopic");
+          try {
+            await messaging.unsubscribeFromTopic(oldTopic).timeout(_topicOpTimeout);
+            debugPrint("Unsubscribed from FCM Topic: $oldTopic");
+          } catch (e, s) {
+            // ✅ لا نوقف باقي القنوات بسبب فشل/تعليق قناة واحدة (خصوصاً على
+            // أجهزة Huawei) — نُسجّل الخطأ ونكمل.
+            debugPrint("⚠️ Failed/timed out unsubscribing from $oldTopic: $e");
+            FirebaseCrashlytics.instance.recordError(
+              e, s,
+              reason: 'Timed out/failed unsubscribing from FCM topic (possibly GMS-less device)',
+              fatal: false,
+            );
+          }
         }
       }
 
       // الاشتراك في القنوات الجديدة
       for (String topic in newTopics) {
         if (!oldTopics.contains(topic)) {
-          await messaging.subscribeToTopic(topic);
-          debugPrint("Subscribed to FCM Topic: $topic");
+          try {
+            await messaging.subscribeToTopic(topic).timeout(_topicOpTimeout);
+            debugPrint("Subscribed to FCM Topic: $topic");
+          } catch (e, s) {
+            debugPrint("⚠️ Failed/timed out subscribing to $topic: $e");
+            FirebaseCrashlytics.instance.recordError(
+              e, s,
+              reason: 'Timed out/failed subscribing to FCM topic (possibly GMS-less device)',
+              fatal: false,
+            );
+          }
         }
       }
 
