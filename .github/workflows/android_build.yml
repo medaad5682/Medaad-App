@@ -12,7 +12,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -72,19 +72,19 @@ jobs:
             echo "$KEYSTORE_DATA" | tr -d '[:space:]' | base64 -d > android/app/keystore/upload-keystore.jks
           fi
 
-      # ✅ 3. البناء الموحد (ملف واحد شامل للمعالجين)
-      - name: Build Fat APK (Universal)
+      # ✅ 3. بناء نسخة App Bundle (AAB) مع تحديد رقم الإصدار
+      - name: Build App Bundle (AAB)
         env:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          APP_SECRET: ${{ secrets.APP_SECRET }}
+          My_Sup3r_S3cr3t_K3y_For_Android_App_Only: ${{ secrets.My_Sup3r_S3cr3t_K3y_For_Android_App_Only }}
         run: |
-          # بناء APK واحد يحتوي على كل المعماريات
-          flutter build apk --release --target-platform android-arm,android-arm64 --dart-define=APP_SECRET="$APP_SECRET" 
+          # بناء AAB مع تحديد الإصدار 2.0.4 ورقم البناء 27
+          flutter build appbundle --release --build-name=2.0.4 --build-number=27 --dart-define=My_Sup3r_S3cr3t_K3y_For_Android_App_Only="$My_Sup3r_S3cr3t_K3y_For_Android_App_Only" 
 
-      - name: Upload APK
+      - name: Upload AAB Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: app-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
