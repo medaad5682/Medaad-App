@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'; // ✅ ضروري لـ ThemeMode و ValueNotifier
 import 'package:hive_flutter/hive_flutter.dart';
@@ -48,12 +50,31 @@ class AppState {
       'cached_language_code_fast_v1';
 
   // ✅ 3. دالة تهيئة الثيم عند فتح التطبيق (تستدعى في main.dart)
+  // ✅ [FIX] ملفوفة الآن بـ try/catch: هذه الدالة تُستدعى عبر unawaited()
+  // من main.dart بلا await، لذا أي خطأ غير ملتقط هنا (مثال:
+  // StorageKeyUnavailableException عابر من Keychain) كان يتحول إلى خطأ
+  // غير معالج في الـ Zone الرئيسي ويُسجَّل كـ crash قاتل (fatal: true) —
+  // رغم أن initThemeFast() سبق ورسمت الثيم الصحيح من الكاش قبل runApp().
+  // عند الفشل هنا، نُبقي القيمة التي رسمتها initThemeFast() كما هي بدل
+  // إسقاط التطبيق بأكمله.
   Future<void> initTheme() async {
-    var box = await StorageService.openBox('settings_box');
-    // القيمة الافتراضية هي الوضع الداكن (true)
-    bool storedIsDark = box.get('is_dark_mode', defaultValue: true);
-    themeNotifier.value = storedIsDark ? ThemeMode.dark : ThemeMode.light;
-    unawaited(_cacheIsDarkMode(storedIsDark));
+    try {
+      var box = await StorageService.openBox('settings_box');
+      // القيمة الافتراضية هي الوضع الداكن (true)
+      bool storedIsDark = box.get('is_dark_mode', defaultValue: true);
+      themeNotifier.value = storedIsDark ? ThemeMode.dark : ThemeMode.light;
+      unawaited(_cacheIsDarkMode(storedIsDark));
+    } catch (e, st) {
+      debugPrint('⚠️ initTheme() failed to read settings_box (keeping fast-cached value): $e');
+      if (Firebase.apps.isNotEmpty) {
+        await FirebaseCrashlytics.instance.recordError(
+          e,
+          st,
+          reason: 'initTheme(): could not confirm theme from settings_box (fast-cached value kept)',
+          fatal: false,
+        );
+      }
+    }
   }
 
   // ✅ [FIX] راجع initLocaleFast() أسفل قسم اللغة لشرح كامل للمشكلة والحل —
@@ -140,22 +161,39 @@ class AppState {
   //    - إن كان المستخدم قد اختار لغة من قبل، نستخدمها.
   //    - وإلا، نعتمد لغة نظام الجهاز إن كانت مدعومة (عربي أو إنجليزي).
   //    - وإن لم تكن لغة النظام مدعومة، تكون الإنجليزية هي الافتراضية.
+  // ✅ [FIX] ملفوفة الآن بـ try/catch لنفس سبب initTheme() أعلاه تماماً:
+  // تُستدعى عبر unawaited() بلا await من main.dart، فأي خطأ غير ملتقط
+  // (مثال: StorageKeyUnavailableException عابر) كان يتحول إلى crash قاتل
+  // رغم أن initLocaleFast() سبق ورسمت اللغة الصحيحة من الكاش. عند الفشل،
+  // نُبقي القيمة التي رسمتها initLocaleFast() بدل إسقاط التطبيق.
   Future<void> initLocale() async {
-    var box = await StorageService.openBox('settings_box');
-    String? storedLanguageCode = box.get('language_code');
+    try {
+      var box = await StorageService.openBox('settings_box');
+      String? storedLanguageCode = box.get('language_code');
 
-    if (storedLanguageCode != null &&
-        _supportedLanguageCodes.contains(storedLanguageCode)) {
-      localeNotifier.value = Locale(storedLanguageCode);
-      unawaited(_cacheLanguageCode(storedLanguageCode));
-      return;
+      if (storedLanguageCode != null &&
+          _supportedLanguageCodes.contains(storedLanguageCode)) {
+        localeNotifier.value = Locale(storedLanguageCode);
+        unawaited(_cacheLanguageCode(storedLanguageCode));
+        return;
+      }
+
+      // لا يوجد تفضيل محفوظ بعد (أول تشغيل فعلي) → استخدم لغة الجهاز
+      final resolvedCode = _resolveSystemLanguageCode();
+
+      localeNotifier.value = Locale(resolvedCode);
+      unawaited(_cacheLanguageCode(resolvedCode));
+    } catch (e, st) {
+      debugPrint('⚠️ initLocale() failed to read settings_box (keeping fast-cached value): $e');
+      if (Firebase.apps.isNotEmpty) {
+        await FirebaseCrashlytics.instance.recordError(
+          e,
+          st,
+          reason: 'initLocale(): could not confirm locale from settings_box (fast-cached value kept)',
+          fatal: false,
+        );
+      }
     }
-
-    // لا يوجد تفضيل محفوظ بعد (أول تشغيل فعلي) → استخدم لغة الجهاز
-    final resolvedCode = _resolveSystemLanguageCode();
-
-    localeNotifier.value = Locale(resolvedCode);
-    unawaited(_cacheLanguageCode(resolvedCode));
   }
 
   // ✅ [FIX - جذر مشكلة "شاشة البداية تظهر بالإنجليزية ثم تتحول للعربية
