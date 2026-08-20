@@ -171,7 +171,7 @@ Future<void> _setupFirebaseMessaging(dynamic authBox) async {
     // غير قاتل ولا يؤثر إطلاقًا على بقية التطبيق.
     debugPrint('⚠️ Firebase Messaging setup failed (non-fatal): $e');
     if (Firebase.apps.isNotEmpty) {
-      await FirebaseCrashlytics.instance.recordError(e, stack, fatal: false);
+      await _safeRecordError(e, stack, fatal: false);
     }
   }
 }
@@ -189,7 +189,7 @@ Future<Box?> _openBoxSafely(String boxName) async {
   } catch (e, st) {
     debugPrint('⚠️ Failed to open box "$boxName" safely at startup: $e');
     if (Firebase.apps.isNotEmpty) {
-      await FirebaseCrashlytics.instance.recordError(
+      await _safeRecordError(
         e,
         st,
         reason: 'Startup: could not open Hive box "$boxName" (app continues without it)',
@@ -223,7 +223,7 @@ Future<void> _initStorageAfterAppReady() async {
     // ظاهر بالفعل للمستخدم عبر runApp() بحلول هذه اللحظة.
     debugPrint('⚠️ Storage initialization failed (non-fatal, app already running): $e');
     if (Firebase.apps.isNotEmpty) {
-      await FirebaseCrashlytics.instance.recordError(
+      await _safeRecordError(
         e,
         st,
         reason: 'Deferred storage init failed after runApp()',
@@ -300,7 +300,7 @@ void main() async {
         // Offline أو على أجهزة بلا Google Play Services كاملة مثل Huawei).
         debugPrint('⚠️ FirebaseAppCheck.activate() failed or timed out (non-fatal, app continues): $e');
         if (Firebase.apps.isNotEmpty) {
-          await FirebaseCrashlytics.instance.recordError(
+          await _safeRecordError(
             e,
             stack,
             reason: 'FirebaseAppCheck.activate() failed at startup (non-fatal)',
@@ -512,14 +512,73 @@ void main() async {
       debugPrint(
           '⚠️ Downgrading benign video-player PlatformException(VideoError) to non-fatal: $error');
       if (Firebase.apps.isNotEmpty) {
-        await FirebaseCrashlytics.instance.recordError(error, stack, fatal: false);
+        await _safeRecordError(error, stack, fatal: false);
       }
       return;
     }
     if (Firebase.apps.isNotEmpty) {
-      await FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      await _safeRecordError(error, stack, fatal: true);
     }
   });
+}
+
+// ✅ [REAL FIX — root cause of the persisting "-25308" fatal crashes] Every
+// original error that reaches this zone's onError handler was ALREADY being
+// reported via `FirebaseCrashlytics.instance.recordError(...)` directly,
+// with no try/catch around it. That call is itself a MethodChannel call
+// into native Crashlytics code, and Crashlytics internally touches the
+// iOS Keychain (installation/session identifiers) to attach to the report.
+// During exactly the same "device not fully unlocked yet / Data Protection
+// still settling" window that causes our own Keychain reads to throw
+// `PlatformException(-25308, "User interaction is not allowed.")`, the
+// Crashlytics SDK's *own* Keychain access can throw the identical error.
+//
+// Previously that meant: a real (often already-handled, non-fatal) error
+// arrives here -> we try to *report* it -> reporting itself throws -25308
+// -> because this call was awaited with no try/catch inside an `async`
+// onError callback, that second exception had nowhere left to go and
+// became a genuinely unhandled, fatal crash of the whole app. This is
+// exactly the second Crashlytics event in the report
+// (`firebase_crashlytics.dart:119` inside `main.dart:520`): the crash
+// wasn't the original bug, it was us crashing *while trying to log* the
+// original bug. Every one of the 47+ other `recordError(...)` call sites
+// in this app is fire-and-forget (not awaited), so if the native call
+// throws, Dart forwards that as an unhandled zone error straight back to
+// this same onError handler — meaning this single chokepoint was silently
+// amplifying failures from anywhere in the app into a fatal crash.
+//
+// The fix: recording a crash report must never itself be allowed to crash
+// the app. We swallow (and locally log) any failure from the recording
+// call itself, with one short retry since -25308 here is transient (it
+// clears the moment Data Protection finishes unlocking, same as our own
+// Keychain reads). This changes nothing about *what* we protect with the
+// Keychain (accessibility class, encryption, etc. are untouched) — it only
+// stops a failed *report* of an error from becoming a worse, unrelated
+// crash.
+Future<void> _safeRecordError(
+  Object error,
+  StackTrace? stack, {
+  required bool fatal,
+  String? reason,
+}) async {
+  const attempts = 2;
+  for (var i = 0; i < attempts; i++) {
+    try {
+      await FirebaseCrashlytics.instance
+          .recordError(error, stack, fatal: fatal, reason: reason);
+      return;
+    } catch (reportingError) {
+      if (i < attempts - 1) {
+        await Future.delayed(const Duration(milliseconds: 400));
+        continue;
+      }
+      // Give up reporting rather than let a failed *report* crash the app.
+      debugPrint(
+          '⚠️ Crashlytics.recordError itself failed (not re-thrown, '
+          'original error preserved above only in debug log): '
+          '$reportingError | original error was: $error');
+    }
+  }
 }
 
 Future<void> _enableSecureMode() async {
