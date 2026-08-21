@@ -2,13 +2,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'; // ✅ إضافة استيراد Material لـ MaterialPageRoute
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-// ✅ استيراد مكتبات فايربيز و Hive
+// ✅ استيراد مكتبات فايربيز
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
-// ✅ استيراد المفتاح الخاص بالتوجيه وشاشة الإشعارات
+// ✅ استيراد المفتاح الخاص بالتوجيه ودالة التوجيه الآمنة (تنتظر اكتمال
+// تهيئة السبلاش قبل الدفع — راجع main.dart)
 import '../../main.dart';
-import '../../presentation/screens/notifications_screen.dart';
+// ✅ [FIX] استخدام StorageService.openBox() بدل Hive.openBox() المباشرة —
+// auth_box صندوق مُشفَّر دائماً (HiveAesCipher)، وفتحه هنا مباشرة عبر Hive
+// بلا مفتاح تشفير كان يتجاوز قفل التزامن وبوابة الجاهزية في
+// StorageService (نفس المشكلة المُصلَحة في notifications_screen.dart).
+import 'storage_service.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -39,12 +43,13 @@ class NotificationService {
     await flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse details) {
-        // ✅ التعامل مع الضغط على الإشعار الداخلي (والتطبيق مفتوح) وتوجيهه للشاشة
-        if (navigatorKey.currentState != null) {
-          navigatorKey.currentState!.push(
-            MaterialPageRoute(builder: (context) => const NotificationsScreen()),
-          );
-        }
+        // ✅ [FIX] التعامل مع الضغط على الإشعار الداخلي (محلي أو FCM
+        // والتطبيق مفتوح/بالخلفية) وتوجيهه لشاشة الإشعارات — عبر نفس
+        // الدالة المُستخدَمة في main.dart (getInitialMessage/
+        // onMessageOpenedApp) بدل تكرار منطق التنقل هنا. هذه الدالة تنتظر
+        // اكتمال تهيئة SplashScreen فعلياً (AppReadySignal) قبل الدفع، وتمنع
+        // أي دفع متكرر إن وصلت أكثر من إشارة ضغط في نفس اللحظة تقريباً.
+        openNotificationsScreenWhenReady();
       },
     );
 
@@ -123,7 +128,7 @@ class NotificationService {
   Future<void> updateSubscriptions(List<String> newTopics) async {
     try {
       FirebaseMessaging messaging = FirebaseMessaging.instance;
-      var authBox = await Hive.openBox('auth_box');
+      var authBox = await StorageService.openBox('auth_box');
 
       // جلب القنوات القديمة التي كان مشتركاً بها مسبقاً
       List<String> oldTopics = authBox.get('subscribed_topics', defaultValue: <String>[]).cast<String>();
