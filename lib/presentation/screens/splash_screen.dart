@@ -17,6 +17,10 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 // ✅ 1. استيراد خدمة الإشعارات
 import '../../core/services/notification_service.dart';
+// ✅ [FIX] استيراد AppReadySignal لتبليغ main.dart أن SplashScreen وصلت
+// فعلياً لوجهتها النهائية — راجع الشرح الكامل في main.dart أعلى تعريف
+// AppReadySignal، ودالة `_navigateToFinalDestination` أسفل هذا الملف.
+import '../../main.dart';
 import 'login_screen.dart';
 import 'main_wrapper.dart';
 import 'privacy_policy_screen.dart';
@@ -103,6 +107,30 @@ class _SplashScreenState extends State<SplashScreen>
     } catch (e) {
       debugPrint("Cleanup error: $e");
     }
+  }
+
+  // ✅ [FIX] نقطة خروج واحدة موحّدة لكل مسار "وصلت SplashScreen لوجهتها
+  // النهائية" (LoginScreen أو MainWrapper). كانت هذه الشاشة تكرر نفس
+  // الثلاث خطوات (فحص mounted + فحص SecurityManager + pushAndRemoveUntil)
+  // في سبعة أماكن مختلفة عبر الملف — دمجها هنا يجعل الكود أنظف، ويضمن
+  // أيضاً أن `AppReadySignal.instance.markReady()` تُستدعى دائماً من مكان
+  // واحد فقط، بعد أن يكون التنقّل الفعلي قد تم (أو تأكد عدم الحاجة إليه،
+  // مثال: فشل فحص الأمان). هذه الإشارة هي ما يسمح لـ main.dart بمعرفة
+  // متى يصبح آمناً دفع NotificationsScreen فوق المكدس النهائي بدل
+  // SplashScreen (راجع AppReadySignal في main.dart).
+  Future<void> _navigateToFinalDestination(Widget destination) async {
+    if (!mounted) return;
+    if (!await SecurityManager.instance.checkSecurity()) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => destination),
+      (route) => false,
+    );
+
+    // ✅ الآن، وليس قبل، بات آمناً لأي طلب تنقّل بسبب إشعار أن يُدفع فوق
+    // المكدس الحالي دون خطر أن يُمسحه `pushAndRemoveUntil` أعلاه لاحقاً —
+    // لأن هذا الاستدعاء نفسه هو آخر `pushAndRemoveUntil` ستنفذه SplashScreen.
+    AppReadySignal.instance.markReady();
   }
 
   // نافذة الموافقة على الشروط والسياسات
@@ -240,14 +268,7 @@ class _SplashScreenState extends State<SplashScreen>
       }
 
       if (userId == null || deviceId == null) {
-        if (mounted) {
-          if (!await SecurityManager.instance.checkSecurity()) return;
-
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
-            (route) => false,
-          );
-        }
+        await _navigateToFinalDestination(const LoginScreen());
         return;
       }
 
@@ -289,26 +310,12 @@ class _SplashScreenState extends State<SplashScreen>
             'Splash: exhausted in-session retries for StorageKeyUnavailableException, falling back to Login (data preserved)',
         fatal: false,
       );
-      if (mounted) {
-        if (!await SecurityManager.instance.checkSecurity()) return;
-
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (route) => false,
-        );
-      }
+      await _navigateToFinalDestination(const LoginScreen());
     } catch (e, stack) {
       // أي خطأ آخر غير متوقع (تلف بيانات فعلي، فشل Hive، إلخ) — نحافظ على
       // السلوك الأصلي: تسجيل الخطأ والذهاب لشاشة تسجيل الدخول.
       FirebaseCrashlytics.instance.recordError(e, stack);
-      if (mounted) {
-        if (!await SecurityManager.instance.checkSecurity()) return;
-
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (route) => false,
-        );
-      }
+      await _navigateToFinalDestination(const LoginScreen());
     }
   }
 
@@ -406,14 +413,7 @@ class _SplashScreenState extends State<SplashScreen>
     } catch (_) {
     } finally {
       AppState().isGuest = true;
-      if (mounted) {
-        if (!await SecurityManager.instance.checkSecurity()) return;
-
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const MainWrapper()),
-          (route) => false,
-        );
-      }
+      await _navigateToFinalDestination(const MainWrapper());
     }
   }
 
@@ -484,23 +484,11 @@ class _SplashScreenState extends State<SplashScreen>
           await box.clear(); 
           await box.put('terms_accepted', true);
 
-          if (mounted) {
-            if (!await SecurityManager.instance.checkSecurity()) return;
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const LoginScreen()),
-              (route) => false,
-            );
-          }
+          await _navigateToFinalDestination(const LoginScreen());
           return;
         }
 
-        if (mounted) {
-          if (!await SecurityManager.instance.checkSecurity()) return;
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const MainWrapper()),
-            (route) => false,
-          );
-        }
+        await _navigateToFinalDestination(const MainWrapper());
       } else {
         throw Exception("Server Error: ${response.statusCode}");
       }
@@ -518,13 +506,8 @@ class _SplashScreenState extends State<SplashScreen>
               duration: const Duration(seconds: 3),
             ),
           );
-
-          if (!await SecurityManager.instance.checkSecurity()) return;
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const MainWrapper()),
-            (route) => false,
-          );
         }
+        await _navigateToFinalDestination(const MainWrapper());
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -532,13 +515,8 @@ class _SplashScreenState extends State<SplashScreen>
                 content: Text(AppLocalizations.of(context)!.offlineModeLimitedMessage),
                 backgroundColor: Colors.grey),
           );
-
-          if (!await SecurityManager.instance.checkSecurity()) return;
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const MainWrapper()),
-            (route) => false,
-          );
         }
+        await _navigateToFinalDestination(const MainWrapper());
       }
     }
   }
