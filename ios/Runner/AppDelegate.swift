@@ -10,6 +10,12 @@ import UIKit
     // private var screenRecordingTimer: Timer?
     private var isScreenBeingCaptured = false
 
+    // ✅ [FIX -25308] قناة مخصصة تعكس الإشارة الحقيقية من iOS لجاهزية
+    // Data Protection (Keychain)، بدل الاعتماد على حالة دورة حياة Flutter
+    // (resumed + firstFrameRasterized) كتقريب غير دقيق لها. راجع
+    // setupDataProtectionChannel() أدناه للتفاصيل.
+    private var dataProtectionChannel: FlutterMethodChannel?
+
     // MARK: - Secure Logging Helper (Fix N-02)
     private func secureLog(_ message: String) {
         #if DEBUG
@@ -51,6 +57,9 @@ import UIKit
 
         // Setup Flutter Method Channel Bridge
         setupFlutterMethodChannel()
+
+        // ✅ [FIX -25308] راجع تعريف الدالة أدناه لشرح كامل للمشكلة والحل.
+        setupDataProtectionChannel()
 
         // Prevent screenshots and screen recording
         setupScreenProtection()
@@ -116,6 +125,68 @@ import UIKit
         }
 
         secureLog("✅ Amr AI: Flutter Method Channel initialized successfully")
+    }
+
+    // MARK: - Data Protection Readiness (Fix for Keychain -25308)
+    //
+    // ✅ [FIX -25308] المشكلة الجذرية: الكود على جانب Flutter كان يقرر
+    // "التطبيق جاهز للمس Keychain" بالاعتماد على AppLifecycleState.resumed
+    // + رسم أول إطار — وهذه إشارة من طبقة UIKit/Flutter، وليست الإشارة
+    // الحقيقية لجاهزية طبقة حماية البيانات (Data Protection) التي يعتمد
+    // عليها Keychain فعلياً. النتيجة: قد يُعلن Flutter أن التطبيق "resumed"
+    // قبل أن ينهي iOS فعلياً فك قفل طبقة الحماية، فتفشل قراءة Keychain
+    // بخطأ -25308 (errSecInteractionNotAllowed) رغم أن كل مؤشرات Flutter
+    // كانت تقول إن التطبيق جاهز.
+    //
+    // الحل: نكشف الإشارة الحقيقية من iOS مباشرة عبر قناة مستقلة:
+    // 1. isProtectedDataAvailable: فحص متزامن فوري لحالة UIApplication
+    //    .shared.isProtectedDataAvailable وقت الاستدعاء.
+    // 2. onProtectedDataAvailable: حدث يُرسَل لـ Flutter فور صدور إشعار
+    //    UIApplication.protectedDataDidBecomeAvailableNotification —
+    //    وهو الإشعار الرسمي من النظام لحظة انتهاء iOS فعلياً من جعل
+    //    البيانات المحمية (بما فيها عناصر Keychain) قابلة للوصول.
+    //
+    // قناة مستقلة عمداً (وليست نفس audio_protection) حتى لا نغيّر أي
+    // سلوك موجود على القناة الأخرى أو نتشارك معالج استدعاءات معها.
+    private func setupDataProtectionChannel() {
+        guard let controller = window?.rootViewController as? FlutterViewController else {
+            secureLog("⚠️ Amr AI: Failed to get FlutterViewController for data protection channel")
+            return
+        }
+
+        let channel = FlutterMethodChannel(
+            name: "medaad.app.com/data_protection",
+            binaryMessenger: controller.binaryMessenger
+        )
+        dataProtectionChannel = channel
+
+        channel.setMethodCallHandler { [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) in
+            switch call.method {
+            case "isProtectedDataAvailable":
+                // فحص متزامن فوري — هذه هي الإشارة الحقيقية، وليست تقريباً.
+                result(UIApplication.shared.isProtectedDataAvailable)
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+
+        // ✅ نُسجَّل للإشعار الرسمي بدل الاعتماد فقط على الفحص المتزامن،
+        // حتى لو استُدعي isProtectedDataAvailable مبكراً وأعاد false، يصل
+        // Flutter تلقائياً لاحقاً لحظة تغيّر الحالة فعلياً بلا الحاجة
+        // لإعادة السؤال (polling).
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(protectedDataDidBecomeAvailable),
+            name: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil
+        )
+
+        secureLog("✅ Amr AI: Data protection readiness channel initialized")
+    }
+
+    @objc private func protectedDataDidBecomeAvailable() {
+        secureLog("✅ Amr AI: UIApplication.protectedDataDidBecomeAvailableNotification fired")
+        dataProtectionChannel?.invokeMethod("onProtectedDataAvailable", arguments: nil)
     }
 
     // MARK: - Screen Protection
