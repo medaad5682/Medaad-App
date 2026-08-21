@@ -186,7 +186,14 @@ class _SplashScreenState extends State<SplashScreen>
       // تنظيف الملفات المؤقتة فوراً عند الفتح
       await _cleanupTempFiles();
 
-      await Hive.initFlutter();
+      // ✅ [FIX] StorageService.ensureInitialized() بدل Hive.initFlutter()
+      // المباشرة — main.dart يستدعي نفس الدالة بالتوازي تقريباً (fire-and-
+      // forget بعد runApp())، فيتقاسم الاثنان نتيجة تهيئة واحدة بدل
+      // تكرارها. auth_box وdownloads_box يبقيان يُفتحان هنا كما كانا: هذه
+      // الشاشة هي المالك الفعلي لهما عند الإقلاع (تحتاج auth_box فوراً
+      // لقراءة terms_accepted/is_guest/user_id)، وmain.dart لم يعد يفتحهما
+      // بنفسه (راجع _initStorageAfterAppReady في main.dart).
+      await StorageService.ensureInitialized();
       var box = await StorageService.openBox('auth_box');
       await StorageService.openBox('downloads_box');
 
