@@ -117,7 +117,7 @@ Future<bool> onIosBackground(ServiceInstance service) async {
 // استدعاء لـ getToken() بدلاً من افتراض جاهزيته فورًا. (3) تُستدعى هذه
 // الدالة الآن بعد runApp() (fire-and-forget) حتى لا تؤخر ظهور واجهة
 // التطبيق أبدًا مهما استغرق تسجيل الإشعارات من وقت.
-Future<void> _setupFirebaseMessaging(dynamic authBox) async {
+Future<void> _setupFirebaseMessaging() async {
   try {
     final messaging = FirebaseMessaging.instance;
 
@@ -162,8 +162,14 @@ Future<void> _setupFirebaseMessaging(dynamic authBox) async {
     }());
 
     if (fcmToken != null) {
-      // ✅ [FIX] authBox قد تكون null الآن إذا فشل فتح auth_box بأمان عند
-      // الإقلاع (راجع _openBoxSafely). لا نريد رمي استثناء آخر هنا.
+      // ✅ [CLEAN] auth_box يُفتح هنا فقط عند الحاجة الفعلية لحفظ الـ
+      // fcm_token — بدل فتحه مسبقاً في main() وتمريره كمعامل. بفضل قفل
+      // StorageService.openBox() (_openInFlight)، هذا الاستدعاء يتشارك
+      // نفس نتيجة الفتح مع splash_screen.dart إن كانت قد بدأته بالفعل
+      // (أو أي مسار آخر)، فلا يحدث أي فتح مكرر فعلياً للصندوق. قد تكون
+      // النتيجة null إذا فشل فتح الصندوق بأمان — لا نريد رمي استثناء آخر
+      // هنا.
+      final authBox = await _openBoxSafely('auth_box');
       await authBox?.put('fcm_token', fcmToken);
     }
   } catch (e, stack) {
@@ -209,30 +215,31 @@ Future<Box?> _openBoxSafely(String boxName) async {
 // تأكيد أن التطبيق نشط فعلاً (_AppReadyGate) قبل أي محاولة قراءة من
 // Keychain/Keystore على أي حال.
 Future<void> _initStorageAfterAppReady() async {
-  Box? authBox;
   try {
     // ✅ [FIX] StorageService.ensureInitialized() بدل Hive.initFlutter()
     // المباشرة — splash_screen.dart يستدعي نفس الدالة بالتوازي تقريباً،
     // فيتقاسم الاثنان نتيجة تهيئة واحدة بدل تكرارها (راجع التعليق في
     // storage_service.dart).
     await StorageService.ensureInitialized();
-    // ✅ [FIX] لم نعد نفتح settings_box أو downloads_box هنا صراحة: الأول
-    // يفتحه AppState.initTheme()/initLocale() (تُستدعيان بعد هذه الدالة
-    // مباشرة أدناه في main())، والثاني يفتحه SplashScreen._initializeApp()
-    // فور ظهورها. كان فتحهما هنا مجرد تكرار بلا أي فائدة إضافية — نتيجة كل
-    // استدعاء منهما هنا كانت تُهمَل أصلاً (لا شيء يستخدمها في هذه الدالة).
-    // القفل الموجود في StorageService.openBox() يجعل هذا آمناً حتى لو
-    // تزامنت أكثر من نقطة إقلاع على نفس الصندوق، لكن الأنظف هو ألا نطلب
-    // شيئاً لسنا بحاجته أصلاً. auth_box يبقى هنا لأننا فعلاً بحاجة لمرجعه
-    // لحفظ fcm_token أدناه؛ نفس القفل يضمن أنه لا يُفتح مرتين فعلياً حتى
-    // لو استدعته SplashScreen في نفس اللحظة تقريباً.
-    authBox = await _openBoxSafely('auth_box');
-    await _openBoxSafely('pdf_drawings_db');
+    // ✅ [CLEAN] main.dart لا يفتح أي صندوق (Box) بشكل استباقي بعد الآن.
+    // كل صندوق يُفتح فقط من المكان الذي يحتاجه فعلياً وفي اللحظة التي
+    // يحتاجه فيها:
+    //   - settings_box  → AppState.initTheme()/initLocale() أدناه في main()
+    //   - auth_box       → SplashScreen._initializeApp() فور ظهورها، أو من
+    //                       داخل _setupFirebaseMessaging() أدناه فقط إذا
+    //                       وُجد fcm_token فعلاً لحفظه
+    //   - downloads_box  → SplashScreen._initializeApp()
+    //   - pdf_drawings_db → PdfAnnotationStore عند فتح أول ملف PDF فعلياً
+    // القفل الموجود في StorageService.openBox() (_openInFlight) يضمن أن
+    // أي صندوق يُطلب فتحه من أكثر من مكان في نفس اللحظة تقريباً (مثال:
+    // auth_box من هنا ومن SplashScreen معاً) لا يُفتح فعلياً إلا مرة
+    // واحدة — كل الطلبات المتزامنة تتشارك نفس النتيجة. لكن الأنظف هو ألا
+    // نطلب صندوقاً هنا أصلاً إلا إذا كنا سنستخدمه فعلياً في هذه الدالة.
   } catch (e, st) {
-    // ✅ حماية إضافية: حتى لو حدث خطأ غير متوقع خارج نطاق try/catch
-    // الخاص بـ _openBoxSafely نفسها (مثال: فشل Hive.initFlutter() ذاته)،
-    // لا يجب أن يصل هذا إلى الـ Zone الرئيسي كـ crash قاتل — التطبيق
-    // ظاهر بالفعل للمستخدم عبر runApp() بحلول هذه اللحظة.
+    // ✅ حماية إضافية: حتى لو حدث خطأ غير متوقع (مثال: فشل
+    // Hive.initFlutter() ذاته)، لا يجب أن يصل هذا إلى الـ Zone الرئيسي
+    // كـ crash قاتل — التطبيق ظاهر بالفعل للمستخدم عبر runApp() بحلول
+    // هذه اللحظة.
     debugPrint('⚠️ Storage initialization failed (non-fatal, app already running): $e');
     if (Firebase.apps.isNotEmpty) {
       await _safeRecordError(
@@ -247,8 +254,9 @@ Future<void> _initStorageAfterAppReady() async {
   // ✅ يُستدعى بعد اكتمال (أو فشل) تهيئة التخزين — واجهة التطبيق تظهر
   // فورًا للمستخدم بغض النظر عن مدى سرعة/بطء تسجيل الإشعارات مع Apple أو
   // فتح الصناديق. الدالة نفسها معزولة بالكامل بـ try/catch فلا يمكن لأي
-  // فشل بداخلها أن يصل لهذا الـ Zone أو يُسجَّل كـ fatal.
-  await _setupFirebaseMessaging(authBox);
+  // فشل بداخلها أن يصل لهذا الـ Zone أو يُسجَّل كـ fatal. هي التي تفتح
+  // auth_box بنفسها (عند الحاجة فقط) بدل انتظار مرجع مُمرَّر لها.
+  await _setupFirebaseMessaging();
 }
 
 void main() async {
@@ -501,10 +509,10 @@ void main() async {
     unawaited(AppState().initTheme());
     unawaited(AppState().initLocale());
 
-    // ✅ [FIX] تهيئة Hive وفتح الصناديق تُستدعى الآن أيضاً بعد runApp()
-    // (fire-and-forget) — انظر توثيق _initStorageAfterAppReady() أدناه.
-    // نمرر authBox الناتج إلى _setupFirebaseMessaging بمجرد جاهزيته بدل
-    // انتظاره قبل runApp() كما كان سابقاً.
+    // ✅ [FIX] تهيئة Hive تُستدعى الآن أيضاً بعد runApp() (fire-and-forget)
+    // — انظر توثيق _initStorageAfterAppReady() أدناه. لم تعد main.dart
+    // تفتح أي صندوق استباقياً هنا؛ _setupFirebaseMessaging() تفتح auth_box
+    // بنفسها فقط عند الحاجة الفعلية لحفظ fcm_token.
     unawaited(_initStorageAfterAppReady());
   }, (error, stack) async {
     // ✅ الخطأ المعروف وغير الضار (راجع _isBenignAppCheckTokenListenerError
