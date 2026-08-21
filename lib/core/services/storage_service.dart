@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart' show MethodChannel, MethodCall;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -34,15 +36,39 @@ class _AppReadyGate with WidgetsBindingObserver {
   _AppReadyGate._();
   static final _AppReadyGate instance = _AppReadyGate._();
 
+  // ✅ [FIX -25308] القناة الأصلية المقابلة لـ setupDataProtectionChannel()
+  // في ios/Runner/AppDelegate.swift. تعكس الإشارة الحقيقية من iOS —
+  // UIApplication.isProtectedDataAvailable /
+  // protectedDataDidBecomeAvailableNotification — بدل الاعتماد فقط على
+  // AppLifecycleState.resumed كتقريب لها. resumed يعني "الواجهة نشطة من
+  // منظور UIKit"، وهو ليس نفس لحظة "iOS انتهى فعلاً من فك قفل طبقة حماية
+  // البيانات التي يعتمد عليها Keychain" — وهذا الفارق الزمني الدقيق هو ما
+  // كان لا يزال ينتج -25308 حتى بعد شرط resumed + firstFrameRasterized.
+  static const MethodChannel _dataProtectionChannel =
+      MethodChannel('medaad.app.com/data_protection');
+
   bool _ready = false;
   bool _observing = false;
   Completer<void> _completer = Completer<void>();
 
+  // null = لم تصل نتيجة الاستعلام الأصلي بعد. على أندرويد لا ينطبق هذا
+  // المفهوم إطلاقاً (Keystore لا يعرف -25308)، فتُضبط true فوراً بلا أي
+  // استدعاء عبر القناة.
+  bool? _protectedDataAvailable;
+
   Future<void> waitUntilReady() {
     if (_ready) return Future.value();
     _ensureObserving();
+    // ✅ [FIX -25308] رُفعت من 5 إلى 10 ثوانٍ. الرقم القديم (5s) كان
+    // معايَراً فقط على "متى يصل Flutter لحالة resumed"، وليس له أي علاقة
+    // بزمن فك قفل Data Protection الفعلي. بعد إضافة الإشارة الحقيقية من
+    // iOS (isProtectedDataAvailable/onProtectedDataAvailable)، الشرط الآن
+    // ينتظر تلك الإشارة الفعلية أيضاً — فمهلة أطول قليلاً تقلل احتمال
+    // انتهاء الوقت قبل وصولها على الأجهزة الأبطأ، مع بقاء حد أقصى معقول
+    // لمسار الـ isolate المعزول (معالج إشعارات الخلفية) الذي لن يصل أبداً
+    // لحالة resumed.
     return _completer.future.timeout(
-      const Duration(seconds: 5),
+      const Duration(seconds: 10),
       onTimeout: () {},
     );
   }
@@ -51,12 +77,42 @@ class _AppReadyGate with WidgetsBindingObserver {
     if (_observing) return;
     _observing = true;
     WidgetsBinding.instance.addObserver(this);
+
+    if (Platform.isIOS) {
+      // ✅ نستمع لإشعار "أصبحت البيانات المحمية متاحة" القادم من
+      // AppDelegate.swift — هذا يغطي حالة أن يكون الفحص المتزامن أدناه
+      // قد أعاد false مبكراً، فتصل الإشارة الصحيحة لاحقاً بلا أي polling.
+      _dataProtectionChannel.setMethodCallHandler(_onNativeCall);
+      // فحص متزامن فوري: قد تكون البيانات المحمية متاحة بالفعل بحلول أول
+      // استدعاء لهذه الدالة (مثال: التطبيق يعمل فعلاً ثم تُستدعى
+      // openBox() لاحقاً من شاشة أخرى).
+      _dataProtectionChannel
+          .invokeMethod<bool>('isProtectedDataAvailable')
+          .then((available) {
+        _protectedDataAvailable = available ?? false;
+        _checkAndSignal();
+      }).catchError((_) {
+        // فشل الاستعلام نفسه (نادر جداً، مثال: القناة غير جاهزة بعد) —
+        // لا نحجب الجاهزية بسببه؛ يبقى null ونعتمد على الإشعار القادم أو
+        // انتهاء مهلة الـ 5 ثوانٍ أدناه كما كان الحال سابقاً.
+      });
+    } else {
+      _protectedDataAvailable = true;
+    }
+
     // قد يكون الإطار الأول قد رُسم بالفعل وحالة دورة الحياة resumed
     // فعلاً بحلول أول استدعاء لهذه الدالة (مثال: مستخدم فتح شاشة تستدعي
     // openBox() بعد أن كان التطبيق يعمل بالفعل) — نتحقق فوراً بدل انتظار
     // إطار جديد لن يأتي.
     _checkAndSignal();
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkAndSignal());
+  }
+
+  Future<void> _onNativeCall(MethodCall call) async {
+    if (call.method == 'onProtectedDataAvailable') {
+      _protectedDataAvailable = true;
+      _checkAndSignal();
+    }
   }
 
   @override
@@ -66,10 +122,18 @@ class _AppReadyGate with WidgetsBindingObserver {
     if (_ready) return;
     final binding = WidgetsBinding.instance;
     final isResumed = binding.lifecycleState == AppLifecycleState.resumed;
-    if (isResumed && binding.firstFrameRasterized) {
+    // ✅ [FIX -25308] الشرط الثالث هنا هو الإضافة الجوهرية: بدل الاكتفاء
+    // بـ resumed + firstFrameRasterized (تقريب من Flutter)، ننتظر أيضاً
+    // _protectedDataAvailable == true (الإشارة الحقيقية من iOS نفسه).
+    // يبقى الشرط false/null فيمنع الجاهزية حتى تصل الإشارة الصحيحة أو
+    // تنتهي المهلة في waitUntilReady().
+    if (isResumed && binding.firstFrameRasterized && _protectedDataAvailable == true) {
       _ready = true;
       if (!_completer.isCompleted) _completer.complete();
       WidgetsBinding.instance.removeObserver(this);
+      if (Platform.isIOS) {
+        _dataProtectionChannel.setMethodCallHandler(null);
+      }
     }
   }
 }
