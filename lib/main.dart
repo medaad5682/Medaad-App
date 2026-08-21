@@ -211,10 +211,22 @@ Future<Box?> _openBoxSafely(String boxName) async {
 Future<void> _initStorageAfterAppReady() async {
   Box? authBox;
   try {
-    await Hive.initFlutter();
+    // ✅ [FIX] StorageService.ensureInitialized() بدل Hive.initFlutter()
+    // المباشرة — splash_screen.dart يستدعي نفس الدالة بالتوازي تقريباً،
+    // فيتقاسم الاثنان نتيجة تهيئة واحدة بدل تكرارها (راجع التعليق في
+    // storage_service.dart).
+    await StorageService.ensureInitialized();
+    // ✅ [FIX] لم نعد نفتح settings_box أو downloads_box هنا صراحة: الأول
+    // يفتحه AppState.initTheme()/initLocale() (تُستدعيان بعد هذه الدالة
+    // مباشرة أدناه في main())، والثاني يفتحه SplashScreen._initializeApp()
+    // فور ظهورها. كان فتحهما هنا مجرد تكرار بلا أي فائدة إضافية — نتيجة كل
+    // استدعاء منهما هنا كانت تُهمَل أصلاً (لا شيء يستخدمها في هذه الدالة).
+    // القفل الموجود في StorageService.openBox() يجعل هذا آمناً حتى لو
+    // تزامنت أكثر من نقطة إقلاع على نفس الصندوق، لكن الأنظف هو ألا نطلب
+    // شيئاً لسنا بحاجته أصلاً. auth_box يبقى هنا لأننا فعلاً بحاجة لمرجعه
+    // لحفظ fcm_token أدناه؛ نفس القفل يضمن أنه لا يُفتح مرتين فعلياً حتى
+    // لو استدعته SplashScreen في نفس اللحظة تقريباً.
     authBox = await _openBoxSafely('auth_box');
-    await _openBoxSafely('settings_box');
-    await _openBoxSafely('downloads_box');
     await _openBoxSafely('pdf_drawings_db');
   } catch (e, st) {
     // ✅ حماية إضافية: حتى لو حدث خطأ غير متوقع خارج نطاق try/catch
