@@ -35,6 +35,78 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final GlobalKey<ScaffoldMessengerState> snackbarKey =
     GlobalKey<ScaffoldMessengerState>();
 
+// ✅ [FIX] يمنع دفع NotificationsScreen قبل أن تُنهي SplashScreen تهيئتها
+// الكاملة وتنتقل بنفسها للوجهة النهائية (MainWrapper أو LoginScreen).
+//
+// المشكلة الأصلية: كان main.dart يدفع NotificationsScreen مباشرة بمجرد
+// وصول إشعار (getInitialMessage/onMessageOpenedApp) بغض النظر عن حالة
+// SplashScreen. لو وصل هذا الدفع أثناء ما زالت SplashScreen تعمل (تنتظر
+// رد السيرفر، تتحقق من الشروط، إلخ)، كانت NotificationsScreen تُدفع فوق
+// SplashScreen في المكدس — ثم عندما تنتهي SplashScreen وتستدعي
+// `Navigator.pushAndRemoveUntil(..., (route) => false)`، هذا الاستدعاء
+// يمسح *كل* المسارات السابقة بما فيها NotificationsScreen التي دُفعت
+// للتو، فتختفي الشاشة التي كان يُفترض أن يراها المستخدم دون أي تفسير —
+// بالضبط المشكلة التي وصفتَها. أيضاً لم يكن هناك أي حماية من دفع الشاشة
+// أكثر من مرة إذا وصلت أكثر من إشارة ضغط على إشعار في نفس اللحظة تقريباً
+// (مثال: getInitialMessage() وonMessageOpenedApp() قد يُطلقان معاً).
+//
+// الحل: SplashScreen تستدعي `AppReadySignal.instance.markReady()` هي
+// نفسها فور وصولها لوجهتها النهائية (راجع `_navigateToFinalDestination`
+// في splash_screen.dart). أي طلب تنقّل بسبب إشعار (من هنا أو من
+// notification_service.dart) يمرّ عبر `openNotificationsScreenWhenReady()`
+// أدناه، والتي تنتظر تلك الإشارة أولاً (بمهلة أمان قصوى حتى لا تُعلَّق
+// للأبد لو تعطّلت SplashScreen لسبب ما، مثال: تحديث إجباري يحجب التنقل
+// عمداً)، ثم تدفع الشاشة مرة واحدة فقط بفضل قفل `_isNavigatingToNotifications`.
+class AppReadySignal {
+  AppReadySignal._();
+  static final AppReadySignal instance = AppReadySignal._();
+
+  final Completer<void> _completer = Completer<void>();
+
+  bool get isReady => _completer.isCompleted;
+
+  /// تُستدعى مرة واحدة من SplashScreen فور وصولها لوجهتها النهائية.
+  void markReady() {
+    if (!_completer.isCompleted) _completer.complete();
+  }
+
+  /// تنتظر الجاهزية الفعلية، مع مهلة أمان قصوى (15 ثانية) حتى لا تُعلَّق
+  /// أي محاولة تنقّل للأبد في حالة نادرة تمنع SplashScreen من الوصول لأي
+  /// وجهة نهائية (مثال: حوار تحديث إجباري يبقى معلّقاً بانتظار المستخدم).
+  Future<void> get future => _completer.future.timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {},
+      );
+}
+
+// ✅ [FIX] قفل بسيط يمنع تنفيذ أكثر من محاولة تنقّل لشاشة الإشعارات في
+// نفس اللحظة تقريباً — يحدث فعلياً حين يصل أكثر من مصدر إشعار معاً
+// (مثال: getInitialMessage() عند الإقلاع البارد، ومباشرة بعده
+// onDidReceiveNotificationResponse من flutter_local_notifications لنفس
+// الإشعار). بدون هذا القفل كان من الممكن دفع NotificationsScreen أكثر من
+// مرة فوق بعضها.
+bool _isNavigatingToNotifications = false;
+
+/// نقطة الدخول الموحّدة لأي مصدر إشعار (FCM في main.dart، أو الإشعارات
+/// المحلية في notification_service.dart) للتنقل لشاشة الإشعارات. تنتظر
+/// اكتمال تهيئة SplashScreen فعلياً أولاً حتى لا تُدفع الشاشة فوق
+/// SplashScreen لتُمسَح لاحقاً (راجع شرح [AppReadySignal] أعلاه)، وتمنع
+/// أي دفع مكرر متزامن.
+Future<void> openNotificationsScreenWhenReady() async {
+  if (_isNavigatingToNotifications) return;
+  _isNavigatingToNotifications = true;
+  try {
+    await AppReadySignal.instance.future;
+    if (navigatorKey.currentState != null) {
+      navigatorKey.currentState!.push(
+        MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+      );
+    }
+  } finally {
+    _isNavigatingToNotifications = false;
+  }
+}
+
 // ✅ دالة التقاط الإشعارات عندما يكون التطبيق مغلقاً أو في الخلفية (يجب أن تكون خارج أي Class)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -400,25 +472,22 @@ void main() async {
     // =========================================================================
     
     // 1. إذا كان التطبيق مغلقاً تماماً (Terminated) وتم فتحه عن طريق الضغط على الإشعار
+    //
+    // ✅ [FIX] لم نعد نعتمد على تأخير ثابت (1500ms) كتخمين لوقت انتهاء
+    // SplashScreen — كان هذا يفشل كلما استغرقت التهيئة الفعلية (طلب
+    // الشبكة، فحص التحديث، حوار الشروط...) أكثر من 1.5 ثانية، وكان
+    // أيضاً عرضة تماماً لمشكلة "الدفع فوق SplashScreen ثم مسحه" الموضحة
+    // أعلاه عند AppReadySignal. الآن ننتظر الجاهزية الفعلية الحقيقية بدل
+    // تخمين وقتها.
     FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
       if (message != null) {
-        Future.delayed(const Duration(milliseconds: 1500), () {
-          if (navigatorKey.currentState != null) {
-            navigatorKey.currentState!.push(
-              MaterialPageRoute(builder: (context) => const NotificationsScreen()),
-            );
-          }
-        });
+        openNotificationsScreenWhenReady();
       }
     });
 
     // 2. إذا كان التطبيق يعمل في الخلفية (Background) وتم الضغط على الإشعار
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      if (navigatorKey.currentState != null) {
-        navigatorKey.currentState!.push(
-          MaterialPageRoute(builder: (context) => const NotificationsScreen()),
-        );
-      }
+      openNotificationsScreenWhenReady();
     });
     // =========================================================================
 
