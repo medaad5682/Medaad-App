@@ -120,14 +120,13 @@ class _AppReadyGate with WidgetsBindingObserver {
 
   void _checkAndSignal() {
     if (_ready) return;
-    final binding = WidgetsBinding.instance;
-    final isResumed = binding.lifecycleState == AppLifecycleState.resumed;
-    // ✅ [FIX -25308] الشرط الثالث هنا هو الإضافة الجوهرية: بدل الاكتفاء
-    // بـ resumed + firstFrameRasterized (تقريب من Flutter)، ننتظر أيضاً
-    // _protectedDataAvailable == true (الإشارة الحقيقية من iOS نفسه).
-    // يبقى الشرط false/null فيمنع الجاهزية حتى تصل الإشارة الصحيحة أو
-    // تنتهي المهلة في waitUntilReady().
-    if (isResumed && binding.firstFrameRasterized && _protectedDataAvailable == true) {
+    // ✅ [FIX -25308] الاعتماد الآن فقط على _protectedDataAvailable == true
+    // (الإشارة الحقيقية من iOS نفسه عبر isProtectedDataAvailable /
+    // onProtectedDataAvailable). أُسقطت شرطا resumed و firstFrameRasterized
+    // لأنهما مجرد تقريب من Flutter لحالة الواجهة، وليسا مؤشراً موثوقاً على
+    // اكتمال فك قفل Data Protection فعلياً على iOS — وقد يتأخران عن أو
+    // يسبقان الإشارة الحقيقية دون داعٍ.
+    if (_protectedDataAvailable == true) {
       _ready = true;
       if (!_completer.isCompleted) _completer.complete();
       WidgetsBinding.instance.removeObserver(this);
@@ -491,6 +490,20 @@ class StorageService {
     return _encryptionKey!;
   }
 
+  // ✅ [FIX] يمنع استدعاء Hive.initFlutter() أكثر من مرة بالتوازي عند
+  // الإقلاع. كان main.dart (_initStorageAfterAppReady) وsplash_screen.dart
+  // (_initializeApp) يستدعيانها كلاهما بشكل مستقل فور runApp() — بنفس نمط
+  // التزامن الموثق أسفل هذا التعليق مباشرة لـ openBox(). Hive.initFlutter()
+  // نفسها لا تُحدث ضرراً عند التكرار، لكن التكرار المتزامن يعني انتظار
+  // عمليتي path_provider منفصلتين بلا أي فائدة. أي مستدعٍ الآن يمر عبر
+  // ensureInitialized() بدل استدعاء Hive.initFlutter() مباشرة، فتُنفَّذ مرة
+  // واحدة فقط ويتقاسم الجميع نفس الـ Future.
+  static Future<void>? _initFuture;
+
+  static Future<void> ensureInitialized() {
+    return _initFuture ??= Hive.initFlutter();
+  }
+
   // ✅ [FIX] يمنع فتح نفس الصندوق (بالاسم) أكثر من مرة بالتوازي. بعد أن
   // أصبحت initTheme()، initLocale()، و _initStorageAfterAppReady() تعمل
   // كلها بالتوازي فور runApp() بدل التتابع، أصبح من الممكن فعلياً أن
@@ -499,6 +512,14 @@ class StorageService {
   // بلا هذا القفل: قد يتزامن استدعاءان مع مسار "تلف البيانات" فيتسابقا
   // على حذف/إعادة إنشاء نفس الصندوق. هذا القفل يضمن أن كل الاستدعاءات
   // المتزامنة لنفس الاسم تنتظر نتيجة عملية فتح واحدة فقط وتتقاسمها.
+  //
+  // ✅ [FIX] بفضل هذا القفل، أي صندوق يفتحه أكثر من نقطة إقلاع (auth_box
+  // في main.dart وsplash_screen.dart معاً) لا يُفتح فعلياً إلا مرة واحدة —
+  // أياً منهما يصل أولاً يبدأ الفتح الحقيقي والآخر ينضم لنفس الـ Future.
+  // هذا سمح بحذف الفتح الصريح المكرر تماماً (settings_box, downloads_box)
+  // من main.dart حيث يملكه مسار إقلاع آخر فعلياً (راجع التعليق في
+  // main.dart)، مع إبقاء auth_box هناك لأن main.dart يحتاج مرجع الصندوق
+  // نفسه لكتابة fcm_token.
   static final Map<String, Future<Box>> _openInFlight = {};
 
   static Future<Box> openBox(String boxName) {
