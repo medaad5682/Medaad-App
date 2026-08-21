@@ -1,10 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/services/api_client.dart';
+// ✅ [FIX] كانت هذه الشاشة تفتح auth_box عبر Hive.openBox() مباشرة —
+// بلا مفتاح تشفير (HiveAesCipher) وبلا المرور بقفل التزامن
+// (_openInFlight) أو بوابة الجاهزية (_AppReadyGate) الموجودين في
+// StorageService. auth_box دائماً صندوق مُشفَّر (راجع
+// StorageService._openBoxInternal) — فتحه هنا بدون الـ cipher كان إما
+// يفشل بفك التشفير إن لم يكن مفتوحاً بعد من مكان آخر، أو (لو كان مفتوحاً
+// بالفعل بمثيله المشفَّر الصحيح) يعمل بالصدفة فقط لأن Hive.openBox()
+// يُرجع نفس المثيل المفتوح مسبقاً متجاهلاً أي معامل تشفير جديد. الآن
+// نستخدم StorageService.openBox() كبقية التطبيق: نفس المفتاح، نفس
+// القفل، ونفس نتيجة الفتح المُتقاسَمة مع splash_screen.dart إن كانت قد
+// فتحته بالفعل.
+import '../../core/services/storage_service.dart';
 import 'package:dio/dio.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
@@ -29,7 +40,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<void> _fetchNotifications() async {
     try {
-      var box = await Hive.openBox('auth_box');
+      var box = await StorageService.openBox('auth_box');
       String? token = box.get('jwt_token');
 
       // ✅ التحقق من تسجيل الدخول (وجود التوكن يكفي للتحقق)
