@@ -586,6 +586,14 @@ class DownloadManager with WidgetsBindingObserver {
             id: DateTime.now().millisecondsSinceEpoch.remainder(2147483647),
             title: videoTitle,
             isSuccess: false,
+            // ✅ [FIX] If we gave up specifically because the connection
+            // kept dropping (as opposed to some other failure), tell the
+            // user that explicitly and point them at the Resume button
+            // instead of a generic "failed" message that gives no next
+            // step.
+            failureMessage: isNetworkIssue
+                ? "No internet connection. Tap Resume to continue $videoTitle when you're back online."
+                : null,
           );
           onError("Download paused. Tap Resume to continue.");
           break;
@@ -977,6 +985,33 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
       final segDir = Directory('$savePath.segments');
       if (!await segDir.exists()) await segDir.create(recursive: true);
 
+      final int total = tsUrls.length;
+
+      // ✅ [FIX] Report the resume point immediately, before doing any
+      // work. Segments are cached to disk in order, so a contiguous run of
+      // valid cache files from index 0 tells us exactly how far a previous
+      // (interrupted) attempt got. Without this, the progress bar used to
+      // start at 0% and race back up through all of these already-cached
+      // segments — fast, since no network is needed — which looked like a
+      // rapid "catch-up" animation instead of simply resuming where it
+      // left off.
+      int alreadyCachedCount = 0;
+      for (int i = 0; i < total; i++) {
+        try {
+          final f = File('${segDir.path}/seg_$i.ts');
+          if (await f.exists() && await f.length() > 0) {
+            alreadyCachedCount++;
+          } else {
+            break;
+          }
+        } catch (_) {
+          break;
+        }
+      }
+      if (alreadyCachedCount > 0) {
+        sendPort.send(alreadyCachedCount / total);
+      }
+
       Future<List<int>> fetchSegment(String segUrl, int index) async {
         final cacheFile = File('${segDir.path}/seg_$index.ts');
         if (await cacheFile.exists()) {
@@ -1022,7 +1057,6 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
       final file = File(savePath);
       final sink = await file.open(mode: FileMode.write);
       List<int> buffer = [];
-      int total = tsUrls.length;
       int done = 0;
       const int batchSize = 8;
 
@@ -1044,7 +1078,16 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
               await sink.writeFrom(enc);
             }
             done++;
-            sendPort.send(done / total);
+            // ✅ [FIX] Already reported the resumed starting point above in
+            // one shot — don't re-announce progress for that same range of
+            // segments as we fast-replay through the disk cache, or the
+            // bar will visibly climb from 0% up to the resume point right
+            // in front of the user. Once we're past that point we're
+            // downloading genuinely new segments, so updates resume as
+            // normal.
+            if (done > alreadyCachedCount || done == total) {
+              sendPort.send(done / total);
+            }
           }
         }
         if (buffer.isNotEmpty) {
@@ -1110,6 +1153,14 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
 
     final sink = await file.open(mode: sinkMode);
     List<int> buffer = [];
+
+    // ✅ [FIX] Same as the HLS path above: report the resume point right
+    // away instead of letting the UI sit at 0% until the first network
+    // chunk lands. This is what actually stops the progress bar from
+    // visibly starting at 0% on resume.
+    if (downloadedBytes > 0 && totalBytes > 0) {
+      sendPort.send(downloadedBytes / totalBytes);
+    }
 
     if (totalBytes <= 0) {
       final res = await dio.get(url,
