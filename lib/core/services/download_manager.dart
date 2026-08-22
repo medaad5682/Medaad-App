@@ -47,6 +47,12 @@ class DownloadManager with WidgetsBindingObserver {
   static final Set<String> _activeDownloads = {};
   final Map<String, String> activeTitles = {};
   static final Map<String, CancelToken> _cancelTokens = {};
+  // ✅ [FIX] Tracks the output file path(s) for the currently active download
+  // of each lesson, so an explicit user cancel can also clean up that
+  // download's HLS segment cache (see _videoDownloadIsolateEntryPoint). A
+  // plain failure (e.g. connection drop) does NOT go through here, so the
+  // segment cache is preserved and the next attempt can resume from it.
+  static final Map<String, List<String>> _activeSavePaths = {};
   static final ValueNotifier<Map<String, double>> downloadingProgress =
       ValueNotifier({});
   final String _baseUrl = ApiConstants.baseUrl;
@@ -100,6 +106,30 @@ class DownloadManager with WidgetsBindingObserver {
         debugPrint("Error canceling token: $e");
       }
       _cancelTokens.remove(lessonId);
+    }
+
+    // ✅ [FIX] User explicitly cancelled — this download isn't coming back
+    // automatically, so clean up any cached HLS segments now instead of
+    // leaving them around forever.
+    final pathsToClean = _activeSavePaths.remove(lessonId);
+    if (pathsToClean != null) {
+      for (final path in pathsToClean) {
+        try {
+          final segDir = Directory('$path.segments');
+          if (await segDir.exists()) await segDir.delete(recursive: true);
+        } catch (e) {
+          debugPrint("Error cleaning segment cache: $e");
+        }
+      }
+    }
+
+    // ✅ [FIX] Also drop the resumable/pending record so a cancelled
+    // download doesn't show a stray "Resume" button afterwards.
+    try {
+      final pendingBox = await StorageService.openBox('pending_downloads_box');
+      await pendingBox.delete(lessonId);
+    } catch (e) {
+      debugPrint("Error clearing pending download record: $e");
     }
 
     _activeDownloads.remove(lessonId);
@@ -212,6 +242,35 @@ class DownloadManager with WidgetsBindingObserver {
     _activeDownloads.add(lessonId);
     _startBackgroundService();
 
+    // ✅ [FIX] Persist enough info to resume this exact download later —
+    // automatically after a transient network retry, or manually via a
+    // "Resume" button in the chapter screen — without ever re-showing the
+    // quality-selection dialog. The already-resolved link is kept so a
+    // resume can reuse it directly; if it turns out to be stale/expired,
+    // the normal fallback below (get-video-id) still runs and simply
+    // re-fetches a fresh link for the same lessonId, and this same
+    // `quality` label is kept throughout so the resumed file is saved/
+    // labeled consistently with the original choice.
+    try {
+      final pendingBox = await StorageService.openBox('pending_downloads_box');
+      await pendingBox.put(lessonId, {
+        'lessonId': lessonId,
+        'videoTitle': videoTitle,
+        'courseName': courseName,
+        'subjectName': subjectName,
+        'chapterName': chapterName,
+        'folderName': folderName,
+        'subjectId': subjectId,
+        'downloadUrl': downloadUrl,
+        'audioUrl': audioUrl,
+        'isPdf': isPdf,
+        'quality': quality,
+        'duration': duration,
+      });
+    } catch (e) {
+      debugPrint("⚠️ Could not persist pending download record: $e");
+    }
+
     var currentProgress = Map<String, double>.from(downloadingProgress.value);
     currentProgress[lessonId] = 0.0;
     downloadingProgress.value = currentProgress;
@@ -227,7 +286,25 @@ class DownloadManager with WidgetsBindingObserver {
       maxProgress: 100,
     );
 
+    // ✅ [FIX] Bounded automatic retry on connectivity-type failures. Each
+    // retry re-runs the whole attempt below, which — thanks to the HLS
+    // segment cache and the MP4 byte-range resume added earlier — picks up
+    // from where the previous attempt stopped instead of starting over.
+    // Once these auto-retries are exhausted (or the failure isn't
+    // network-related), we stop looping and leave the pending-download
+    // record in place so the UI can offer a manual "Resume" button instead
+    // of endlessly retrying in the background.
+    const int maxAutoRetries = 3;
+    const List<Duration> retryDelays = [
+      Duration(seconds: 5),
+      Duration(seconds: 15),
+      Duration(seconds: 30),
+    ];
+    int attempt = 0;
+
     try {
+      while (true) {
+        try {
       // ✅ [REVERTED to 2.0.2 pattern] رجوع لنفس الطريقة المباشرة التي كانت
       // تعمل 100%: قراءة/كتابة docs_chacha_key بمثيل FlutterSecureStorage
       // افتراضي (بدون iOptions/first_unlock_this_device)، بلا انتظار
@@ -325,6 +402,13 @@ class DownloadManager with WidgetsBindingObserver {
       if (finalAudioUrl != null) {
         audioSavePath = '${dir.path}/aud_${lessonId}_hq_v2.enc';
       }
+
+      // ✅ [FIX] Remember these paths so an explicit cancelDownload() can
+      // find and clean up this download's HLS segment cache.
+      _activeSavePaths[lessonId] = [
+        videoSavePath,
+        if (audioSavePath != null) audioSavePath,
+      ];
 
       if (isPdf) {
         // 📄 تحميل وتشفير الـ PDF عبر Isolate للحفاظ على استجابة الواجهة
@@ -444,49 +528,74 @@ class DownloadManager with WidgetsBindingObserver {
       );
 
       FirebaseCrashlytics.instance.log("✅ Download Success: $videoTitle");
-      onComplete();
-    } catch (e, stack) {
-      await notifService.cancelNotification(notificationId);
-      bool isCancelled =
-          (e is DioException && e.type == DioExceptionType.cancel);
 
-      if (!isCancelled) {
-        FirebaseCrashlytics.instance
-            .recordError(e, stack, reason: 'Download Failed');
-        await notifService.showCompletionNotification(
-          id: DateTime.now().millisecondsSinceEpoch.remainder(2147483647),
-          title: videoTitle,
-          isSuccess: false,
-        );
-        onError("Download failed. Please check internet.");
-      }
-
-      // Cleanup partial files
+      // ✅ Done — this lesson is no longer a "pending/resumable" download.
       try {
-        final appDir = await getApplicationDocumentsDirectory();
-        final safeCourse =
-            courseName.replaceAll(RegExp(r'[^\w\s\u0600-\u06FF]+'), '');
-        final safeSubject =
-            subjectName.replaceAll(RegExp(r'[^\w\s\u0600-\u06FF]+'), '');
-        final safeChapter =
-            chapterName.replaceAll(RegExp(r'[^\w\s\u0600-\u06FF]+'), '');
-        final dirPath =
-            '${appDir.path}/offline_content/$safeCourse/$safeSubject/$safeChapter';
-
-        final videoFileName =
-            isPdf ? "$lessonId.pdf.enc" : "vid_${lessonId}_${quality}_v2.enc";
-        final audioFileName = 'aud_${lessonId}_hq_v2.enc';
-
-        final videoFile = File('$dirPath/$videoFileName');
-        if (await videoFile.exists()) await videoFile.delete();
-
-        final audioFile = File('$dirPath/$audioFileName');
-        if (await audioFile.exists()) await audioFile.delete();
+        final pendingBox =
+            await StorageService.openBox('pending_downloads_box');
+        await pendingBox.delete(lessonId);
       } catch (_) {}
+
+      onComplete();
+      return;
+        } catch (e, stack) {
+          bool isCancelled =
+              (e is DioException && e.type == DioExceptionType.cancel);
+
+          if (isCancelled) {
+            // User explicitly cancelled — nothing to auto-retry or resume
+            // later, so drop the pending record and stop here.
+            await notifService.cancelNotification(notificationId);
+            try {
+              final pendingBox =
+                  await StorageService.openBox('pending_downloads_box');
+              await pendingBox.delete(lessonId);
+            } catch (_) {}
+            break;
+          }
+
+          final bool isNetworkIssue = _isLikelyConnectivityError(e);
+          attempt++;
+
+          if (isNetworkIssue &&
+              attempt <= maxAutoRetries &&
+              !cancelToken.isCancelled) {
+            FirebaseCrashlytics.instance.log(
+                "🔁 Download connectivity retry #$attempt for $videoTitle: $e");
+            await notifService.showProgressNotification(
+              id: notificationId,
+              title: "Downloading: $videoTitle",
+              body: "Connection lost — retrying automatically...",
+              progress: 0,
+              maxProgress: 100,
+            );
+            await Future.delayed(retryDelays[attempt - 1]);
+            continue;
+          }
+
+          // Out of auto-retries (or a non-network failure): stop looping.
+          // The pending-download record stays as-is so the chapter screen
+          // can show a manual "Resume" button — we deliberately do NOT
+          // delete the partial output file/segment cache here, since that
+          // is exactly what lets Resume pick up quickly instead of
+          // re-downloading everything.
+          FirebaseCrashlytics.instance
+              .recordError(e, stack, reason: 'Download Failed');
+          await notifService.cancelNotification(notificationId);
+          await notifService.showCompletionNotification(
+            id: DateTime.now().millisecondsSinceEpoch.remainder(2147483647),
+            title: videoTitle,
+            isSuccess: false,
+          );
+          onError("Download paused. Tap Resume to continue.");
+          break;
+        }
+      }
     } finally {
       _activeDownloads.remove(lessonId);
       _cancelTokens.remove(lessonId);
       activeTitles.remove(lessonId);
+      _activeSavePaths.remove(lessonId);
 
       var prog = Map<String, double>.from(downloadingProgress.value);
       prog.remove(lessonId);
@@ -497,6 +606,79 @@ class DownloadManager with WidgetsBindingObserver {
       }
     }
   }
+
+  /// ✅ [FIX] Heuristic used to decide whether a failure is the kind that's
+  /// worth auto-retrying (connection dropped/timed out) versus a failure
+  /// that will just happen again immediately (bad auth, missing link, user
+  /// cancellation, etc.) and shouldn't burn retry attempts.
+  bool _isLikelyConnectivityError(Object e) {
+    if (e is SocketException) return true;
+    if (e is DioException) {
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+        case DioExceptionType.connectionError:
+          return true;
+        default:
+          return e.error is SocketException;
+      }
+    }
+    final msg = e.toString().toLowerCase();
+    return msg.contains('socketexception') ||
+        msg.contains('failed host lookup') ||
+        msg.contains('network is unreachable') ||
+        msg.contains('connection closed') ||
+        msg.contains('connection reset') ||
+        msg.contains('timeout');
+  }
+
+  /// ✅ [FIX] Resumes a previously started (but not completed) download
+  /// using the metadata saved when it first started — same lesson, same
+  /// quality, same course/subject/chapter placement — without needing to
+  /// re-open the quality-selection dialog. If the originally resolved link
+  /// is missing or has expired, `startDownload` already falls back to
+  /// re-resolving a fresh one for the same lesson automatically.
+  Future<bool> resumeDownload(
+    String lessonId, {
+    required Function(double) onProgress,
+    required Function() onComplete,
+    required Function(String) onError,
+  }) async {
+    final pendingBox = await StorageService.openBox('pending_downloads_box');
+    final Map? data = pendingBox.get(lessonId) is Map
+        ? Map.from(pendingBox.get(lessonId) as Map)
+        : null;
+    if (data == null) return false;
+
+    await startDownload(
+      lessonId: lessonId,
+      videoTitle: data['videoTitle'] ?? '',
+      courseName: data['courseName'] ?? '',
+      subjectName: data['subjectName'] ?? '',
+      chapterName: data['chapterName'] ?? '',
+      folderName: data['folderName'],
+      subjectId: data['subjectId'] ?? '',
+      downloadUrl: data['downloadUrl'],
+      audioUrl: data['audioUrl'],
+      isPdf: data['isPdf'] ?? false,
+      quality: data['quality'] ?? 'SD',
+      duration: data['duration'] ?? '',
+      onProgress: onProgress,
+      onComplete: onComplete,
+      onError: onError,
+    );
+    return true;
+  }
+
+  /// ✅ [FIX] Lets the UI know — synchronously, from whatever's already in
+  /// memory/Hive — whether a lesson has an unfinished download it can
+  /// offer to resume (as opposed to a fresh "Download" button).
+  bool hasResumableDownload(String lessonId) {
+    if (!Hive.isBoxOpen('pending_downloads_box')) return false;
+    return Hive.box('pending_downloads_box').containsKey(lessonId);
+  }
+
 
   Future<void> validateAndCleanRevokedDownloads(
       List<String> authorizedSubjects) async {
@@ -745,6 +927,10 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     final secretKey = SecretKey(keyBytes);
     const int CHUNK_SIZE = 32 * 1024;
     const int NONCE_LENGTH = 12;
+    // ✅ [FIX] needed to work out how many whole encrypted blocks already sit
+    // on disk from a previous, interrupted attempt (see resume logic below).
+    const int MAC_LENGTH = 16;
+    const int ENCRYPTED_CHUNK_SIZE = NONCE_LENGTH + CHUNK_SIZE + MAC_LENGTH;
 
     Future<Uint8List> encryptData(List<int> data) async {
       final nonce =
@@ -777,6 +963,62 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
 
       if (tsUrls.isEmpty) throw Exception("No TS segments found");
 
+      // ✅ [FIX] Per-segment disk cache so an interrupted HLS download can
+      // resume — automatically (simply calling startDownload again for the
+      // same lesson) or manually (a "Resume" button that does the same) —
+      // without re-downloading segments that already finished. This also
+      // means a segment that fails is retried and, if it still fails, the
+      // whole isolate throws instead of silently being skipped. Previously
+      // a failed segment was swallowed and counted as "done" anyway, which
+      // is why a video with a mid-download connection drop would report
+      // "download complete" while actually missing a chunk of the middle
+      // or end of the file (e.g. only the first 5 minutes of a 1 hour
+      // video would ever get written).
+      final segDir = Directory('$savePath.segments');
+      if (!await segDir.exists()) await segDir.create(recursive: true);
+
+      Future<List<int>> fetchSegment(String segUrl, int index) async {
+        final cacheFile = File('${segDir.path}/seg_$index.ts');
+        if (await cacheFile.exists()) {
+          final len = await cacheFile.length();
+          if (len > 0) {
+            try {
+              return await cacheFile.readAsBytes();
+            } catch (_) {
+              // Cached copy unreadable/corrupt — fall through and re-fetch.
+            }
+          }
+        }
+
+        Object? lastError;
+        for (int attempt = 0; attempt < 4; attempt++) {
+          try {
+            final rs = await dio.get<List<int>>(segUrl,
+                options: Options(
+                    headers: headers,
+                    responseType: ResponseType.bytes,
+                    receiveTimeout: const Duration(seconds: 20)));
+            final data = rs.data;
+            if (data == null || data.isEmpty) {
+              throw Exception("Empty segment response");
+            }
+            await cacheFile.writeAsBytes(data, flush: true);
+            return data;
+          } catch (e) {
+            lastError = e;
+            if (attempt < 3) {
+              await Future.delayed(Duration(seconds: 1 + attempt));
+            }
+          }
+        }
+        // Segment genuinely failed after retries. Throw (instead of
+        // returning null and silently moving on) so the download is marked
+        // as failed rather than falsely "complete" — the segments already
+        // cached on disk are left in place so the next attempt can resume
+        // from here instead of starting over.
+        throw Exception("Segment $index failed after retries: $lastError");
+      }
+
       final file = File(savePath);
       final sink = await file.open(mode: FileMode.write);
       List<int> buffer = [];
@@ -784,25 +1026,16 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
       int done = 0;
       const int batchSize = 8;
 
-      for (int i = 0; i < total; i += batchSize) {
-        int end = min(i + batchSize, total);
-        List<String> batchUrls = tsUrls.sublist(i, end);
-        List<Future<List<int>?>> futures = batchUrls.map((u) async {
-          try {
-            final rs = await dio.get<List<int>>(u,
-                options: Options(
-                    headers: headers,
-                    responseType: ResponseType.bytes,
-                    receiveTimeout: const Duration(seconds: 20)));
-            return rs.data;
-          } catch (e) {
-            return null;
+      try {
+        for (int i = 0; i < total; i += batchSize) {
+          int end = min(i + batchSize, total);
+          List<Future<List<int>>> futures = [];
+          for (int j = i; j < end; j++) {
+            futures.add(fetchSegment(tsUrls[j], j));
           }
-        }).toList();
 
-        List<List<int>?> results = await Future.wait(futures);
-        for (var data in results) {
-          if (data != null) {
+          List<List<int>> results = await Future.wait(futures);
+          for (var data in results) {
             buffer.addAll(data);
             while (buffer.length >= CHUNK_SIZE) {
               final block = buffer.sublist(0, CHUNK_SIZE);
@@ -810,18 +1043,30 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
               final enc = await encryptData(block);
               await sink.writeFrom(enc);
             }
+            done++;
+            sendPort.send(done / total);
           }
-          done++;
-          sendPort.send(done / total);
         }
+        if (buffer.isNotEmpty) {
+          final enc = await encryptData(buffer);
+          await sink.writeFrom(enc);
+        }
+        await sink.close();
+
+        // ✅ Success — the raw segment cache is no longer needed.
+        try {
+          if (await segDir.exists()) await segDir.delete(recursive: true);
+        } catch (_) {}
+
+        sendPort.send('done');
+        return;
+      } catch (e) {
+        await sink.close();
+        // NOTE: we intentionally do NOT delete segDir here — those already
+        // -downloaded segments are exactly what let a retry/resume finish
+        // quickly instead of re-downloading the whole video from scratch.
+        rethrow;
       }
-      if (buffer.isNotEmpty) {
-        final enc = await encryptData(buffer);
-        await sink.writeFrom(enc);
-      }
-      await sink.close();
-      sendPort.send('done');
-      return;
     }
 
     int totalBytes = 0;
@@ -832,7 +1077,38 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     } catch (_) {}
 
     final file = File(savePath);
-    final sink = await file.open(mode: FileMode.write);
+
+    // ✅ [FIX] Resume support for direct MP4/progressive downloads: if a
+    // previous attempt was interrupted (connection dropped, app killed,
+    // etc.) partway through, don't discard that progress — figure out how
+    // many whole encrypted blocks are already safely on disk and continue
+    // from there with an HTTP Range request instead of starting over.
+    int downloadedBytes = 0;
+    FileMode sinkMode = FileMode.write;
+    if (totalBytes > 0 && await file.exists()) {
+      final existingLen = await file.length();
+      final completeChunks = existingLen ~/ ENCRYPTED_CHUNK_SIZE;
+      final alignedLen = completeChunks * ENCRYPTED_CHUNK_SIZE;
+      final resumableBytes = completeChunks * CHUNK_SIZE;
+      if (completeChunks > 0 && resumableBytes < totalBytes) {
+        try {
+          final raf = await file.open(mode: FileMode.append);
+          // Drop any trailing partial/unconfirmed block from a previous
+          // crash before appending fresh data after it.
+          await raf.truncate(alignedLen);
+          await raf.close();
+          downloadedBytes = resumableBytes;
+          sinkMode = FileMode.append;
+        } catch (_) {
+          // If anything about the existing file looks off, fall back to a
+          // clean re-download rather than risk a corrupt result.
+          downloadedBytes = 0;
+          sinkMode = FileMode.write;
+        }
+      }
+    }
+
+    final sink = await file.open(mode: sinkMode);
     List<int> buffer = [];
 
     if (totalBytes <= 0) {
@@ -865,7 +1141,7 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     }
 
     const int reqChunkSize = 1 * 1024 * 1024;
-    int downloadedBytes = 0;
+    // downloadedBytes may already be non-zero here if we resumed above.
 
     while (downloadedBytes < totalBytes) {
       int start = downloadedBytes;
