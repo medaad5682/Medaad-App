@@ -234,6 +234,7 @@
   "downloadStartedMessage": "بدأ التحميل...",
   "downloadCompletedMessage": "اكتمل التحميل!",
   "downloadFailedMessage": "فشل التحميل",
+  "resumeDownloadAction": "استئناف",
   "pdfDownloadStartedMessage": "بدأ تحميل الملف...",
   "pdfDownloadCompletedMessage": "اكتمل تحميل الملف!",
   "videosTabLabel": "الفيديوهات",

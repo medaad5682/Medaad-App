@@ -1019,6 +1019,10 @@
   "@downloadFailedMessage": {
     "description": "Snackbar shown when a video or PDF download fails"
   },
+  "resumeDownloadAction": "Resume",
+  "@resumeDownloadAction": {
+    "description": "Snackbar action button label to resume a failed/interrupted download from where it left off"
+  },
   "pdfDownloadStartedMessage": "PDF Download Started...",
   "@pdfDownloadStartedMessage": {
     "description": "Snackbar shown when a PDF download begins"
