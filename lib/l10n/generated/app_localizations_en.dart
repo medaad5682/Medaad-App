@@ -716,6 +716,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get downloadFailedMessage => 'Download Failed';
 
   @override
+  String get resumeDownloadAction => 'Resume';
+
+  @override
   String get pdfDownloadStartedMessage => 'PDF Download Started...';
 
   @override

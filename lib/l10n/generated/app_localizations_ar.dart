@@ -709,6 +709,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get downloadFailedMessage => 'فشل التحميل';
 
   @override
+  String get resumeDownloadAction => 'استئناف';
+
+  @override
   String get pdfDownloadStartedMessage => 'بدأ تحميل الملف...';
 
   @override

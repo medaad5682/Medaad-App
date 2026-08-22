@@ -1412,6 +1412,12 @@ abstract class AppLocalizations {
   /// **'Download Failed'**
   String get downloadFailedMessage;
 
+  /// Snackbar action button label to resume a failed/interrupted download from where it left off
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get resumeDownloadAction;
+
   /// Snackbar shown when a PDF download begins
   ///
   /// In en, this message translates to:
