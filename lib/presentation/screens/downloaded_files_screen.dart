@@ -149,8 +149,29 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                   return ValueListenableBuilder<Map<String, double>>(
                     valueListenable: DownloadManager.downloadingProgress,
                     builder: (context, progressMap, child) {
-                       
-                      if (groupedCourses.isEmpty && progressMap.isEmpty) {
+                      // ✅ [MOVED] Paused/interrupted downloads (connection
+                      // dropped, auto-retries exhausted, etc.) used to only
+                      // surface a "Resume" button back on the chapter
+                      // screen. They now show here instead, right next to
+                      // the active-download progress bars, driven by the
+                      // same pending_downloads_box the manager already
+                      // maintains. A pending id that's also actively
+                      // downloading (progressMap) is excluded here since
+                      // it's already shown in the "active" section above.
+                      return ValueListenableBuilder(
+                        valueListenable:
+                            Hive.box('pending_downloads_box').listenable(),
+                        builder: (context, Box pendingBox, __) {
+                      final List<MapEntry<String, dynamic>> pausedEntries =
+                          pendingBox.keys
+                              .cast<String>()
+                              .where((id) => !progressMap.containsKey(id))
+                              .map((id) => MapEntry(id, pendingBox.get(id)))
+                              .toList();
+
+                      if (groupedCourses.isEmpty &&
+                          progressMap.isEmpty &&
+                          pausedEntries.isEmpty) {
                         return Center(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 80),
@@ -251,6 +272,98 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                               const SizedBox(height: 24),
                             ],
 
+                            // ✅ [MOVED] قسم التحميلات المتوقفة - يحتوي على
+                            // زر الاستئناف الذي كان سابقاً في شاشة الفصل
+                            if (pausedEntries.isNotEmpty) ...[
+                              Padding(
+                                padding: const EdgeInsetsDirectional.only(start: 4, bottom: 12),
+                                child: Text(
+                                  AppLocalizations.of(context)!.pausedDownloadsLabel,
+                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 2.0),
+                                ),
+                              ),
+                              ...pausedEntries.map((entry) {
+                                final id = entry.key;
+                                final Map data = entry.value is Map
+                                    ? Map.from(entry.value as Map)
+                                    : {};
+                                final String title = (data['videoTitle'] ??
+                                        AppLocalizations.of(context)!.downloadingItemPlaceholder)
+                                    .toString();
+                                final bool isPdf = data['isPdf'] == true;
+
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.backgroundSecondary,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: AppColors.textSecondary.withOpacity(0.2)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.backgroundPrimary,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          isPdf ? LucideIcons.fileText : LucideIcons.pause,
+                                          size: 16,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              title,
+                                              style: TextStyle(color: AppColors.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              AppLocalizations.of(context)!.downloadPausedStatusLabel,
+                                              style: TextStyle(color: AppColors.textSecondary, fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 1.0),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+
+                                      // ✅ زر الاستئناف - انتقل هنا من شاشة الفصل
+                                      GestureDetector(
+                                        onTap: () => _resumeDownload(id, title),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.accentYellow,
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(LucideIcons.play, size: 12, color: AppColors.backgroundPrimary),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                AppLocalizations.of(context)!.resumeDownloadAction,
+                                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.backgroundPrimary),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                              const SizedBox(height: 24),
+                            ],
+
                             // قسم الكورسات المحملة (كما هو)
                             if (groupedCourses.isNotEmpty) ...[
                               ...groupedCourses.entries.map((entry) => GestureDetector(
@@ -320,6 +433,8 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                           ],
                         ),
                       );
+                        },
+                      );
                     },
                   );
                 },
@@ -328,6 +443,29 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// ✅ [MOVED] Resumes a previously started (but interrupted) download from
+  /// this screen — same lessonId, all other metadata (quality, course,
+  /// subject/chapter placement, resolved URL) is read back from
+  /// `pending_downloads_box` inside DownloadManager.resumeDownload() itself,
+  /// so nothing else needs to be passed in here.
+  void _resumeDownload(String lessonId, String title) {
+    FirebaseCrashlytics.instance.log("▶️ Resuming download from Downloads screen: $title");
+    DownloadManager().resumeDownload(
+      lessonId,
+      onProgress: (p) {},
+      onComplete: () {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(AppLocalizations.of(context)!.downloadCompletedMessage),
+              backgroundColor: AppColors.success));
+        }
+      },
+      onError: (e) {
+        debugPrint("Resume failed for $title: $e");
+      },
     );
   }
    

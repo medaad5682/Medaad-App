@@ -586,28 +586,10 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     );
   }
 
-  /// ✅ [FIX] Resumes a download that previously started but didn't finish
-  /// (connection dropped, app closed, etc.) using the metadata that was
-  /// saved when it first started — same quality, same placement — so the
-  /// quality-selection dialog never needs to reopen.
-  void _resumeVideoDownload(String videoId, String videoTitle) {
-    if (!mounted) return;
-    FirebaseCrashlytics.instance.log("▶️ Resuming download: $videoTitle");
-
-    DownloadManager().resumeDownload(
-      videoId,
-      onProgress: (p) {},
-      onComplete: () {
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(AppLocalizations.of(context)!.downloadCompletedMessage),
-              backgroundColor: AppColors.success));
-      },
-      onError: (e) {
-        debugPrint("Resume failed for $videoTitle: $e");
-      },
-    );
-  }
+  // ✅ [MOVED] _resumeVideoDownload used to live here; the tappable Resume
+  // action is now on the Downloads screen (DownloadedFilesScreen), which
+  // calls DownloadManager().resumeDownload() directly. This screen only
+  // shows a "Paused" status now (see isResumable branch above).
 
   void _startVideoDownload(String videoId, String videoTitle,
       String? downloadUrl, String? audioUrl, String quality, String duration) {
@@ -652,25 +634,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     );
   }
 
-  /// ✅ [FIX] Resumes an interrupted PDF download from where it stopped.
-  void _resumePdfDownload(String pdfId, String pdfTitle) {
-    if (!mounted) return;
-    FirebaseCrashlytics.instance.log("▶️ Resuming PDF download: $pdfTitle");
-
-    DownloadManager().resumeDownload(
-      pdfId,
-      onProgress: (p) {},
-      onComplete: () {
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(AppLocalizations.of(context)!.pdfDownloadCompletedMessage),
-              backgroundColor: AppColors.success));
-      },
-      onError: (e) {
-        debugPrint("PDF resume failed for $pdfTitle: $e");
-      },
-    );
-  }
+  // ✅ [MOVED] _resumePdfDownload used to live here; resume for PDFs is now
+  // also handled from the Downloads screen, same as videos.
 
   void _startPdfDownload(String pdfId, String pdfTitle) {
     ScaffoldMessenger.of(context)
@@ -1105,10 +1070,15 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                                     AppColors.accentYellow, LucideIcons.loader);
                               }
                               else if (isResumable) {
-                                return _buildActionButton(
-                                    AppLocalizations.of(context)!.resumeDownloadAction,
+                                // ✅ [MOVED] The tappable "Resume" action now
+                                // lives in the Downloads screen (next to the
+                                // active-downloads progress bars), so this
+                                // row just shows a non-interactive "Paused"
+                                // status pointing the user there.
+                                return _buildStatusButton(
+                                    AppLocalizations.of(context)!.downloadPausedStatusLabel,
                                     AppColors.accentYellow,
-                                    () => _resumeVideoDownload(videoId, video['title']));
+                                    LucideIcons.pause);
                               } else {
                                 // ✅ إخفاء زر التحميل بناءً على الإعدادات
                                 if (!_isVideoDownloadEnabled()) {
@@ -1368,10 +1338,12 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                                   AppColors.accentYellow, LucideIcons.loader);
                             }
                             else if (isResumable) {
-                              return _buildActionButton(
-                                  AppLocalizations.of(context)!.resumeDownloadAction,
+                              // ✅ [MOVED] Resume action now lives in the
+                              // Downloads screen; this is just a status.
+                              return _buildStatusButton(
+                                  AppLocalizations.of(context)!.downloadPausedStatusLabel,
                                   AppColors.accentYellow,
-                                  () => _resumePdfDownload(pdfId, pdf['title']));
+                                  LucideIcons.pause);
                             }
                             else {
                               // ✅ التحقق من إعدادات زر تحميل الـ PDF
