@@ -224,6 +224,11 @@ class _SplashScreenState extends State<SplashScreen>
       await StorageService.ensureInitialized();
       var box = await StorageService.openBox('auth_box');
       await StorageService.openBox('downloads_box');
+      // ✅ [FIX] Tracks downloads that started but haven't finished (network
+      // dropped, app killed mid-download, etc.) so the chapter screen can
+      // show a "Resume" state instead of a plain "Download" button, without
+      // needing the quality-selection dialog again.
+      await StorageService.openBox('pending_downloads_box');
 
       final UpdateService _updateService = UpdateService();
 

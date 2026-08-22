@@ -586,6 +586,29 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     );
   }
 
+  /// ✅ [FIX] Resumes a download that previously started but didn't finish
+  /// (connection dropped, app closed, etc.) using the metadata that was
+  /// saved when it first started — same quality, same placement — so the
+  /// quality-selection dialog never needs to reopen.
+  void _resumeVideoDownload(String videoId, String videoTitle) {
+    if (!mounted) return;
+    FirebaseCrashlytics.instance.log("▶️ Resuming download: $videoTitle");
+
+    DownloadManager().resumeDownload(
+      videoId,
+      onProgress: (p) {},
+      onComplete: () {
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(AppLocalizations.of(context)!.downloadCompletedMessage),
+              backgroundColor: AppColors.success));
+      },
+      onError: (e) {
+        debugPrint("Resume failed for $videoTitle: $e");
+      },
+    );
+  }
+
   void _startVideoDownload(String videoId, String videoTitle,
       String? downloadUrl, String? audioUrl, String quality, String duration) {
     // ── Fix: "Null check operator used on a null value" في State.context ──
@@ -618,10 +641,33 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
               backgroundColor: AppColors.success));
       },
       onError: (e) {
+        // ✅ [FIX] No snackbar here anymore — the download manager already
+        // auto-retries transient connection drops on its own, and if it
+        // still can't finish, the video's row below switches to a "Resume"
+        // button automatically (driven by pending_downloads_box), so the
+        // user always has a persistent way to continue instead of a toast
+        // that disappears.
+        debugPrint("Download paused for $videoTitle: $e");
+      },
+    );
+  }
+
+  /// ✅ [FIX] Resumes an interrupted PDF download from where it stopped.
+  void _resumePdfDownload(String pdfId, String pdfTitle) {
+    if (!mounted) return;
+    FirebaseCrashlytics.instance.log("▶️ Resuming PDF download: $pdfTitle");
+
+    DownloadManager().resumeDownload(
+      pdfId,
+      onProgress: (p) {},
+      onComplete: () {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(AppLocalizations.of(context)!.downloadFailedMessage),
-              backgroundColor: AppColors.error));
+              content: Text(AppLocalizations.of(context)!.pdfDownloadCompletedMessage),
+              backgroundColor: AppColors.success));
+      },
+      onError: (e) {
+        debugPrint("PDF resume failed for $pdfTitle: $e");
       },
     );
   }
@@ -649,10 +695,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
               backgroundColor: AppColors.success));
       },
       onError: (e) {
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(AppLocalizations.of(context)!.downloadFailedMessage),
-              backgroundColor: AppColors.error));
+        // ✅ [FIX] Same as videos — the manager auto-retries and then
+        // leaves this resumable in pending_downloads_box; no snackbar.
+        debugPrint("PDF download paused for $pdfTitle: $e");
       },
     );
   }
@@ -1024,9 +1069,20 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                             valueListenable:
                                 Hive.box('downloads_box').listenable(),
                             builder: (context, Box box, _) {
+                              return ValueListenableBuilder(
+                                valueListenable: Hive.box('pending_downloads_box')
+                                    .listenable(),
+                                builder: (context, Box pendingBox, __) {
                               String storageKey = 'vid_$videoId';
                               bool isDownloaded = box.containsKey(storageKey);
                               bool isDownloading = progresses.containsKey(videoId);
+                              // ✅ [FIX] A download that started but hasn't
+                              // finished (connection dropped, app killed,
+                              // etc.) shows up here so it can be resumed
+                              // with one tap instead of going back through
+                              // quality selection.
+                              bool isResumable =
+                                  !isDownloading && pendingBox.containsKey(videoId);
 
                               String? sizeStr;
                               if (isDownloaded) {
@@ -1047,6 +1103,12 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                               else if (isDownloading) {
                                 return _buildStatusButton(AppLocalizations.of(context)!.processingLabel,
                                     AppColors.accentYellow, LucideIcons.loader);
+                              }
+                              else if (isResumable) {
+                                return _buildActionButton(
+                                    AppLocalizations.of(context)!.resumeDownloadAction,
+                                    AppColors.accentYellow,
+                                    () => _resumeVideoDownload(videoId, video['title']));
                               } else {
                                 // ✅ إخفاء زر التحميل بناءً على الإعدادات
                                 if (!_isVideoDownloadEnabled()) {
@@ -1059,6 +1121,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                                     () => _prepareVideoDownload(
                                         videoId, video['title'], duration));
                               }
+                                },
+                              );
                             },
                           );
                         },
@@ -1285,9 +1349,15 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                           valueListenable:
                               Hive.box('downloads_box').listenable(),
                           builder: (context, Box box, _) {
+                            return ValueListenableBuilder(
+                              valueListenable:
+                                  Hive.box('pending_downloads_box').listenable(),
+                              builder: (context, Box pendingBox, __) {
                             String storageKey = 'pdf_$pdfId';
                             bool isDownloaded = box.containsKey(storageKey);
                             bool isDownloading = progresses.containsKey(pdfId);
+                            bool isResumable =
+                                !isDownloading && pendingBox.containsKey(pdfId);
 
                             if (isDownloaded) {
                               return _buildStatusButton(AppLocalizations.of(context)!.savedLabel,
@@ -1296,6 +1366,12 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                             else if (isDownloading) {
                               return _buildStatusButton(AppLocalizations.of(context)!.processingLabel,
                                   AppColors.accentYellow, LucideIcons.loader);
+                            }
+                            else if (isResumable) {
+                              return _buildActionButton(
+                                  AppLocalizations.of(context)!.resumeDownloadAction,
+                                  AppColors.accentYellow,
+                                  () => _resumePdfDownload(pdfId, pdf['title']));
                             }
                             else {
                               // ✅ التحقق من إعدادات زر تحميل الـ PDF
@@ -1308,6 +1384,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                                   AppColors.textSecondary,
                                   () => _startPdfDownload(pdfId, pdf['title']));
                             }
+                              },
+                            );
                           },
                         );
                       },
