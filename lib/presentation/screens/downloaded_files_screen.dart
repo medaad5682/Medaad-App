@@ -237,7 +237,23 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                                             children: [
                                               Text(AppLocalizations.of(context)!.downloadPercentLabel(percent), style: TextStyle(color: AppColors.accentYellow, fontSize: 12, fontWeight: FontWeight.bold)),
                                               const SizedBox(width: 12),
-                                              
+
+                                              // ✅ زر الإيقاف المؤقت (Pause)
+                                              GestureDetector(
+                                                onTap: () {
+                                                  DownloadManager().pauseDownload(id);
+                                                },
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(6),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.textSecondary.withOpacity(0.15),
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                  child: Icon(LucideIcons.pause, size: 14, color: AppColors.textSecondary),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+
                                               // ✅ زر الإلغاء (X)
                                               GestureDetector(
                                                 onTap: () {
