@@ -398,7 +398,7 @@ class _SplashScreenState extends State<SplashScreen>
       if (response.statusCode == 200) {
         AppState().updateFromInitData(response.data);
 
-        bool serverFreeMode = response.data['freeModeV7'] ?? false;
+        bool serverFreeMode = response.data['freeModeV8'] ?? false;
         if (Platform.isAndroid) {
           serverFreeMode = false;
         }
@@ -436,7 +436,7 @@ class _SplashScreenState extends State<SplashScreen>
       if (response.statusCode == 200 && response.data['success'] == true) {
         AppState().updateFromInitData(response.data);
 
-        bool serverFreeMode = response.data['freeModeV7'] ?? false;
+        bool serverFreeMode = response.data['freeModeV8'] ?? false;
         if (Platform.isAndroid) {
           serverFreeMode = false;
         }
