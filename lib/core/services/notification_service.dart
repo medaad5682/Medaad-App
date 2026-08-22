@@ -291,6 +291,7 @@ class NotificationService {
     required int id,
     required String title,
     required bool isSuccess,
+    String? failureMessage,
   }) async {
     const String channelId = 'download_completed_channel';
 
@@ -319,7 +320,9 @@ class NotificationService {
     await flutterLocalNotificationsPlugin.show(
       id,
       isSuccess ? 'Download Complete' : 'Download Failed',
-      isSuccess ? '$title has been downloaded.' : 'Failed to download $title.',
+      isSuccess
+          ? '$title has been downloaded.'
+          : (failureMessage ?? 'Failed to download $title.'),
       platformChannelSpecifics,
     );
   }
