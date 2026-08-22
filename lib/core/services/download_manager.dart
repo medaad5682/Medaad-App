@@ -342,6 +342,19 @@ class DownloadManager with WidgetsBindingObserver {
       Duration(seconds: 30),
     ];
     int attempt = 0;
+    // ✅ [FIX] Tracks the furthest aggregated progress reached so far across
+    // every attempt in this single startDownload() call. `attempt` used to
+    // be a lifetime counter for the whole call — once 3 failures happened
+    // ANYWHERE (even far apart, with real progress made in between), the
+    // very next hiccup would give up for good with "failed", no matter how
+    // close to 100% the download was. That's exactly what produced the
+    // "resumes fine from 56% up to 98%, then suddenly fails" reports: on a
+    // long/flaky download it's easy to hit 2-3 transient blips well before
+    // the end, quietly using up the whole retry budget, so the blip right
+    // near completion has nothing left and hard-fails instead of
+    // auto-retrying like all the earlier ones did. See the reset below.
+    double bestProgressSoFar = 0.0;
+    double progressAtLastFailure = 0.0;
 
     try {
       while (true) {
@@ -465,6 +478,7 @@ class DownloadManager with WidgetsBindingObserver {
               prog[lessonId] = p;
               downloadingProgress.value = prog;
               onProgress(p);
+              if (p > bestProgressSoFar) bestProgressSoFar = p;
               int percent = (p * 100).toInt();
               if (percent % 5 == 0) {
                 notifService.showProgressNotification(
@@ -489,6 +503,7 @@ class DownloadManager with WidgetsBindingObserver {
           prog[lessonId] = total;
           downloadingProgress.value = prog;
           onProgress(total);
+          if (total > bestProgressSoFar) bestProgressSoFar = total;
 
           int percent = (total * 100).toInt();
           if (percent % 2 == 0) {
@@ -618,6 +633,16 @@ class DownloadManager with WidgetsBindingObserver {
           // and keeps going from the cached progress.
           final bool isExpiredLink = e is LinkExpiredException;
           final bool isNetworkIssue = _isLikelyConnectivityError(e);
+
+          // ✅ [FIX] Only count this as one more strike against the shared
+          // retry budget if we HAVEN'T made any real progress since the
+          // last failure. If we have, this is a fresh problem on
+          // previously-solid ground — give it a full new budget instead of
+          // letting old, already-recovered-from failures count against it.
+          if (bestProgressSoFar > progressAtLastFailure + 0.01) {
+            attempt = 0;
+          }
+          progressAtLastFailure = bestProgressSoFar;
           attempt++;
 
           if (isExpiredLink &&
@@ -722,17 +747,52 @@ class DownloadManager with WidgetsBindingObserver {
         case DioExceptionType.receiveTimeout:
         case DioExceptionType.connectionError:
           return true;
+        case DioExceptionType.badResponse:
+          // 401/403 are handled separately as an expired signed link, and
+          // other 4xx (400/404/etc) are genuine, non-retryable problems —
+          // but a 429 or 5xx from the CDN is a transient server hiccup
+          // worth another try, same as a dropped connection.
+          final status = e.response?.statusCode ?? 0;
+          return status == 429 || (status >= 500 && status < 600);
         default:
           return e.error is SocketException;
       }
     }
+    // ✅ [FIX] By the time an error crosses the isolate boundary (see
+    // `_videoDownloadIsolateEntryPoint`'s `sendPort.send('error: $e')`), all
+    // type information is gone — it arrives here as a plain Exception whose
+    // message is just the original error's toString(). So this string
+    // fallback is actually the ONLY check that matters for real
+    // video/audio download failures, and the old narrow list of substrings
+    // missed plenty of everyday transient errors — especially the kind
+    // that show up right after a cold app start / network hand-off
+    // (Wi-Fi <-> mobile data switching, radio waking up, DNS not ready
+    // yet): "Software caused connection abort", TLS handshake resets,
+    // "Connection refused", "Broken pipe", etc. Any of those used to fall
+    // straight through to an immediate, un-retried hard failure instead of
+    // the same auto-retry a plain dropped connection gets.
     final msg = e.toString().toLowerCase();
-    return msg.contains('socketexception') ||
-        msg.contains('failed host lookup') ||
-        msg.contains('network is unreachable') ||
-        msg.contains('connection closed') ||
-        msg.contains('connection reset') ||
-        msg.contains('timeout');
+    const transientMarkers = [
+      'socketexception',
+      'failed host lookup',
+      'network is unreachable',
+      'connection closed',
+      'connection reset',
+      'connection refused',
+      'connection abort',
+      'broken pipe',
+      'timeout',
+      'timed out',
+      'handshake',
+      'tlsexception',
+      'httpexception',
+      'os error',
+      'stream closed',
+      'unexpected end of stream',
+      'no route to host',
+      'client exception',
+    ];
+    return transientMarkers.any(msg.contains);
   }
 
   /// ✅ [FIX] Resumes a previously started (but not completed) download
@@ -1297,102 +1357,129 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     }
 
     final sink = await file.open(mode: sinkMode);
-    List<int> buffer = [];
-
-    // ✅ [FIX] Same as the HLS path above: report the resume point right
-    // away instead of letting the UI sit at 0% until the first network
-    // chunk lands. This is what actually stops the progress bar from
-    // visibly starting at 0% on resume.
-    if (downloadedBytes > 0 && totalBytes > 0) {
-      sendPort.send(downloadedBytes / totalBytes);
+    // ✅ [FIX] Unlike the HLS branch above (which already closes its sink
+    // before rethrowing on failure), this progressive/MP4 branch used to
+    // leave `sink` open whenever it threw — the outer catch at the very
+    // bottom of this function only sends an 'error'/'link_expired' message,
+    // it never closes this sink. `isolate.kill()` is then called back on
+    // the main isolate the moment that message arrives, which can happen
+    // before any buffered-but-unflushed bytes from the last successful
+    // write are guaranteed to have hit disk. On a normal in-app retry this
+    // was rarely noticed (the isolate died anyway, and the next attempt
+    // just re-scans the file), but it meant the file's last few KB right
+    // before a failure weren't reliably durable — worth closing cleanly
+    // every time so a resume always starts from a fully-flushed byte
+    // count.
+    bool sinkClosed = false;
+    Future<void> closeSinkOnce() async {
+      if (sinkClosed) return;
+      sinkClosed = true;
+      try {
+        await sink.close();
+      } catch (_) {}
     }
 
-    if (totalBytes <= 0) {
-      Response res;
-      try {
-        res = await dio.get(url,
-            options:
-                Options(responseType: ResponseType.stream, headers: headers));
-      } catch (e) {
-        if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
-        rethrow;
-      }
-      int received = 0;
-      int total =
-          int.parse(res.headers.value(Headers.contentLengthHeader) ?? '-1');
-      Stream<Uint8List> stream = res.data.stream;
+    List<int> buffer = [];
 
-      await for (final chunk in stream) {
-        buffer.addAll(chunk);
-        while (buffer.length >= CHUNK_SIZE) {
-          final block = buffer.sublist(0, CHUNK_SIZE);
-          buffer.removeRange(0, CHUNK_SIZE);
-          final enc = await encryptData(block);
+    try {
+      // ✅ [FIX] Same as the HLS path above: report the resume point right
+      // away instead of letting the UI sit at 0% until the first network
+      // chunk lands. This is what actually stops the progress bar from
+      // visibly starting at 0% on resume.
+      if (downloadedBytes > 0 && totalBytes > 0) {
+        sendPort.send(downloadedBytes / totalBytes);
+      }
+
+      if (totalBytes <= 0) {
+        Response res;
+        try {
+          res = await dio.get(url,
+              options: Options(
+                  responseType: ResponseType.stream, headers: headers));
+        } catch (e) {
+          if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
+          rethrow;
+        }
+        int received = 0;
+        int total =
+            int.parse(res.headers.value(Headers.contentLengthHeader) ?? '-1');
+        Stream<Uint8List> stream = res.data.stream;
+
+        await for (final chunk in stream) {
+          buffer.addAll(chunk);
+          while (buffer.length >= CHUNK_SIZE) {
+            final block = buffer.sublist(0, CHUNK_SIZE);
+            buffer.removeRange(0, CHUNK_SIZE);
+            final enc = await encryptData(block);
+            await sink.writeFrom(enc);
+          }
+          received += chunk.length;
+          if (total != -1) sendPort.send(received / total);
+        }
+        if (buffer.isNotEmpty) {
+          final enc = await encryptData(buffer);
           await sink.writeFrom(enc);
         }
-        received += chunk.length;
-        if (total != -1) sendPort.send(received / total);
+        await closeSinkOnce();
+        sendPort.send('done');
+        return;
       }
+
+      const int reqChunkSize = 1 * 1024 * 1024;
+      // downloadedBytes may already be non-zero here if we resumed above.
+
+      while (downloadedBytes < totalBytes) {
+        int start = downloadedBytes;
+        int end = min(start + reqChunkSize - 1, totalBytes - 1);
+
+        bool chunkSuccess = false;
+        int retries = 5;
+
+        while (retries > 0 && !chunkSuccess) {
+          try {
+            final res = await dio.get(url,
+                options: Options(
+                    responseType: ResponseType.stream,
+                    headers: {...headers, 'Range': 'bytes=$start-$end'}));
+
+            Stream<Uint8List> stream = res.data.stream;
+            await for (final chunk in stream) {
+              buffer.addAll(chunk);
+              while (buffer.length >= CHUNK_SIZE) {
+                final block = buffer.sublist(0, CHUNK_SIZE);
+                buffer.removeRange(0, CHUNK_SIZE);
+                final enc = await encryptData(block);
+                await sink.writeFrom(enc);
+              }
+            }
+            chunkSuccess = true;
+            downloadedBytes += (end - start + 1);
+            sendPort.send(downloadedBytes / totalBytes);
+          } catch (e) {
+            // ✅ [FIX] Same reasoning as the HLS segment loop above: a
+            // 401/403 means the signed link expired mid-download (most
+            // common when a paused download is resumed a long time after it
+            // was started) — retrying the same url won't help, so surface it
+            // distinctly instead of burning all 5 retries first.
+            if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
+            retries--;
+            if (retries == 0)
+              throw Exception("Failed to download chunk after retries");
+            await Future.delayed(const Duration(seconds: 2));
+          }
+        }
+      }
+
       if (buffer.isNotEmpty) {
         final enc = await encryptData(buffer);
         await sink.writeFrom(enc);
       }
-      await sink.close();
+      await closeSinkOnce();
       sendPort.send('done');
-      return;
+    } catch (e) {
+      await closeSinkOnce();
+      rethrow;
     }
-
-    const int reqChunkSize = 1 * 1024 * 1024;
-    // downloadedBytes may already be non-zero here if we resumed above.
-
-    while (downloadedBytes < totalBytes) {
-      int start = downloadedBytes;
-      int end = min(start + reqChunkSize - 1, totalBytes - 1);
-
-      bool chunkSuccess = false;
-      int retries = 5;
-
-      while (retries > 0 && !chunkSuccess) {
-        try {
-          final res = await dio.get(url,
-              options: Options(
-                  responseType: ResponseType.stream,
-                  headers: {...headers, 'Range': 'bytes=$start-$end'}));
-
-          Stream<Uint8List> stream = res.data.stream;
-          await for (final chunk in stream) {
-            buffer.addAll(chunk);
-            while (buffer.length >= CHUNK_SIZE) {
-              final block = buffer.sublist(0, CHUNK_SIZE);
-              buffer.removeRange(0, CHUNK_SIZE);
-              final enc = await encryptData(block);
-              await sink.writeFrom(enc);
-            }
-          }
-          chunkSuccess = true;
-          downloadedBytes += (end - start + 1);
-          sendPort.send(downloadedBytes / totalBytes);
-        } catch (e) {
-          // ✅ [FIX] Same reasoning as the HLS segment loop above: a
-          // 401/403 means the signed link expired mid-download (most
-          // common when a paused download is resumed a long time after it
-          // was started) — retrying the same url won't help, so surface it
-          // distinctly instead of burning all 5 retries first.
-          if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
-          retries--;
-          if (retries == 0)
-            throw Exception("Failed to download chunk after retries");
-          await Future.delayed(const Duration(seconds: 2));
-        }
-      }
-    }
-
-    if (buffer.isNotEmpty) {
-      final enc = await encryptData(buffer);
-      await sink.writeFrom(enc);
-    }
-    await sink.close();
-    sendPort.send('done');
   } catch (e) {
     if (e is _ExpiredLinkSignal) {
       sendPort.send('link_expired');
