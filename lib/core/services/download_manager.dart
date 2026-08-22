@@ -53,6 +53,13 @@ class DownloadManager with WidgetsBindingObserver {
   // plain failure (e.g. connection drop) does NOT go through here, so the
   // segment cache is preserved and the next attempt can resume from it.
   static final Map<String, List<String>> _activeSavePaths = {};
+  // ✅ [PAUSE] Set right before cancelling a token from pauseDownload(), so
+  // the catch block in startDownload can tell "user tapped Pause" apart
+  // from "user tapped Cancel" even though both surface as the exact same
+  // DioExceptionType.cancel — the reason string passed to CancelToken.cancel()
+  // doesn't survive the isolate boundary, so this side-channel set is how
+  // that intent is actually communicated back.
+  static final Set<String> _pausedLessonIds = {};
   static final ValueNotifier<Map<String, double>> downloadingProgress =
       ValueNotifier({});
   final String _baseUrl = ApiConstants.baseUrl;
@@ -99,6 +106,7 @@ class DownloadManager with WidgetsBindingObserver {
   }
 
   Future<void> cancelDownload(String lessonId) async {
+    _pausedLessonIds.remove(lessonId);
     if (_cancelTokens.containsKey(lessonId)) {
       try {
         _cancelTokens[lessonId]?.cancel("User cancelled download");
@@ -134,6 +142,39 @@ class DownloadManager with WidgetsBindingObserver {
 
     _activeDownloads.remove(lessonId);
     activeTitles.remove(lessonId);
+
+    var prog = Map<String, double>.from(downloadingProgress.value);
+    prog.remove(lessonId);
+    downloadingProgress.value = prog;
+
+    await NotificationService().cancelNotification(lessonId.hashCode);
+
+    if (_activeDownloads.isEmpty) {
+      _stopBackgroundService();
+    }
+  }
+
+  /// ✅ [PAUSE] Stops an in-progress download's network activity right
+  /// away, same as cancelDownload — but, unlike cancelDownload, this is
+  /// NOT a "give up on this download" action: it deliberately leaves the
+  /// HLS segment cache and the pending_downloads_box record untouched, so
+  /// the item just moves from "Active" to "Paused" in the Downloads
+  /// screen and a later tap on "Resume" (resumeDownload) picks up exactly
+  /// where this left off, same as if the connection had dropped.
+  Future<void> pauseDownload(String lessonId) async {
+    if (_cancelTokens.containsKey(lessonId)) {
+      _pausedLessonIds.add(lessonId);
+      try {
+        _cancelTokens[lessonId]?.cancel("User paused download");
+      } catch (e) {
+        debugPrint("Error pausing token: $e");
+      }
+      _cancelTokens.remove(lessonId);
+    }
+
+    _activeDownloads.remove(lessonId);
+    activeTitles.remove(lessonId);
+    _activeSavePaths.remove(lessonId);
 
     var prog = Map<String, double>.from(downloadingProgress.value);
     prog.remove(lessonId);
@@ -543,9 +584,19 @@ class DownloadManager with WidgetsBindingObserver {
               (e is DioException && e.type == DioExceptionType.cancel);
 
           if (isCancelled) {
-            // User explicitly cancelled — nothing to auto-retry or resume
-            // later, so drop the pending record and stop here.
+            // ✅ [PAUSE] Distinguish "user tapped Pause" from "user tapped
+            // Cancel" — both throw the exact same DioExceptionType.cancel,
+            // so pauseDownload() marks the intent in _pausedLessonIds right
+            // before cancelling the token.
+            final bool wasPaused = _pausedLessonIds.remove(lessonId);
             await notifService.cancelNotification(notificationId);
+            if (wasPaused) {
+              // Leave the pending record + segment cache exactly as-is so
+              // Resume picks up from here — nothing else to do.
+              break;
+            }
+            // User explicitly cancelled — this download isn't coming back
+            // automatically, so drop the pending record and stop here.
             try {
               final pendingBox =
                   await StorageService.openBox('pending_downloads_box');
@@ -554,8 +605,49 @@ class DownloadManager with WidgetsBindingObserver {
             break;
           }
 
+          // ✅ [FIX] A 401/403 partway through means the signed CDN link
+          // (captured once, up front, when the user picked a quality) has
+          // expired — this is exactly what happens when a download sits
+          // paused for a long time (app force-closed, resumed much later)
+          // rather than a short connection blip. Retrying the same url, or
+          // just showing "tap Resume", would only reuse that same dead
+          // link again — the saved segment cache means most of the file is
+          // already there, so it can look like it's about to finish and
+          // then fail right near the end. Instead, clear the stale link so
+          // the top of the loop re-resolves a fresh one via get-video-id
+          // and keeps going from the cached progress.
+          final bool isExpiredLink = e is LinkExpiredException;
           final bool isNetworkIssue = _isLikelyConnectivityError(e);
           attempt++;
+
+          if (isExpiredLink &&
+              attempt <= maxAutoRetries &&
+              !cancelToken.isCancelled) {
+            FirebaseCrashlytics.instance.log(
+                "🔄 Download link expired for $videoTitle — fetching a fresh link (retry #$attempt)");
+            downloadUrl = null;
+            audioUrl = null;
+            try {
+              final pendingBox =
+                  await StorageService.openBox('pending_downloads_box');
+              final existing = pendingBox.get(lessonId);
+              if (existing is Map) {
+                final updated = Map<String, dynamic>.from(existing);
+                updated['downloadUrl'] = null;
+                updated['audioUrl'] = null;
+                await pendingBox.put(lessonId, updated);
+              }
+            } catch (_) {}
+            await notifService.showProgressNotification(
+              id: notificationId,
+              title: "Downloading: $videoTitle",
+              body: "Refreshing expired link...",
+              progress: 0,
+              maxProgress: 100,
+            );
+            await Future.delayed(const Duration(seconds: 2));
+            continue;
+          }
 
           if (isNetworkIssue &&
               attempt <= maxAutoRetries &&
@@ -591,7 +683,9 @@ class DownloadManager with WidgetsBindingObserver {
             // user that explicitly and point them at the Resume button
             // instead of a generic "failed" message that gives no next
             // step.
-            failureMessage: isNetworkIssue
+            failureMessage: isExpiredLink
+                ? "Download link expired. Tap Resume to fetch a fresh link and continue $videoTitle."
+                : isNetworkIssue
                 ? "No internet connection. Tap Resume to continue $videoTitle when you're back online."
                 : null,
           );
@@ -865,6 +959,12 @@ class DownloadManager with WidgetsBindingObserver {
         port.close();
         isolate.kill();
         if (!completer.isCompleted) completer.complete();
+      } else if (message == 'link_expired') {
+        port.close();
+        isolate.kill();
+        if (!completer.isCompleted) {
+          completer.completeError(LinkExpiredException());
+        }
       } else if (message is String && message.startsWith('error:')) {
         port.close();
         isolate.kill();
@@ -874,6 +974,18 @@ class DownloadManager with WidgetsBindingObserver {
 
     await completer.future;
   }
+}
+
+/// ✅ [FIX] Thrown (in the MAIN isolate) when a download isolate reports
+/// that the signed CDN link it was using has expired (401/403 from the
+/// server). Distinguished from a generic failure so `startDownload` can
+/// automatically fetch a fresh link and keep going, instead of treating it
+/// as a dead end that only a manual "Resume" tap can fix — and instead of
+/// pointlessly burning connectivity-retry attempts on a link that will
+/// never start working again no matter how many times it's retried as-is.
+class LinkExpiredException implements Exception {
+  @override
+  String toString() => 'Download link expired';
 }
 
 // ===========================================================================
@@ -957,7 +1069,13 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
         receiveTimeout: const Duration(seconds: 60)));
 
     if (url.contains('.m3u8') || url.contains('.m3u')) {
-      final response = await dio.get(url, options: Options(headers: headers));
+      Response response;
+      try {
+        response = await dio.get(url, options: Options(headers: headers));
+      } catch (e) {
+        if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
+        rethrow;
+      }
       final content = response.data.toString();
       final baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
       List<String> tsUrls = [];
@@ -995,16 +1113,40 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
       // segments — fast, since no network is needed — which looked like a
       // rapid "catch-up" animation instead of simply resuming where it
       // left off.
+      // ✅ [FIX] A hard kill (force-close, not just a network drop) can
+      // catch a segment mid-write, leaving a truncated `seg_N.ts` file on
+      // disk that still has length > 0. Previously that was blindly
+      // trusted as "already downloaded", so the corrupted bytes got baked
+      // straight into the final encrypted file on resume. MPEG-TS packets
+      // are always 188 bytes and start with the sync byte 0x47, so we can
+      // cheaply sanity-check a cached segment before trusting it instead
+      // of just checking that it's non-empty.
+      Future<bool> isValidCachedSegment(File f) async {
+        try {
+          if (!await f.exists()) return false;
+          final len = await f.length();
+          if (len <= 0) return false;
+          final raf = await f.open(mode: FileMode.read);
+          final firstByte = await raf.read(1);
+          await raf.close();
+          return firstByte.isNotEmpty && firstByte[0] == 0x47;
+        } catch (_) {
+          return false;
+        }
+      }
+
       int alreadyCachedCount = 0;
       for (int i = 0; i < total; i++) {
-        try {
-          final f = File('${segDir.path}/seg_$i.ts');
-          if (await f.exists() && await f.length() > 0) {
-            alreadyCachedCount++;
-          } else {
-            break;
-          }
-        } catch (_) {
+        final f = File('${segDir.path}/seg_$i.ts');
+        if (await isValidCachedSegment(f)) {
+          alreadyCachedCount++;
+        } else {
+          // ✅ Delete a corrupt/truncated cache file outright so a later
+          // read of it (e.g. from a differently-ordered retry) can't
+          // accidentally pick up bad bytes either.
+          try {
+            if (await f.exists()) await f.delete();
+          } catch (_) {}
           break;
         }
       }
@@ -1014,14 +1156,11 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
 
       Future<List<int>> fetchSegment(String segUrl, int index) async {
         final cacheFile = File('${segDir.path}/seg_$index.ts');
-        if (await cacheFile.exists()) {
-          final len = await cacheFile.length();
-          if (len > 0) {
-            try {
-              return await cacheFile.readAsBytes();
-            } catch (_) {
-              // Cached copy unreadable/corrupt — fall through and re-fetch.
-            }
+        if (await isValidCachedSegment(cacheFile)) {
+          try {
+            return await cacheFile.readAsBytes();
+          } catch (_) {
+            // Cached copy unreadable/corrupt — fall through and re-fetch.
           }
         }
 
@@ -1040,6 +1179,12 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
             await cacheFile.writeAsBytes(data, flush: true);
             return data;
           } catch (e) {
+            // ✅ [FIX] A 401/403 means the signed CDN link itself has
+            // expired — retrying the SAME url will just fail again 4 times
+            // in a row (wasting time right as the download is almost done).
+            // Bail out immediately so the caller can fetch a fresh link
+            // instead of grinding through pointless retries.
+            if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
             lastError = e;
             if (attempt < 3) {
               await Future.delayed(Duration(seconds: 1 + attempt));
@@ -1163,9 +1308,15 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     }
 
     if (totalBytes <= 0) {
-      final res = await dio.get(url,
-          options:
-              Options(responseType: ResponseType.stream, headers: headers));
+      Response res;
+      try {
+        res = await dio.get(url,
+            options:
+                Options(responseType: ResponseType.stream, headers: headers));
+      } catch (e) {
+        if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
+        rethrow;
+      }
       int received = 0;
       int total =
           int.parse(res.headers.value(Headers.contentLengthHeader) ?? '-1');
@@ -1222,6 +1373,12 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
           downloadedBytes += (end - start + 1);
           sendPort.send(downloadedBytes / totalBytes);
         } catch (e) {
+          // ✅ [FIX] Same reasoning as the HLS segment loop above: a
+          // 401/403 means the signed link expired mid-download (most
+          // common when a paused download is resumed a long time after it
+          // was started) — retrying the same url won't help, so surface it
+          // distinctly instead of burning all 5 retries first.
+          if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
           retries--;
           if (retries == 0)
             throw Exception("Failed to download chunk after retries");
@@ -1237,6 +1394,26 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     await sink.close();
     sendPort.send('done');
   } catch (e) {
-    sendPort.send('error: $e');
+    if (e is _ExpiredLinkSignal) {
+      sendPort.send('link_expired');
+    } else {
+      sendPort.send('error: $e');
+    }
   }
+}
+
+/// ✅ [FIX] Marker thrown internally (inside the download isolate) when a
+/// segment/chunk/manifest request comes back 401/403 — i.e. the signed CDN
+/// link has expired — so it can be reported back to the main isolate as a
+/// distinct 'link_expired' message instead of a generic failure. This is
+/// what lets `startDownload` tell the difference between "genuinely dead,
+/// tap Resume" and "just needs a fresh link, retry automatically".
+class _ExpiredLinkSignal implements Exception {}
+
+bool _isExpiredLinkError(Object e) {
+  if (e is DioException) {
+    final status = e.response?.statusCode;
+    if (status == 401 || status == 403) return true;
+  }
+  return false;
 }
