@@ -1076,6 +1076,18 @@
     "description": "Status label shown when a video or PDF has already been downloaded"
   },
   "processingLabel": "PROCESSING...",
+  "downloadPausedStatusLabel": "PAUSED",
+  "@downloadPausedStatusLabel": {
+    "description": "Status shown on the lesson row when its download is paused/interrupted; tap Resume in the Downloads screen to continue"
+  },
+  "resumeInDownloadsHint": "Go to Downloads to resume",
+  "@resumeInDownloadsHint": {
+    "description": "Snackbar/hint shown when tapping a paused status pointing user to the Downloads screen"
+  },
+  "pausedDownloadsLabel": "PAUSED DOWNLOADS",
+  "@pausedDownloadsLabel": {
+    "description": "Section header in the Downloads screen listing interrupted downloads that can be resumed"
+  },
   "@processingLabel": {
     "description": "Status label shown while a download is in progress"
   },
