@@ -588,13 +588,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   child: Transform.rotate(
                     angle: -0.5, // ~ -28.6 درجة، قطري ولا يعيق اتجاه القراءة
                     child: Opacity(
-                      opacity: 0.12,
+                      opacity: 0.22,
                       child: Text(
                         _watermarkText,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.grey.shade700,
                           decoration: TextDecoration.none,
                         ),
                       ),
