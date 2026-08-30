@@ -596,6 +596,10 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
+  String get keepAppOpenDuringDownloadWarning =>
+      'لا تغلق التطبيق أو تضعه في الخلفية أثناء التحميل حتى لا يتوقف';
+
+  @override
   String filesDownloadedCountLabel(int count) {
     return '$count ملف تم تحميله';
   }

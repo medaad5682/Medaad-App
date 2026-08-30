@@ -604,6 +604,10 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get keepAppOpenDuringDownloadWarning =>
+      'Don\'t close the app or send it to the background while downloading, or the download will stop';
+
+  @override
   String filesDownloadedCountLabel(int count) {
     return '$count FILES DOWNLOADED';
   }

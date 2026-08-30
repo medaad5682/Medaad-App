@@ -1220,6 +1220,12 @@ abstract class AppLocalizations {
   /// **'{count} ACTIVE'**
   String activeCountLabel(int count);
 
+  /// Warning shown on the downloads screen while a download is active
+  ///
+  /// In en, this message translates to:
+  /// **'Don't close the app or send it to the background while downloading, or the download will stop'**
+  String get keepAppOpenDuringDownloadWarning;
+
   /// Auto-added placeholder key for filesDownloadedCountLabel
   ///
   /// In en, this message translates to:
