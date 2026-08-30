@@ -552,61 +552,39 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  /// علامة مائية مبعثرة (Tiled) تغطي كامل الشاشة بدلاً من ٣ أسطر في المنتصف.
-  /// الهدف: أي اقتصاص أو لقطة شاشة لأي جزء من الصفحة يبقى يحمل جزءًا من
-  /// العلامة المائية، مع الحفاظ على وضوح القراءة عبر حجم صغير وشفافية منخفضة.
+  /// علامة مائية بسيطة في منتصف الشاشة: سطرين فقط بدلاً من الثلاثة الأصليين،
+  /// بشفافية 0.22 وحجم خط أصغر من التصميم القديم (الذي كان يستخدم
+  /// textScaler: 2.2 الضخم).
   Widget _buildWatermark() {
     if (_watermarkText.isEmpty) return const SizedBox.shrink();
 
     return IgnorePointer(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final height = constraints.maxHeight;
-
-          // المسافة بين كل تكرار وآخر (px منطقية) - ثابتة بصرف النظر عن حجم
-          // الشاشة، بحيث تبقى الكثافة متسقة على الهاتف والتابلت.
-          const double spacingX = 170;
-          const double spacingY = 130;
-
-          final int columns = (width / spacingX).ceil() + 1;
-          final int rows = (height / spacingY).ceil() + 1;
-
-          final List<Widget> marks = [];
-          for (int row = 0; row < rows; row++) {
-            for (int col = 0; col < columns; col++) {
-              // إزاحة أفقية للصفوف الفردية لكسر النمط الشبكي المنتظم،
-              // فتصبح إزالة العلامة عبر الاستنساخ/القص أصعب.
-              final double offsetX = (row.isOdd ? spacingX / 2 : 0);
-              final double left = col * spacingX + offsetX - spacingX / 2;
-              final double top = row * spacingY - spacingY / 2;
-
-              marks.add(
-                Positioned(
-                  left: left,
-                  top: top,
-                  child: Transform.rotate(
-                    angle: -0.5, // ~ -28.6 درجة، قطري ولا يعيق اتجاه القراءة
-                    child: Opacity(
-                      opacity: 0.22,
-                      child: Text(
-                        _watermarkText,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.grey.shade700,
-                          decoration: TextDecoration.none,
-                        ),
-                      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: List.generate(
+            2,
+            (index) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Transform.rotate(
+                angle: -0.5,
+                child: Opacity(
+                  opacity: 0.22,
+                  child: Text(
+                    _watermarkText,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade700,
+                      decoration: TextDecoration.none,
                     ),
                   ),
                 ),
-              );
-            }
-          }
-
-          return Stack(children: marks);
-        },
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
