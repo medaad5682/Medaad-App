@@ -849,7 +849,7 @@
       }
     }
   },
-  "keepAppOpenDuringDownloadWarning": "Don't close the app or send it to the background while downloading, or the download will stop",
+  "keepAppOpenDuringDownloadWarning": "Don't close the app or send it to the background while downloading, or the download maybe stop",
   "@keepAppOpenDuringDownloadWarning": {
     "description": "Warning shown on the downloads screen while a download is active"
   },
