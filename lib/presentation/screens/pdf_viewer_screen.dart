@@ -552,42 +552,37 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  /// علامة مائية بسيطة: سطران فقط، لكن مدفوعان نحو حافتي الصفحة العلوية
-  /// والسفلية بدلاً من التكدس معاً في المنتصف — تغطية أفضل للصفحة مع
-  /// الحفاظ على شكل "سطرين فقط" البسيط.
+  /// نفس بنية التصميم الأصلي (Column واحد بـ spaceEvenly داخل Center) لكن
+  /// بعنصرين فقط بدلاً من ثلاثة — حذف العنصر الأوسط تحديدًا، بحيث تصبح
+  /// المسافة الرأسية بين العلامتين كالمسافة بين الأولى والثالثة في
+  /// التصميم الأصلي. الحجم والشفافية محدّثان (16 / 0.22) بدلاً من القيم
+  /// الأصلية (textScaler 2.2 / 0.35).
   Widget _buildWatermark() {
     if (_watermarkText.isEmpty) return const SizedBox.shrink();
 
-    Widget mark() => Transform.rotate(
-          angle: -0.5,
-          child: Opacity(
-            opacity: 0.22,
-            child: Text(
-              _watermarkText,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey.shade700,
-                decoration: TextDecoration.none,
+    return IgnorePointer(
+      child: Center(
+        child: Opacity(
+          opacity: 0.22,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: List.generate(
+              2,
+              (index) => Transform.rotate(
+                angle: -0.5,
+                child: Text(
+                  _watermarkText,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey.shade700,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
               ),
             ),
           ),
-        );
-
-    return IgnorePointer(
-      child: Column(
-        mainAxisSize: MainAxisSize.max,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 90),
-            child: Center(child: mark()),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 90),
-            child: Center(child: mark()),
-          ),
-        ],
+        ),
       ),
     );
   }
