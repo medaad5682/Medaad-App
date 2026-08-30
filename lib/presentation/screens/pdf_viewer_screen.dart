@@ -580,11 +580,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 48),
+            padding: const EdgeInsets.only(top: 90),
             child: Center(child: mark()),
           ),
           Padding(
-            padding: const EdgeInsets.only(bottom: 48),
+            padding: const EdgeInsets.only(bottom: 90),
             child: Center(child: mark()),
           ),
         ],
