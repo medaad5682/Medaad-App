@@ -849,6 +849,10 @@
       }
     }
   },
+  "keepAppOpenDuringDownloadWarning": "Don't close the app or send it to the background while downloading, or the download will stop",
+  "@keepAppOpenDuringDownloadWarning": {
+    "description": "Warning shown on the downloads screen while a download is active"
+  },
   "filesDownloadedCountLabel": "{count} FILES DOWNLOADED",
   "@filesDownloadedCountLabel": {
     "description": "Auto-added placeholder key for filesDownloadedCountLabel",

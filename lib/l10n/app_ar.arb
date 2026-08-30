@@ -202,6 +202,7 @@
   "noPdfsDownloaded": "لا توجد ملفات PDF محملة",
   "filesCountLabel": "{count} ملف",
   "activeCountLabel": "{count} نشط",
+  "keepAppOpenDuringDownloadWarning": "لا تغلق التطبيق أو تضعه في الخلفية أثناء التحميل حتى لا يتوقف",
   "filesDownloadedCountLabel": "{count} ملف تم تحميله",
   "videosTabWithCount": "فيديوهات ({count})",
   "pdfsTabWithCount": "ملفات PDF ({count})",
