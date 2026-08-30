@@ -132,6 +132,49 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
               ),
             ),
 
+            // ✅ Warning banner shown only while a download is actively in
+            // progress — closing the app or backgrounding it can interrupt
+            // the connection mid-chunk, so users are told up front instead
+            // of finding out later from a stalled/failed download.
+            ValueListenableBuilder<Map<String, double>>(
+              valueListenable: DownloadManager.downloadingProgress,
+              builder: (context, progressMap, _) {
+                if (progressMap.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentYellow.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: AppColors.accentYellow.withOpacity(0.25)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(LucideIcons.alertCircle,
+                            color: AppColors.accentYellow, size: 18),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            AppLocalizations.of(context)!
+                                .keepAppOpenDuringDownloadWarning,
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+
             // Content List
             Expanded(
               child: ValueListenableBuilder(
