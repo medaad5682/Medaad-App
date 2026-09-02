@@ -889,6 +889,14 @@ class DownloadManager with WidgetsBindingObserver {
   // ===========================================================================
 
   /// تحميل ملف PDF الخام على الـ Main Thread ثم نقل التشفير الثقيل لـ Isolate
+  // ✅ [SECURITY FIX] Replaces the old download→plaintext-temp-file→encrypt
+  // pipeline. That flow always materialized the *entire* PDF as plaintext
+  // bytes in the OS temp directory for the full duration of the download
+  // (and again while hashing it), deleted only after encryption succeeded —
+  // and left behind on a crash. This now streams the download straight into
+  // the same single isolate that hashes and encrypts it in 32KB blocks as
+  // the bytes arrive, exactly like the direct-MP4 path below: only small
+  // in-RAM buffers ever hold plaintext, and disk only ever sees ciphertext.
   Future<void> _runPdfDownloadAndEncrypt({
     required String url,
     required String savePath,
@@ -897,89 +905,47 @@ class DownloadManager with WidgetsBindingObserver {
     required Function(double) onProgress,
     required CancelToken cancelToken,
   }) async {
-    final tempDir = await getTemporaryDirectory();
-    final tempPath =
-        '${tempDir.path}/downloading_${DateTime.now().millisecondsSinceEpoch}.tmp';
+    final ReceivePort port = ReceivePort();
 
-    try {
-      // 1. تحميل الملف الخام واستقبال الاستجابة
-      final response = await _dio.download(
-        url,
-        tempPath,
-        options: Options(headers: headers),
-        cancelToken: cancelToken,
-        onReceiveProgress: (rec, total) {
-          if (total != -1)
-            onProgress((rec / total) * 0.90); // نعطي 90% للتحميل و 10% للتشفير
-        },
-      );
-      if (cancelToken.isCancelled)
-        throw DioException(
+    final isolate = await Isolate.spawn(_pdfDownloadIsolateEntryPoint, {
+      'sendPort': port.sendPort,
+      'url': url,
+      'savePath': savePath,
+      'headers': headers,
+      'keyBytes': keyBytes,
+    });
+
+    final completer = Completer<void>();
+
+    final cancelSub = cancelToken.whenCancel.then((_) {
+      isolate.kill(priority: Isolate.immediate);
+      if (!completer.isCompleted) {
+        completer.completeError(DioException(
             requestOptions: RequestOptions(path: url),
-            type: DioExceptionType.cancel);
-
-      // ✅ [FIX F-13] قراءة الهاش القادم من السيرفر والتحقق من سلامة الملف قبل تشفيره
-      final expectedHash = response.headers.value('x-file-hash') ??
-          response.headers.value('X-File-Hash');
-      if (expectedHash != null && expectedHash.isNotEmpty) {
-        // حساب الهاش بنظام Stream لتجنب امتلاء الذاكرة
-        final fileStream = File(tempPath).openRead();
-        final hash = await hash_crypto.sha256.bind(fileStream).first;
-        final actualHash = hash.toString();
-
-        // مطابقة البصمة
-        if (actualHash.toLowerCase() != expectedHash.toLowerCase()) {
-          throw Exception(
-              "Integrity Check Failed: SHA-256 hash mismatch! File might be tampered with.");
-        }
-        debugPrint("✅ [F-13] PDF Integrity Check Passed! Hash verified.");
+            type: DioExceptionType.cancel));
       }
+    });
 
-      // 2. تشغيل التشفير في مسار معالج منفصل Isolate (لمنع تجمد الواجهة)
-      final ReceivePort port = ReceivePort();
-      final isolate = await Isolate.spawn(_pdfEncryptIsolateEntryPoint, {
-        'inputPath': tempPath,
-        'outputPath': savePath,
-        'keyBytes': keyBytes,
-        'sendPort': port.sendPort,
-      });
+    port.listen((message) {
+      if (message is double) {
+        onProgress(message);
+      } else if (message == 'done') {
+        port.close();
+        isolate.kill();
+        onProgress(1.0);
+        if (!completer.isCompleted) completer.complete();
+      } else if (message == 'link_expired') {
+        port.close();
+        isolate.kill();
+        if (!completer.isCompleted) completer.completeError(LinkExpiredException());
+      } else if (message is String && message.startsWith('error:')) {
+        port.close();
+        isolate.kill();
+        if (!completer.isCompleted) completer.completeError(Exception(message));
+      }
+    });
 
-      final completer = Completer<void>();
-
-      final cancelSub = cancelToken.whenCancel.then((_) {
-        isolate.kill(priority: Isolate.immediate);
-        if (!completer.isCompleted)
-          completer.completeError(DioException(
-              requestOptions: RequestOptions(path: url),
-              type: DioExceptionType.cancel));
-      });
-
-      port.listen((message) {
-        if (message == 'done') {
-          port.close();
-          isolate.kill();
-          onProgress(1.0);
-          if (!completer.isCompleted) completer.complete();
-        } else if (message is String && message.startsWith('error:')) {
-          port.close();
-          isolate.kill();
-          if (!completer.isCompleted)
-            completer.completeError(Exception(message));
-        }
-      });
-
-      await completer.future;
-
-      // 3. مسح الملف الخام بعد نجاح التشفير
-      final tempFile = File(tempPath);
-      if (await tempFile.exists()) await tempFile.delete();
-    } catch (e) {
-      try {
-        final f = File(tempPath);
-        if (await f.exists()) await f.delete();
-      } catch (_) {}
-      rethrow;
-    }
+    await completer.future;
   }
 
   /// تحميل وتشفير الفيديوهات (HLS أو MP4) بالكامل داخل Isolate مستقل
@@ -1052,43 +1018,116 @@ class LinkExpiredException implements Exception {
 // 🛡️ Isolates Entry Points
 // ===========================================================================
 
-void _pdfEncryptIsolateEntryPoint(Map<String, dynamic> args) async {
-  final String inputPath = args['inputPath'];
-  final String outputPath = args['outputPath'];
-  final List<int> keyBytes = args['keyBytes'];
+// ✅ [SECURITY FIX] Streams the PDF download, rolling SHA-256 hash, and
+// ChaCha20-Poly1305 encryption together in one pass, inside one isolate.
+// No plaintext PDF byte ever touches disk: each network chunk is hashed and
+// buffered in memory only, and once the buffer holds a full 32KB block it is
+// immediately encrypted and written to `savePath`. Only ciphertext exists on
+// disk at any point.
+void _pdfDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
   final SendPort sendPort = args['sendPort'];
-
+  final String savePath = args['savePath'];
   try {
-    final inFile = File(inputPath);
-    final outFile = File(outputPath);
-    final rafRead = await inFile.open(mode: FileMode.read);
-    final iosWrite = outFile.openWrite();
+    final String url = args['url'];
+    final Map<String, dynamic> rawHeaders = args['headers'];
+    final List<int> keyBytes = args['keyBytes'];
+    final Map<String, String> headers =
+        rawHeaders.map((key, value) => MapEntry(key, value.toString()));
 
     final algorithm = Chacha20.poly1305Aead();
     final secretKey = SecretKey(keyBytes);
-    const CHUNK_SIZE = 32 * 1024;
-    const NONCE_LENGTH = 12;
+    const int CHUNK_SIZE = 32 * 1024;
+    const int NONCE_LENGTH = 12;
 
-    final int fileLength = await inFile.length();
-    int currentPos = 0;
-
-    while (currentPos < fileLength) {
-      final chunk = await rafRead.read(CHUNK_SIZE);
+    Future<Uint8List> encryptData(List<int> data) async {
       final nonce =
           List<int>.generate(NONCE_LENGTH, (i) => Random.secure().nextInt(256));
-      final secretBox =
-          await algorithm.encrypt(chunk, secretKey: secretKey, nonce: nonce);
-
-      iosWrite.add(nonce);
-      iosWrite.add(secretBox.cipherText);
-      iosWrite.add(secretBox.mac.bytes);
-      currentPos += chunk.length;
+      final box =
+          await algorithm.encrypt(data, secretKey: secretKey, nonce: nonce);
+      final builder = BytesBuilder(copy: false);
+      builder.add(nonce);
+      builder.add(box.cipherText);
+      builder.add(box.mac.bytes);
+      return builder.toBytes();
     }
-    await rafRead.close();
-    await iosWrite.close();
+
+    final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 60)));
+
+    Response res;
+    try {
+      res = await dio.get(url,
+          options:
+              Options(responseType: ResponseType.stream, headers: headers));
+    } catch (e) {
+      if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
+      rethrow;
+    }
+
+    // ✅ [FIX F-13] Header is available as soon as the response comes back,
+    // before the body stream is drained, so the integrity check can still
+    // run against every byte — just via a rolling hash instead of a second
+    // read pass over a fully-materialized plaintext file.
+    final expectedHash =
+        res.headers.value('x-file-hash') ?? res.headers.value('X-File-Hash');
+    final int total =
+        int.parse(res.headers.value(Headers.contentLengthHeader) ?? '-1');
+
+    final hashAccumulator = hash_crypto.AccumulatorSink<hash_crypto.Digest>();
+    final hashSink = hash_crypto.sha256.startChunkedConversion(hashAccumulator);
+
+    final file = File(savePath);
+    final sink = await file.open(mode: FileMode.write);
+    List<int> buffer = [];
+    int received = 0;
+
+    final Stream<Uint8List> stream = res.data.stream;
+    await for (final chunk in stream) {
+      hashSink.add(chunk);
+      buffer.addAll(chunk);
+      while (buffer.length >= CHUNK_SIZE) {
+        final block = buffer.sublist(0, CHUNK_SIZE);
+        buffer.removeRange(0, CHUNK_SIZE);
+        final enc = await encryptData(block);
+        await sink.writeFrom(enc);
+      }
+      received += chunk.length;
+      // Reserve the last 2% for the tail-buffer flush + hash verification
+      // below, same budget the old flow gave to its separate encrypt pass.
+      if (total != -1) sendPort.send((received / total) * 0.98);
+    }
+    if (buffer.isNotEmpty) {
+      final enc = await encryptData(buffer);
+      await sink.writeFrom(enc);
+    }
+    await sink.close();
+
+    hashSink.close();
+    final actualHash = hashAccumulator.events.single.toString();
+
+    if (expectedHash != null && expectedHash.isNotEmpty) {
+      if (actualHash.toLowerCase() != expectedHash.toLowerCase()) {
+        try {
+          await file.delete();
+        } catch (_) {}
+        throw Exception(
+            "Integrity Check Failed: SHA-256 hash mismatch! File might be tampered with.");
+      }
+    }
+
+    sendPort.send(1.0);
     sendPort.send('done');
   } catch (e) {
-    sendPort.send('error: $e');
+    try {
+      final f = File(savePath);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
+    if (e is _ExpiredLinkSignal) {
+      sendPort.send('link_expired');
+    } else {
+      sendPort.send('error: $e');
+    }
   }
 }
 
@@ -1149,81 +1188,108 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
 
       if (tsUrls.isEmpty) throw Exception("No TS segments found");
 
-      // ✅ [FIX] Per-segment disk cache so an interrupted HLS download can
-      // resume — automatically (simply calling startDownload again for the
-      // same lesson) or manually (a "Resume" button that does the same) —
-      // without re-downloading segments that already finished. This also
-      // means a segment that fails is retried and, if it still fails, the
-      // whole isolate throws instead of silently being skipped. Previously
-      // a failed segment was swallowed and counted as "done" anyway, which
-      // is why a video with a mid-download connection drop would report
-      // "download complete" while actually missing a chunk of the middle
-      // or end of the file (e.g. only the first 5 minutes of a 1 hour
-      // video would ever get written).
+      // ✅ [SECURITY FIX] Resume support no longer caches raw segment bytes
+      // to disk (that used to leave the entire video's plaintext sitting in
+      // `<savePath>.segments/seg_N.ts` files until the whole download
+      // finished, and left behind on a crash). Instead we persist only the
+      // BYTE LENGTH of each segment once it's been downloaded — a few
+      // bytes of metadata, never content — alongside the same
+      // whole-encrypted-block accounting the direct-MP4 path already uses
+      // below (`existingLen ~/ ENCRYPTED_CHUNK_SIZE`) to work out exactly
+      // how many raw input bytes are already safely encrypted on disk. From
+      // that we can tell which segments are already fully consumed (skip
+      // them — no need to ever see their bytes again) and, at most, which
+      // ONE segment straddles the resume point (re-fetch just that one to
+      // refill the in-memory buffer). Every segment's plaintext exists only
+      // transiently in RAM, exactly like the direct-MP4 path.
       final segDir = Directory('$savePath.segments');
       if (!await segDir.exists()) await segDir.create(recursive: true);
+      final metaFile = File('${segDir.path}/meta.json');
 
       final int total = tsUrls.length;
+      List<int?> segLengths = List<int?>.filled(total, null);
 
-      // ✅ [FIX] Report the resume point immediately, before doing any
-      // work. Segments are cached to disk in order, so a contiguous run of
-      // valid cache files from index 0 tells us exactly how far a previous
-      // (interrupted) attempt got. Without this, the progress bar used to
-      // start at 0% and race back up through all of these already-cached
-      // segments — fast, since no network is needed — which looked like a
-      // rapid "catch-up" animation instead of simply resuming where it
-      // left off.
-      // ✅ [FIX] A hard kill (force-close, not just a network drop) can
-      // catch a segment mid-write, leaving a truncated `seg_N.ts` file on
-      // disk that still has length > 0. Previously that was blindly
-      // trusted as "already downloaded", so the corrupted bytes got baked
-      // straight into the final encrypted file on resume. MPEG-TS packets
-      // are always 188 bytes and start with the sync byte 0x47, so we can
-      // cheaply sanity-check a cached segment before trusting it instead
-      // of just checking that it's non-empty.
-      Future<bool> isValidCachedSegment(File f) async {
+      Future<void> persistMeta() async {
         try {
-          if (!await f.exists()) return false;
-          final len = await f.length();
-          if (len <= 0) return false;
-          final raf = await f.open(mode: FileMode.read);
-          final firstByte = await raf.read(1);
-          await raf.close();
-          return firstByte.isNotEmpty && firstByte[0] == 0x47;
+          await metaFile.writeAsString(
+              jsonEncode(segLengths.map((l) => l ?? 0).toList()),
+              flush: true);
         } catch (_) {
-          return false;
+          // Best-effort — worst case a future resume falls back to a clean
+          // restart, which is safe, just not optimally fast.
         }
       }
 
-      int alreadyCachedCount = 0;
-      for (int i = 0; i < total; i++) {
-        final f = File('${segDir.path}/seg_$i.ts');
-        if (await isValidCachedSegment(f)) {
-          alreadyCachedCount++;
-        } else {
-          // ✅ Delete a corrupt/truncated cache file outright so a later
-          // read of it (e.g. from a differently-ordered retry) can't
-          // accidentally pick up bad bytes either.
-          try {
-            if (await f.exists()) await f.delete();
-          } catch (_) {}
-          break;
+      if (await metaFile.exists()) {
+        try {
+          final decoded = jsonDecode(await metaFile.readAsString());
+          if (decoded is List) {
+            for (int i = 0; i < decoded.length && i < total; i++) {
+              final v = decoded[i];
+              if (v is int && v > 0) segLengths[i] = v;
+            }
+          }
+        } catch (_) {
+          // Corrupt/unreadable metadata — treated as "no metadata" below.
         }
       }
-      if (alreadyCachedCount > 0) {
-        sendPort.send(alreadyCachedCount / total);
+
+      final file = File(savePath);
+      int existingLen = 0;
+      if (await file.exists()) existingLen = await file.length();
+      int completeChunks = existingLen ~/ ENCRYPTED_CHUNK_SIZE;
+      int resumableRawBytes = completeChunks * CHUNK_SIZE;
+
+      // Walk the known segment lengths to find exactly which segment index
+      // the resume point falls in, and how far into that segment it falls.
+      int resumeSegIndex = 0;
+      int localOffsetInSeg = 0;
+      if (resumableRawBytes > 0) {
+        int cum = 0;
+        bool located = false;
+        for (int i = 0; i < total; i++) {
+          final len = segLengths[i];
+          if (len == null) break; // metadata doesn't reach this far
+          if (cum + len > resumableRawBytes) {
+            resumeSegIndex = i;
+            localOffsetInSeg = resumableRawBytes - cum;
+            located = true;
+            break;
+          }
+          cum += len;
+        }
+        if (!located && cum == resumableRawBytes) {
+          resumeSegIndex = 0;
+          for (int i = 0; i < total; i++) {
+            if (segLengths[i] == null) {
+              resumeSegIndex = i;
+              break;
+            }
+          }
+          localOffsetInSeg = 0;
+          located = true;
+        }
+        if (!located) {
+          // Metadata doesn't account for the bytes the encrypted output
+          // claims to have — can't safely map a resume point. Fall back to
+          // a clean restart rather than risk skipping unverified data.
+          try {
+            if (await file.exists()) await file.delete();
+          } catch (_) {}
+          existingLen = 0;
+          completeChunks = 0;
+          resumableRawBytes = 0;
+          resumeSegIndex = 0;
+          localOffsetInSeg = 0;
+          segLengths = List<int?>.filled(total, null);
+        }
+      }
+
+      if (resumeSegIndex > 0) {
+        sendPort.send(resumeSegIndex / total);
       }
 
       Future<List<int>> fetchSegment(String segUrl, int index) async {
-        final cacheFile = File('${segDir.path}/seg_$index.ts');
-        if (await isValidCachedSegment(cacheFile)) {
-          try {
-            return await cacheFile.readAsBytes();
-          } catch (_) {
-            // Cached copy unreadable/corrupt — fall through and re-fetch.
-          }
-        }
-
         Object? lastError;
         for (int attempt = 0; attempt < 4; attempt++) {
           try {
@@ -1236,14 +1302,15 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
             if (data == null || data.isEmpty) {
               throw Exception("Empty segment response");
             }
-            await cacheFile.writeAsBytes(data, flush: true);
+            segLengths[index] = data.length;
+            await persistMeta();
             return data;
           } catch (e) {
-            // ✅ [FIX] A 401/403 means the signed CDN link itself has
-            // expired — retrying the SAME url will just fail again 4 times
-            // in a row (wasting time right as the download is almost done).
-            // Bail out immediately so the caller can fetch a fresh link
-            // instead of grinding through pointless retries.
+            // ✅ A 401/403 means the signed CDN link itself has expired —
+            // retrying the SAME url will just fail again 4 times in a row
+            // (wasting time right as the download is almost done). Bail
+            // out immediately so the caller can fetch a fresh link instead
+            // of grinding through pointless retries.
             if (_isExpiredLinkError(e)) throw _ExpiredLinkSignal();
             lastError = e;
             if (attempt < 3) {
@@ -1253,20 +1320,39 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
         }
         // Segment genuinely failed after retries. Throw (instead of
         // returning null and silently moving on) so the download is marked
-        // as failed rather than falsely "complete" — the segments already
-        // cached on disk are left in place so the next attempt can resume
-        // from here instead of starting over.
+        // as failed rather than falsely "complete" — the segment-length
+        // metadata already persisted is left in place so the next attempt
+        // can resume from here instead of starting over.
         throw Exception("Segment $index failed after retries: $lastError");
       }
 
-      final file = File(savePath);
-      final sink = await file.open(mode: FileMode.write);
+      if (resumeSegIndex > 0) {
+        // Drop any trailing partial/unconfirmed encrypted block from a
+        // previous crash before appending fresh data after it — same
+        // truncate-then-append idiom the direct-MP4 resume path below uses.
+        final raf = await file.open(mode: FileMode.append);
+        await raf.truncate(completeChunks * ENCRYPTED_CHUNK_SIZE);
+        await raf.close();
+      }
+      final sink = await file.open(
+          mode: resumeSegIndex > 0 ? FileMode.append : FileMode.write);
       List<int> buffer = [];
-      int done = 0;
+      int done = resumeSegIndex;
       const int batchSize = 8;
 
       try {
-        for (int i = 0; i < total; i += batchSize) {
+        // The segment straddling the resume point (if any) has no
+        // persisted content — re-fetch it and discard only the prefix
+        // bytes that were already encrypted+flushed in a previous attempt.
+        if (localOffsetInSeg > 0) {
+          final data = await fetchSegment(tsUrls[resumeSegIndex], resumeSegIndex);
+          buffer.addAll(data.sublist(localOffsetInSeg));
+          done++;
+          sendPort.send(done / total);
+        }
+        final int startIndex = resumeSegIndex + (localOffsetInSeg > 0 ? 1 : 0);
+
+        for (int i = startIndex; i < total; i += batchSize) {
           int end = min(i + batchSize, total);
           List<Future<List<int>>> futures = [];
           for (int j = i; j < end; j++) {
@@ -1283,16 +1369,7 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
               await sink.writeFrom(enc);
             }
             done++;
-            // ✅ [FIX] Already reported the resumed starting point above in
-            // one shot — don't re-announce progress for that same range of
-            // segments as we fast-replay through the disk cache, or the
-            // bar will visibly climb from 0% up to the resume point right
-            // in front of the user. Once we're past that point we're
-            // downloading genuinely new segments, so updates resume as
-            // normal.
-            if (done > alreadyCachedCount || done == total) {
-              sendPort.send(done / total);
-            }
+            sendPort.send(done / total);
           }
         }
         if (buffer.isNotEmpty) {
@@ -1301,7 +1378,7 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
         }
         await sink.close();
 
-        // ✅ Success — the raw segment cache is no longer needed.
+        // ✅ Success — the segment-length metadata is no longer needed.
         try {
           if (await segDir.exists()) await segDir.delete(recursive: true);
         } catch (_) {}
@@ -1310,9 +1387,10 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
         return;
       } catch (e) {
         await sink.close();
-        // NOTE: we intentionally do NOT delete segDir here — those already
-        // -downloaded segments are exactly what let a retry/resume finish
-        // quickly instead of re-downloading the whole video from scratch.
+        // NOTE: we intentionally do NOT delete segDir here — the persisted
+        // segment-length metadata (never content) is exactly what lets a
+        // retry/resume skip already-consumed segments instead of
+        // re-downloading the whole video from scratch.
         rethrow;
       }
     }
