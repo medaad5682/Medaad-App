@@ -1074,8 +1074,8 @@ void _pdfDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     final int total =
         int.parse(res.headers.value(Headers.contentLengthHeader) ?? '-1');
 
-    final hashAccumulator = hash_crypto.AccumulatorSink<hash_crypto.Digest>();
-    final hashSink = hash_crypto.sha256.startChunkedConversion(hashAccumulator);
+    final digestSink = _DigestCollectorSink();
+    final hashSink = hash_crypto.sha256.startChunkedConversion(digestSink);
 
     final file = File(savePath);
     final sink = await file.open(mode: FileMode.write);
@@ -1104,7 +1104,7 @@ void _pdfDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
     await sink.close();
 
     hashSink.close();
-    final actualHash = hashAccumulator.events.single.toString();
+    final actualHash = digestSink.digest.toString();
 
     if (expectedHash != null && expectedHash.isNotEmpty) {
       if (actualHash.toLowerCase() != expectedHash.toLowerCase()) {
@@ -1581,4 +1581,20 @@ bool _isExpiredLinkError(Object e) {
     if (status == 401 || status == 403) return true;
   }
   return false;
+}
+
+// ✅ [FIX] `package:crypto` does not publicly export an `AccumulatorSink`
+// (that was my mistake in the prior version of this fix — it caused a
+// `Method not found: 'AccumulatorSink'` compile error). `Hash.
+// startChunkedConversion()` just needs any `Sink<Digest>` to forward the
+// final digest to once `close()` is called, so this tiny local class is
+// all that's actually required — no extra dependency.
+class _DigestCollectorSink implements Sink<hash_crypto.Digest> {
+  hash_crypto.Digest? digest;
+
+  @override
+  void add(hash_crypto.Digest data) => digest = data;
+
+  @override
+  void close() {}
 }
