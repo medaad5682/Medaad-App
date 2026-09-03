@@ -183,6 +183,19 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                                     letterSpacing: 2.0,
                                   ),
                                 ),
+                                // ⏳ [Feature B] عدّاد انتهاء صلاحية الوصول للكورس
+                                // كاملاً (لا يظهر لمن اشترى مواد منفصلة فقط، ولا
+                                // لوصول مدى الحياة).
+                                if (AppState().ownsCourse(widget.courseId) &&
+                                    AppState()
+                                            .daysRemainingForCourse(
+                                                widget.courseId) !=
+                                        null) ...[
+                                  const SizedBox(height: 6),
+                                  _buildExpiryBadge(AppState()
+                                      .daysRemainingForCourse(
+                                          widget.courseId)!),
+                                ],
                               ],
                             ),
                           ),
@@ -373,6 +386,21 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                                           letterSpacing: -0.5,
                                         ),
                                       ),
+                                      // ⏳ [Feature B] عدّاد انتهاء الصلاحية لهذه
+                                      // المادة تحديداً (فقط لمن اشتراها منفردة؛
+                                      // من يملك الكورس كاملاً يرى عدّاده في
+                                      // الأعلى بدلاً من ذلك).
+                                      if (!AppState()
+                                              .ownsCourse(widget.courseId) &&
+                                          AppState().daysRemainingForSubject(
+                                                  subject['id'].toString()) !=
+                                              null) ...[
+                                        const SizedBox(height: 4),
+                                        _buildExpiryBadge(AppState()
+                                            .daysRemainingForSubject(subject[
+                                                    'id']
+                                                .toString())!),
+                                      ],
 
                                       // اسم المدرس والسهم
                                       Row(
@@ -440,6 +468,42 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ⏳ [Feature B] شارة صغيرة "باقي N يوم" — نفس تصميم my_courses_screen.dart،
+  // مكرَّرة هنا محلياً (بدل استيراد الشاشة الأخرى) لإبقاء الشاشتين مستقلتين.
+  // تتحول للون التحذير (أحمر) عندما يتبقى أسبوع أو أقل.
+  Widget _buildExpiryBadge(int daysLeft) {
+    final bool soon = AppState().isExpiringSoon(daysLeft);
+    final Color color = soon ? AppColors.error : AppColors.textSecondary;
+    final bool isArabic = AppState.isArabic;
+    final String label = daysLeft <= 0
+        ? (isArabic ? 'ينتهي اليوم' : 'Expires today')
+        : (isArabic ? 'باقي $daysLeft يوم' : '$daysLeft day(s) left');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.3), width: 0.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(LucideIcons.clock, size: 9, color: color),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 8,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }

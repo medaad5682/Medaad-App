@@ -37,6 +37,10 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
   String _activeTab = 'chapters'; // chapters | exams
   bool _loading = true;
   String? _error;
+  // ⏳ [Feature B] سبب رفض الوصول عندما يرجعه get-subject-content صراحة:
+  // 'expired' (كان مملوكاً وانتهت صلاحيته) أو 'not_owned' (لم يشترك أبداً)،
+  // أو null إن كان الخطأ اتصال حقيقي وليس رفض وصول من السيرفر.
+  String? _accessDenialReason;
   Map<String, dynamic>? _content;
   bool _isTeacher = false;
   // ✅ [جديد] أسماء المجلدات المطوية حالياً. المجلدات تكون مطوية (مغلقة)
@@ -78,15 +82,43 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         setState(() {
           _content = res.data;
           _loading = false;
+          _error = null;
+          _accessDenialReason = null;
           _syncFolderDefaults();
         });
       }
     } catch (e, stack) {
       FirebaseCrashlytics.instance
           .recordError(e, stack, reason: 'Fetching Subject Content Failed');
+
+      // ⏳ [Feature B] get-subject-content يُرجع 403 مع { reason: 'expired' |
+      // 'not_owned' } عند رفض الوصول (راجع authHelper.js/checkUserAccess).
+      // Dio يرمي استثناءً لأي رد غير 2xx، فنقرأ التفاصيل هنا بدل التعامل مع
+      // كل رفض وصول كـ "فشل تحميل" عام لا يفرّق بين "انتهت صلاحيتك" و"لم
+      // تشترك أصلاً".
+      String? reason;
+      String? serverMessage;
+      if (e is DioException && e.response != null) {
+        final data = e.response!.data;
+        if (data is Map) {
+          reason = data['reason']?.toString();
+          serverMessage = (data['message'] ?? data['error'])?.toString();
+        }
+      }
+
       if (mounted) {
         setState(() {
-          _error = AppLocalizations.of(context)!.failedToLoadContent;
+          _accessDenialReason = reason;
+          _error = reason == 'expired'
+              ? (AppState.isArabic
+                  ? 'انتهت صلاحية اشتراكك في هذه المادة'
+                  : 'Your access to this subject has expired')
+              : reason == 'not_owned'
+                  ? (AppState.isArabic
+                      ? 'لا تملك اشتراكاً في هذه المادة'
+                      : 'You don\'t have access to this subject')
+                  : (serverMessage ??
+                      AppLocalizations.of(context)!.failedToLoadContent);
           _loading = false;
         });
       }
@@ -395,14 +427,57 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
               child: CircularProgressIndicator(color: AppColors.accentYellow)));
     }
     if (_error != null) {
+      final bool isArabic = AppState.isArabic;
+      final bool isExpired = _accessDenialReason == 'expired';
+      final bool isAccessDenial = _accessDenialReason != null;
+
       return Scaffold(
           backgroundColor: AppColors.backgroundPrimary,
           appBar: AppBar(
               backgroundColor: Colors.transparent,
               leading: BackButton(color: AppColors.accentYellow)),
           body: Center(
-              child: Text(_error!,
-                  style: const TextStyle(color: AppColors.error))));
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isExpired ? LucideIcons.clock : LucideIcons.shieldAlert,
+                    size: 48,
+                    color: isAccessDenial
+                        ? AppColors.accentYellow
+                        : AppColors.error,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(_error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.error)),
+                  // ⏳ [Feature B] عندما يكون سبب الرفض "انتهت الصلاحية" تحديداً،
+                  // نعرض زراً يوجّه الطالب للعودة (لتجديد الاشتراك من المتجر)
+                  // بدل تركه أمام رسالة رفض بلا أي إجراء ممكن.
+                  if (isExpired) ...[
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accentYellow,
+                        foregroundColor: AppColors.backgroundPrimary,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text(
+                        isArabic ? 'تجديد الاشتراك' : 'Renew subscription',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ));
     }
 
     final chapters = _content!['chapters'] as List;

@@ -392,6 +392,12 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                             subjectsToPass = item['owned_subjects'];
                           }
 
+                          // ⏳ [Feature B] عدّاد انتهاء الصلاحية لهذا العنصر (إن
+                          // وُجد). لكورس كامل: عدّاد الكورس نفسه. لمجموعة مواد
+                          // منفصلة: أقرب مادة على وشك الانتهاء (الأكثر إلحاحاً).
+                          final int? daysLeft =
+                              _daysLeftForLibraryItem(item, subjectsToPass);
+
                           return GestureDetector(
                             onTap: () {
                               Navigator.push(
@@ -492,6 +498,11 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
+                                        // ⏳ [Feature B] عدّاد انتهاء الصلاحية (لا يظهر إطلاقاً لوصول مدى الحياة)
+                                        if (daysLeft != null) ...[
+                                          const SizedBox(height: 4),
+                                          _buildExpiryBadge(daysLeft),
+                                        ],
                                         const SizedBox(height: 4),
                                         Row(
                                           children: [
@@ -579,6 +590,69 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ⏳ [Feature B] يحسب عدد الأيام المتبقية على عنصر مكتبة معين (كورس كامل
+  // أو مجموعة مواد منفصلة)، أو null إن كان الوصول مدى الحياة أو غير معروف
+  // بعد. لمجموعة المواد المنفصلة، نعرض أقرب مادة على وشك الانتهاء لأنها
+  // الأكثر إلحاحاً بالنسبة للطالب.
+  int? _daysLeftForLibraryItem(
+      Map<String, dynamic> item, List<dynamic>? ownedSubjects) {
+    final String id = item['id'].toString();
+    final bool isFullCourse = item['type'] == 'course';
+
+    if (isFullCourse) {
+      return AppState().daysRemainingForCourse(id);
+    }
+
+    // مجموعة مواد منفصلة: نأخذ أصغر قيمة (الأقرب للانتهاء) بين المواد التي
+    // لها عدّاد فعلي؛ المواد ذات وصول مدى الحياة (null) لا تدخل في الحساب.
+    if (ownedSubjects == null || ownedSubjects.isEmpty) return null;
+    int? soonest;
+    for (final sub in ownedSubjects) {
+      if (sub is! Map) continue;
+      final subId = sub['id']?.toString();
+      if (subId == null) continue;
+      final subDays = AppState().daysRemainingForSubject(subId);
+      if (subDays == null) continue;
+      if (soonest == null || subDays < soonest) soonest = subDays;
+    }
+    return soonest;
+  }
+
+  // ⏳ [Feature B] شارة صغيرة "ينتهي خلال N يوم" — تتحول للون التحذير (برتقالي)
+  // عندما يتبقى أسبوع أو أقل.
+  Widget _buildExpiryBadge(int daysLeft) {
+    final bool soon = AppState().isExpiringSoon(daysLeft);
+    final Color color = soon ? AppColors.error : AppColors.textSecondary;
+    final bool isArabic = AppState.isArabic;
+    final String label = daysLeft <= 0
+        ? (isArabic ? 'ينتهي اليوم' : 'Expires today')
+        : (isArabic ? 'باقي $daysLeft يوم' : '$daysLeft day(s) left');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.3), width: 0.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(LucideIcons.clock, size: 9, color: color),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 8,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }

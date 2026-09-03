@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../core/services/app_state.dart';
 import '../../core/services/download_manager.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
@@ -327,7 +328,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     } catch (e, stack) {
       if (mounted) Navigator.pop(context);
       FirebaseCrashlytics.instance.recordError(e, stack, reason: 'Play Video Exception');
-      _showErrorSnackBar("Connection Error: Please check internet");
+      _showErrorSnackBar(_describeAccessError(e,
+          fallback: "Connection Error: Please check internet"));
     }
   }
 
@@ -406,7 +408,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     } catch (e, stack) {
       if (mounted) Navigator.pop(context);
       FirebaseCrashlytics.instance.recordError(e, stack, reason: "Direct Stream Error");
-      _showErrorSnackBar("Connection Error or Timeout.");
+      _showErrorSnackBar(
+          _describeAccessError(e, fallback: "Connection Error or Timeout."));
     }
   }
 
@@ -509,7 +512,8 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
     } catch (e, stack) {
       if (mounted) Navigator.pop(context);
       FirebaseCrashlytics.instance.recordError(e, stack, reason: 'Both Download APIs Failed');
-      _showErrorSnackBar("Failed to fetch download info. Please check internet.");
+      _showErrorSnackBar(_describeAccessError(e,
+          fallback: "Failed to fetch download info. Please check internet."));
     }
   }
 
@@ -1477,5 +1481,39 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: AppColors.error));
+  }
+
+  // ⏳ [Feature B] يميّز رسالة خطأ حقيقية قادمة من السيرفر (403 "Access
+  // Denied"، بما فيها حالة انتهاء صلاحية الاشتراك إن أرفقها السيرفر عبر حقل
+  // `reason`) عن خطأ اتصال فعلي (لا يوجد رد من السيرفر أصلاً). قبل هذا
+  // التعديل كان أي 403 (لأن Dio يرمي استثناءً لكل رد غير 2xx) يظهر للطالب
+  // كـ"خطأ اتصال" مضلّل رغم أن السيرفر رد فعلياً برفض واضح.
+  String _describeAccessError(dynamic e, {required String fallback}) {
+    if (e is DioException && e.response != null) {
+      final data = e.response!.data;
+      String? reason;
+      String? serverMessage;
+      if (data is Map) {
+        reason = data['reason']?.toString();
+        serverMessage = (data['message'] ?? data['error'])?.toString();
+      }
+
+      if (reason == 'expired') {
+        return AppState.isArabic
+            ? 'انتهت صلاحية اشتراكك في هذا المحتوى، جدد اشتراكك للمتابعة'
+            : 'Your access to this content has expired. Please renew your subscription.';
+      }
+
+      if (e.response!.statusCode == 403) {
+        return serverMessage ??
+            (AppState.isArabic
+                ? 'لا تملك صلاحية الوصول لهذا المحتوى'
+                : 'Access Denied');
+      }
+
+      if (serverMessage != null) return serverMessage;
+    }
+    // لا يوجد رد من السيرفر إطلاقاً -> هذا فعلاً خطأ اتصال/انترنت.
+    return fallback;
   }
 }
