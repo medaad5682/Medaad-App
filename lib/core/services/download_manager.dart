@@ -1230,15 +1230,29 @@ void _videoDownloadIsolateEntryPoint(Map<String, dynamic> args) async {
       final int total = tsUrls.length;
       List<int?> segLengths = List<int?>.filled(total, null);
 
-      Future<void> persistMeta() async {
-        try {
-          await metaFile.writeAsString(
-              jsonEncode(segLengths.map((l) => l ?? 0).toList()),
-              flush: true);
-        } catch (_) {
-          // Best-effort — worst case a future resume falls back to a clean
-          // restart, which is safe, just not optimally fast.
-        }
+      // ✅ [FIX] Segments download in concurrent batches of 8, so
+      // persistMeta() can be called by several segments' fetches at once.
+      // An unguarded writeAsString() to the same file lets these races out
+      // of order: if a slightly-behind write happens to land on disk AFTER
+      // a more-complete one, the file silently REGRESSES to a less-complete
+      // snapshot — permanently losing a segment's recorded length, which
+      // then breaks the resume walk below and forces a full restart. This
+      // chain guarantees writes commit strictly in enqueue order, so a
+      // later (more complete) snapshot can never be clobbered by an earlier
+      // one finishing its disk I/O late.
+      Future<void> metaWriteChain = Future.value();
+      Future<void> persistMeta() {
+        metaWriteChain = metaWriteChain.then((_) async {
+          try {
+            await metaFile.writeAsString(
+                jsonEncode(segLengths.map((l) => l ?? 0).toList()),
+                flush: true);
+          } catch (_) {
+            // Best-effort — worst case a future resume falls back to a
+            // clean restart, which is safe, just not optimally fast.
+          }
+        });
+        return metaWriteChain;
       }
 
       if (await metaFile.exists()) {
