@@ -33,6 +33,17 @@ class AppState {
   bool isGuest = false;
 
   // ============================================================
+  // ⏳ Feature B — عدّاد انتهاء صلاحية الوصول (per-student access expiry)
+  // ============================================================
+  // خرائط: course_id/subject_id -> تاريخ الانتهاء الفعلي، ولا تحتوي إلا على
+  // العناصر التي (أ) الطالب يملكها حالياً و(ب) لها تاريخ انتهاء حقيقي (أي
+  // ليست "مدى الحياة"). هذه البيانات غير موجودة في get-app-init-data حالياً
+  // (الذي يكتفي باستبعاد المنتهي دون إرفاق تاريخه)، لذا تُجلب بطلب خفيف
+  // منفصل عبر fetchAccessExpiryDetails() — راجع تعليقها أدناه.
+  Map<String, DateTime> courseAccessExpiry = {};
+  Map<String, DateTime> subjectAccessExpiry = {};
+
+  // ============================================================
   // 🌓 إدارة الثيم (Theme Management)
   // ============================================================
 
@@ -283,6 +294,31 @@ class AppState {
   bool ownsSubject(String subjectId) => mySubjectIds.contains(subjectId);
 
   // ============================================================
+  // ⏳ Feature B — عدّاد انتهاء صلاحية الوصول: دوال قراءة مساعدة
+  // ============================================================
+
+  // عدد الأيام المتبقية لوصول الطالب لكورس معين (مقرَّب لأعلى)، أو null إن
+  // كان الوصول مدى الحياة أو غير مملوك أو غير معروف بعد (قبل أول
+  // fetchAccessExpiryDetails() ناجحة). لا تُستخدم هذه القيمة أمنياً بأي شكل؛
+  // القرار الفعلي دائماً من السيرفر — هذا فقط لعرض عدّاد تقريبي في الواجهة.
+  int? daysRemainingForCourse(String courseId) =>
+      _daysRemaining(courseAccessExpiry[courseId]);
+
+  // نفس الفكرة لمادة منفردة (اشتراك بمادة واحدة بدل الكورس كاملاً).
+  int? daysRemainingForSubject(String subjectId) =>
+      _daysRemaining(subjectAccessExpiry[subjectId]);
+
+  int? _daysRemaining(DateTime? expiresAt) {
+    if (expiresAt == null) return null;
+    final diff = expiresAt.difference(DateTime.now());
+    if (diff.isNegative) return 0;
+    return (diff.inHours / 24).ceil();
+  }
+
+  // هل باقي على انتهاء هذا العنصر ٧ أيام أو أقل؟ (لتلوين العدّاد بالتحذير)
+  bool isExpiringSoon(int? daysLeft) => daysLeft != null && daysLeft <= 7;
+
+  // ============================================================
   // ⚙️ دوال إدارة الحالة (State Management)
   // ============================================================
 
@@ -300,6 +336,8 @@ class AppState {
       myLibrary = [];
       myCourseIds = [];
       mySubjectIds = [];
+      courseAccessExpiry = {}; // ⏳ [Feature B]
+      subjectAccessExpiry = {}; // ⏳ [Feature B]
     }
   }
 
@@ -387,7 +425,13 @@ class AppState {
         // 👈 ✅ السطر الجديد: بعد بناء المكتبة، نستخرج كل المواد المتاحة وننظف التحميلات (يطبق على الطالب والمعلم)
         List<String> allAuthSubjects = _getAllAuthorizedSubjectIds();
         DownloadManager().validateAndCleanRevokedDownloads(allAuthSubjects);
-        
+
+        // ⏳ [Feature B] جلب عدّاد انتهاء الصلاحية لعناصر المكتبة (fire-and-forget:
+        // لا ننتظرها هنا حتى لا نُبطئ فتح التطبيق/تسجيل الدخول؛ إن فشلت لأي
+        // سبب فالمكتبة تبقى تعمل بشكل طبيعي بدون عدّاد فقط). راجع تعريفها
+        // أسفل الملف لشرح كامل.
+        unawaited(fetchAccessExpiryDetails());
+
       } else {
         // إذا كان ضيفاً، نجعل المكتبة فارغة دائماً
         myLibrary = [];
@@ -402,6 +446,68 @@ class AppState {
       }
     } catch (e, stack) {
       if (kDebugMode) print("❌ Error parsing init data: $e\n$stack");
+    }
+  }
+
+  // ⏳ [Feature B] يجلب من /api/student/my-access تفاصيل تاريخ الانتهاء
+  // (granted_at/expires_at/active) لكل صف وصول يملكه الطالب، ويملأ
+  // courseAccessExpiry/subjectAccessExpiry بالعناصر النشطة ذات تاريخ انتهاء
+  // حقيقي فقط (غير مدى الحياة). get-app-init-data لا يرسل هذه التواريخ
+  // ضمن "library" حالياً (فقط يستبعد المنتهي)، لذا هذا طلب خفيف منفصل
+  // مخصص فقط لعرض عدّاد "ينتهي خلال N يوم" في الواجهة — لا علاقة له بأي
+  // قرار وصول فعلي (ذلك يبقى بالكامل على السيرفر).
+  Future<void> fetchAccessExpiryDetails() async {
+    if (isGuest) return;
+    try {
+      var box = await StorageService.openBox('auth_box');
+      String? token = box.get('jwt_token');
+      if (token == null) return; // غير مسجل دخول فعلياً بعد
+
+      final response = await ApiClient.instance.get(
+        '${ApiConstants.apiUrl}/student/my-access',
+      );
+
+      if (response.statusCode == 200) {
+        final data = _makeSafeMap(response.data);
+
+        final Map<String, DateTime> newCourseExpiry = {};
+        final Map<String, DateTime> newSubjectExpiry = {};
+
+        final coursesDetailed = data['coursesDetailed'] as List? ?? [];
+        for (var raw in coursesDetailed) {
+          final row = _makeSafeMap(raw);
+          if (row['active'] == true && row['expires_at'] != null) {
+            final parsed = DateTime.tryParse(row['expires_at'].toString());
+            if (parsed != null && row['course_id'] != null) {
+              newCourseExpiry[row['course_id'].toString()] = parsed;
+            }
+          }
+        }
+
+        final subjectsDetailed = data['subjectsDetailed'] as List? ?? [];
+        for (var raw in subjectsDetailed) {
+          final row = _makeSafeMap(raw);
+          if (row['active'] == true && row['expires_at'] != null) {
+            final parsed = DateTime.tryParse(row['expires_at'].toString());
+            if (parsed != null && row['subject_id'] != null) {
+              newSubjectExpiry[row['subject_id'].toString()] = parsed;
+            }
+          }
+        }
+
+        courseAccessExpiry = newCourseExpiry;
+        subjectAccessExpiry = newSubjectExpiry;
+
+        if (kDebugMode) {
+          print(
+              "⏳ Access expiry refreshed: ${courseAccessExpiry.length} course(s), ${subjectAccessExpiry.length} subject(s) with a countdown.");
+        }
+      }
+    } catch (e) {
+      // ⏳ غير حرج بالمرة: أسوأ سيناريو أن عدّاد الانتهاء لا يظهر هذه المرة
+      // في المكتبة؛ لا يؤثر على تصفح المحتوى أو أي فحص وصول فعلي. سيُعاد
+      // جلبه تلقائياً عند أي reloadAppInit()/تسجيل دخول لاحق.
+      if (kDebugMode) print("⚠️ fetchAccessExpiryDetails() failed: $e");
     }
   }
 
@@ -503,6 +609,8 @@ class AppState {
     mySubjectIds = [];
     myLibrary = [];
     isGuest = false; // إعادة تعيين حالة الضيف
+    courseAccessExpiry = {}; // ⏳ [Feature B] مسح عدّاد الانتهاء أيضاً
+    subjectAccessExpiry = {}; // ⏳ [Feature B]
     // لا نمسح allCourses لأنها بيانات عامة قد نحتاجها في صفحة الدخول
   }
 }
