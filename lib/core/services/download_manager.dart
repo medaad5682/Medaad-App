@@ -33,9 +33,30 @@ class DownloadManager with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // ✅ [FIX] `detached` used to call cancelAllDownloads(), which treats the
+    // app's engine detaching the same as the user explicitly tapping Cancel
+    // — including deleting the HLS resume metadata (segDir) AND the
+    // pending_downloads_box record. Because this app runs a background
+    // service, a force-close (swipe away from recents) can fire `detached`
+    // while the isolate keeps running briefly before the OS finally kills
+    // the process — long enough for the segDir delete to finish but not
+    // always long enough to also reach the pendingBox delete just after it.
+    // Net effect: Resume button still shows (record survived), but the
+    // resume metadata is already gone, so it silently restarts from 0%.
+    // `detached` is an environment signal, not the user giving up on the
+    // download — it should be treated like Pause (halt network activity,
+    // keep everything needed to resume), not like Cancel.
     if (state == AppLifecycleState.detached) {
-      cancelAllDownloads();
+      _pauseAllForLifecycle();
     }
+  }
+
+  Future<void> _pauseAllForLifecycle() async {
+    final List<String> allIds = List.from(_cancelTokens.keys);
+    for (var id in allIds) {
+      await pauseDownload(id);
+    }
+    _stopBackgroundService();
   }
 
   static final Dio _dio = Dio(BaseOptions(
