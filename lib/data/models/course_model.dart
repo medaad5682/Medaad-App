@@ -100,6 +100,13 @@ class CourseModel {
   final List<dynamic> subjects; 
   final List<dynamic> exams;
 
+  // ⏳ Feature B (per-student access expiry): موجودة فقط عندما يأتي هذا
+  // الكورس من سياق "مكتبة الطالب" مع بيانات صلاحية مرفقة (وليس من قائمة
+  // المتجر العامة، حيث لا معنى لهذين الحقلين). null = وصول مدى الحياة أو
+  // غير معروف من هذا المصدر.
+  final DateTime? expiresAt;
+  final int? accessDurationDays;
+
   CourseModel({
     required this.id,
     required this.title,
@@ -115,6 +122,8 @@ class CourseModel {
     this.rating,
     this.reviews,
     this.category,
+    this.expiresAt, // ⏳
+    this.accessDurationDays, // ⏳
   });
 
   factory CourseModel.fromJson(Map<String, dynamic> json) {
@@ -133,6 +142,28 @@ class CourseModel {
 
       subjects: [],
       exams: [],
+
+      // ⏳ اختياريان: لا يظهران في استجابة المتجر العامة حالياً، لكن مصادر
+      // بيانات أخرى (مثل مكتبة الطالب) قد تُرفقهما مستقبلاً بنفس الاسم.
+      expiresAt: json['expires_at'] != null
+          ? DateTime.tryParse(json['expires_at'].toString())
+          : null,
+      accessDurationDays: json['access_duration_days'] != null
+          ? int.tryParse(json['access_duration_days'].toString())
+          : null,
     );
+  }
+
+  // ⏳ true إذا لم يكن هناك تاريخ انتهاء محدد (وصول مدى الحياة أو غير معروف).
+  bool get isLifetimeAccess => expiresAt == null;
+
+  // ⏳ عدد الأيام المتبقية على الوصول (مقرَّب لأعلى)، أو null لوصول مدى
+  // الحياة. لا تُستخدم هذه القيمة لاتخاذ قرارات أمنية — القرار الفعلي دائماً
+  // من السيرفر؛ هذا فقط لعرض عدّاد تقريبي في الواجهة.
+  int? get daysRemaining {
+    if (expiresAt == null) return null;
+    final diff = expiresAt!.difference(DateTime.now());
+    if (diff.isNegative) return 0;
+    return (diff.inHours / 24).ceil();
   }
 }
