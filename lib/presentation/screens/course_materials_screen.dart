@@ -183,19 +183,6 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                                     letterSpacing: 2.0,
                                   ),
                                 ),
-                                // ⏳ [Feature B] عدّاد انتهاء صلاحية الوصول للكورس
-                                // كاملاً (لا يظهر لمن اشترى مواد منفصلة فقط، ولا
-                                // لوصول مدى الحياة).
-                                if (AppState().ownsCourse(widget.courseId) &&
-                                    AppState()
-                                            .daysRemainingForCourse(
-                                                widget.courseId) !=
-                                        null) ...[
-                                  const SizedBox(height: 6),
-                                  _buildExpiryBadge(AppState()
-                                      .daysRemainingForCourse(
-                                          widget.courseId)!),
-                                ],
                               ],
                             ),
                           ),
@@ -386,22 +373,6 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                                           letterSpacing: -0.5,
                                         ),
                                       ),
-                                      // ⏳ [Feature B] عدّاد انتهاء الصلاحية لهذه
-                                      // المادة تحديداً (فقط لمن اشتراها منفردة؛
-                                      // من يملك الكورس كاملاً يرى عدّاده في
-                                      // الأعلى بدلاً من ذلك).
-                                      if (!AppState()
-                                              .ownsCourse(widget.courseId) &&
-                                          AppState().daysRemainingForSubject(
-                                                  subject['id'].toString()) !=
-                                              null) ...[
-                                        const SizedBox(height: 4),
-                                        _buildExpiryBadge(AppState()
-                                            .daysRemainingForSubject(subject[
-                                                    'id']
-                                                .toString())!),
-                                      ],
-
                                       // اسم المدرس والسهم
                                       Row(
                                         mainAxisAlignment:

@@ -498,11 +498,6 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
-                                        // ⏳ [Feature B] عدّاد انتهاء الصلاحية (لا يظهر إطلاقاً لوصول مدى الحياة)
-                                        if (daysLeft != null) ...[
-                                          const SizedBox(height: 4),
-                                          _buildExpiryBadge(daysLeft),
-                                        ],
                                         const SizedBox(height: 4),
                                         Row(
                                           children: [
