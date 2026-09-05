@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/video_screenshot_service.dart';
 import '../../core/services/api_client.dart';
 // ✅ 1. استيراد خدمة الإشعارات
 import '../../core/services/notification_service.dart';
@@ -229,6 +230,10 @@ class _SplashScreenState extends State<SplashScreen>
       // show a "Resume" state instead of a plain "Download" button, without
       // needing the quality-selection dialog again.
       await StorageService.openBox('pending_downloads_box');
+      // ✅ لقطات الفيديو (screenshots داخل مشغل الفيديو الأصلي) — صندوق
+      // بيانات وصفية مشفّر بنفس آلية downloads_box، يُفتح هنا مبكراً حتى
+      // يكون جاهزاً فور دخول المستخدم لأي شاشة تستخدمه.
+      await StorageService.openBox(VideoScreenshotService.boxName);
 
       final UpdateService _updateService = UpdateService();
 
