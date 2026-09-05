@@ -1274,7 +1274,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         ),
         const SizedBox(width: 10),
         MaterialCustomButton(
-          onPressed: _isCapturingScreenshot ? null : _captureCurrentFrame,
+          // ✅ [BUILD-FIX] MaterialCustomButton.onPressed (media_kit_video) is
+          // a non-nullable `void Function()`, unlike Flutter's IconButton —
+          // it can't accept `null` to "disable" the button, and a bare async
+          // tear-off (`Future<void> Function()`) inside a nullable ternary
+          // doesn't satisfy it either. Re-entrance is already guarded inside
+          // _captureCurrentFrame() itself, so just fire-and-forget it here,
+          // matching the _safeExit() pattern used by the other buttons above.
+          onPressed: () => _captureCurrentFrame(),
           icon: _isCapturingScreenshot
               ? const SizedBox(
                   width: 18,
