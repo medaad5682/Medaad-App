@@ -216,6 +216,14 @@ class _DownloadedChapterContentsScreenState
                 .recordError(e, stack, reason: 'Error parsing Hive data');
           }
 
+          // ✅ [SCREENSHOT FEATURE] معرّفات الدروس (نفس lessonId المُمرَّر
+          // لـ VideoPlayerScreen عند التشغيل) الخاصة بفيديوهات هذا الفصل
+          // فقط — تُستخدم لتصفية معرض اللقطات ليعرض لقطات هذا الفصل حصراً.
+          final Set<String> chapterLessonIds = videoItems
+              .map((item) => item['id']?.toString())
+              .whereType<String>()
+              .toSet();
+
           return Scaffold(
             backgroundColor: AppColors.backgroundPrimary,
             body: SafeArea(
@@ -256,6 +264,25 @@ class _DownloadedChapterContentsScreenState
                               ),
                             ],
                           ),
+                        ),
+                        // ✅ [SCREENSHOT FEATURE] فتح معرض لقطات الفيديو
+                        // الخاصة بهذا الفصل (مصفّاة عبر lessonId).
+                        IconButton(
+                          tooltip: AppLocalizations.of(context)!
+                              .videoScreenshotsTooltip,
+                          icon: Icon(LucideIcons.image,
+                              color: AppColors.accentYellow, size: 22),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => VideoScreenshotsScreen(
+                                  title: widget.chapterTitle,
+                                  lessonIds: chapterLessonIds,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ),
