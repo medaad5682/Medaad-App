@@ -694,5 +694,12 @@
   "arabicLanguageOption": "العربية",
   "hqAudioLabel": "صوت عالي الجودة",
   "doubleSpeedLabel": "سرعة×2",
-  "freeAccessLabel": "وصول مجاني"
+  "freeAccessLabel": "وصول مجاني",
+  "videoScreenshotSaved": "تم حفظ اللقطة",
+  "videoScreenshotFailed": "فشل حفظ اللقطة",
+  "videoScreenshotsTitle": "لقطات الفيديو",
+  "videoScreenshotsTooltip": "عرض لقطات الفيديو",
+  "noVideoScreenshotsYet": "لا توجد لقطات بعد",
+  "deleteScreenshotConfirmTitle": "حذف اللقطة؟",
+  "deleteScreenshotConfirmBody": "سيتم حذف هذه اللقطة نهائياً."
 }

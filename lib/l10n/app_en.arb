@@ -2909,5 +2909,33 @@
   "freeAccessLabel": "Free Access",
   "@freeAccessLabel": {
     "description": "Label shown instead of a price when a course is free"
+  },
+  "videoScreenshotSaved": "Screenshot saved",
+  "@videoScreenshotSaved": {
+    "description": "Snackbar shown after a video-frame screenshot is captured and saved encrypted"
+  },
+  "videoScreenshotFailed": "Failed to save screenshot",
+  "@videoScreenshotFailed": {
+    "description": "Snackbar shown when capturing/saving a video-frame screenshot fails"
+  },
+  "videoScreenshotsTitle": "Screenshots",
+  "@videoScreenshotsTitle": {
+    "description": "Title of the video screenshots gallery screen"
+  },
+  "videoScreenshotsTooltip": "View screenshots",
+  "@videoScreenshotsTooltip": {
+    "description": "Tooltip/label for the icon that opens the video screenshots gallery"
+  },
+  "noVideoScreenshotsYet": "No screenshots yet",
+  "@noVideoScreenshotsYet": {
+    "description": "Empty state text in the video screenshots gallery"
+  },
+  "deleteScreenshotConfirmTitle": "Delete screenshot?",
+  "@deleteScreenshotConfirmTitle": {
+    "description": "Confirmation dialog title when deleting a video screenshot"
+  },
+  "deleteScreenshotConfirmBody": "This screenshot will be permanently deleted.",
+  "@deleteScreenshotConfirmBody": {
+    "description": "Confirmation dialog body when deleting a video screenshot"
   }
 }
