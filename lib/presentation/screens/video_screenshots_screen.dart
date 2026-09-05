@@ -29,6 +29,11 @@ class VideoScreenshotsScreen extends StatefulWidget {
 
 class _VideoScreenshotsScreenState extends State<VideoScreenshotsScreen> {
   List<VideoScreenshotRecord> _records = [];
+  // ✅ [PERF-FIX] كل بايتات الصور تُفكّ تشفيرها دفعة واحدة أثناء شاشة
+  // التحميل (بدل فك تشفير كل صورة عند ظهورها في الشبكة عبر FutureBuilder
+  // منفصل لكل بطاقة). هذا يحوّل "التهنيج" الذي كان يظهر أثناء التمرير/فتح
+  // الشبكة إلى مؤشر تحميل واحد واضح قبل عرض أي شيء — تماماً كما طُلب.
+  final Map<String, Uint8List> _thumbBytes = {};
   bool _isLoading = true;
 
   @override
@@ -44,9 +49,31 @@ class _VideoScreenshotsScreenState extends State<VideoScreenshotsScreen> {
       final filtered = widget.lessonIds == null
           ? all
           : all.where((r) => widget.lessonIds!.contains(r.lessonId)).toList();
+
+      // ✅ فك التشفير لكل اللقطات المعروضة الآن، مرة واحدة، قبل إظهار
+      // الشبكة. أي لقطة يفشل فك تشفيرها ببساطة لا تُضاف للخريطة (تُعرض
+      // كأيقونة "imageOff" بدل تجميد الشاشة على خطأ واحد).
+      final bytesMap = <String, Uint8List>{};
+      await Future.wait(filtered.map((record) async {
+        try {
+          bytesMap[record.id] =
+              await VideoScreenshotService.decryptForView(record.filePath);
+        } catch (e, stack) {
+          FirebaseCrashlytics.instance.recordError(
+            e,
+            stack,
+            reason: 'VideoScreenshotsScreen: decrypt failed for thumbnail',
+            fatal: false,
+          );
+        }
+      }));
+
       if (!mounted) return;
       setState(() {
         _records = filtered;
+        _thumbBytes
+          ..clear()
+          ..addAll(bytesMap);
         _isLoading = false;
       });
     } catch (e, stack) {
@@ -67,6 +94,7 @@ class _VideoScreenshotsScreenState extends State<VideoScreenshotsScreen> {
       MaterialPageRoute(
         builder: (_) => _ScreenshotViewerScreen(
           records: _records,
+          bytesById: _thumbBytes,
           initialIndex: index,
           onDeleted: _load,
         ),
@@ -113,8 +141,24 @@ class _VideoScreenshotsScreenState extends State<VideoScreenshotsScreen> {
             Expanded(
               child: _isLoading
                   ? Center(
-                      child: CircularProgressIndicator(
-                          color: AppColors.accentYellow),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                              color: AppColors.accentYellow),
+                          const SizedBox(height: 16),
+                          Text(
+                            AppLocalizations.of(context)!
+                                .decryptingScreenshots,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.0,
+                              color: AppColors.textSecondary.withOpacity(0.6),
+                            ),
+                          ),
+                        ],
+                      ),
                     )
                   : _records.isEmpty
                       ? _buildEmptyState(context)
@@ -135,6 +179,7 @@ class _VideoScreenshotsScreenState extends State<VideoScreenshotsScreen> {
                               final record = _records[index];
                               return _ScreenshotThumbnail(
                                 record: record,
+                                bytes: _thumbBytes[record.id],
                                 onTap: () => _openViewer(index),
                               );
                             },
@@ -170,13 +215,18 @@ class _VideoScreenshotsScreenState extends State<VideoScreenshotsScreen> {
   }
 }
 
-/// بطاقة مصغّرة واحدة — تفك تشفير الصورة في الذاكرة فقط عند الحاجة للعرض
-/// (FutureBuilder)، ولا تخزّن أي بايتات مفكوكة على القرص.
+/// بطاقة مصغّرة واحدة — تعرض البايتات المفكوكة مسبقاً (من الشاشة الأم أثناء
+/// شاشة التحميل)، دون أي فك تشفير إضافي هنا.
 class _ScreenshotThumbnail extends StatelessWidget {
   final VideoScreenshotRecord record;
+  final Uint8List? bytes;
   final VoidCallback onTap;
 
-  const _ScreenshotThumbnail({required this.record, required this.onTap});
+  const _ScreenshotThumbnail({
+    required this.record,
+    required this.bytes,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -192,32 +242,30 @@ class _ScreenshotThumbnail extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              FutureBuilder<Uint8List>(
-                future: VideoScreenshotService.decryptForView(record.filePath),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.accentYellow,
-                        ),
-                      ),
-                    );
-                  }
-                  if (snapshot.hasError || !snapshot.hasData) {
-                    return Icon(LucideIcons.imageOff,
-                        color: AppColors.textSecondary.withOpacity(0.5));
-                  }
-                  return Image.memory(
-                    snapshot.data!,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                  );
-                },
-              ),
+              bytes == null
+                  ? Center(
+                      child: Icon(LucideIcons.imageOff,
+                          color: AppColors.textSecondary.withOpacity(0.5)),
+                    )
+                  // ✅ [MEMORY-FIX] فك ترميز الصورة (decode) بحجم البطاقة
+                  // الفعلي فقط بدل الدقة الكاملة للقطة الأصلية. البايتات
+                  // المشفّرة/المفكوكة في الذاكرة (PNG مضغوط) لا تتغير — هذا
+                  // فقط يحدّ من حجم البيتماب غير المضغوط الذي يُنشئه محرّك
+                  // الرسم لكل صورة مصغّرة، وهو المستهلك الأكبر للذاكرة عند
+                  // عرض عدد كبير من اللقطات في شبكة معاً.
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final dpr = MediaQuery.of(context).devicePixelRatio;
+                        final targetWidth =
+                            (constraints.maxWidth * dpr).round();
+                        return Image.memory(
+                          bytes!,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                          cacheWidth: targetWidth > 0 ? targetWidth : null,
+                        );
+                      },
+                    ),
               Positioned(
                 left: 0,
                 right: 0,
@@ -258,11 +306,13 @@ class _ScreenshotThumbnail extends StatelessWidget {
 /// فقط عند فتح كل صفحة (لا نسخة مفكوكة على القرص).
 class _ScreenshotViewerScreen extends StatefulWidget {
   final List<VideoScreenshotRecord> records;
+  final Map<String, Uint8List> bytesById;
   final int initialIndex;
   final VoidCallback onDeleted;
 
   const _ScreenshotViewerScreen({
     required this.records,
+    required this.bytesById,
     required this.initialIndex,
     required this.onDeleted,
   });
@@ -370,29 +420,19 @@ class _ScreenshotViewerScreenState extends State<_ScreenshotViewerScreen> {
         onPageChanged: (i) => setState(() => _currentIndex = i),
         itemBuilder: (context, index) {
           final record = _records[index];
-          return FutureBuilder<Uint8List>(
-            future: VideoScreenshotService.decryptForView(record.filePath),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return Center(
-                  child: CircularProgressIndicator(
-                      color: AppColors.accentYellow),
-                );
-              }
-              if (snapshot.hasError || !snapshot.hasData) {
-                return const Center(
-                  child: Icon(LucideIcons.imageOff,
-                      color: Colors.white54, size: 48),
-                );
-              }
-              return InteractiveViewer(
-                minScale: 1,
-                maxScale: 4,
-                child: Center(
-                  child: Image.memory(snapshot.data!, gaplessPlayback: true),
-                ),
-              );
-            },
+          final bytes = widget.bytesById[record.id];
+          if (bytes == null) {
+            return const Center(
+              child: Icon(LucideIcons.imageOff,
+                  color: Colors.white54, size: 48),
+            );
+          }
+          return InteractiveViewer(
+            minScale: 1,
+            maxScale: 4,
+            child: Center(
+              child: Image.memory(bytes, gaplessPlayback: true),
+            ),
           );
         },
       ),
