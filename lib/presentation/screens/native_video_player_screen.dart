@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:better_player_plus/better_player_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -19,6 +22,7 @@ import '../../core/constants/api_constants.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/floating_video_controller.dart'; // إضافة متحكم الفيديو العائم
+import '../../core/services/video_screenshot_service.dart';
 import '../../main.dart' show navigatorKey;
 
 class NativeVideoPlayerScreen extends StatefulWidget {
@@ -100,6 +104,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
   String _watermarkText = "";
+
+  // ── ميزة "لقطة الفيديو" (Video Frame Screenshot) ──────────────────────
+  // ✅ مفتاح RepaintBoundary الذي يلف طبقة [الفيديو + العلامة المائية]
+  // فقط (بلا أي أزرار تحكم) — راجع build() و_captureCurrentFrame().
+  final GlobalKey _screenshotBoundaryKey = GlobalKey();
+  bool _isCapturingScreenshot = false;
 
   double _currentSpeed = 1.0;
   static const List<double> _speedOptions = [
@@ -1435,6 +1445,83 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     super.dispose();
   }
 
+  /// يلتقط الإطار الحالي للفيديو + العلامة المائية (فقط، بلا أي عناصر
+  /// تحكم) عبر RepaintBoundary، ثم يشفّره فوراً ويحفظه — لا تُكتب أي
+  /// بايتات صورة غير مشفّرة على القرص في أي لحظة (راجع
+  /// VideoScreenshotService.saveEncrypted).
+  ///
+  /// ⚠️ هذه ليست لقطة شاشة نظام (لا تستخدم أي MediaProjection/Screenshot
+  /// API)، لذا فهي لا تتعارض مع FLAG_SECURE المُفعّل على هذه الشاشة —
+  /// الالتقاط يتم بالكامل داخل شجرة رندر Flutter الخاصة بالتطبيق.
+  Future<void> _captureCurrentFrame() async {
+    if (_isCapturingScreenshot) return;
+    if (_isError || _isInitializing || _betterPlayerController == null) return;
+
+    setState(() => _isCapturingScreenshot = true);
+
+    try {
+      // مهلة قصيرة لضمان انتهاء أي إعادة رسم جارية (مثل حركة العلامة
+      // المائية) قبل الالتقاط.
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      final boundary = _screenshotBoundaryKey.currentContext
+          ?.findRenderObject() as RenderRepaintBoundary?;
+
+      if (boundary == null) {
+        throw Exception("Screenshot boundary not found in render tree");
+      }
+
+      // pixelRatio أعلى قليلاً من دقة الجهاز يعطي جودة جيدة بلا حجم مبالغ
+      // فيه (الفيديو نفسه هو العامل المحدد للجودة الفعلية على أي حال).
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      final image = await boundary.toImage(pixelRatio: dpr);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+
+      if (byteData == null) {
+        throw Exception("Failed to encode captured frame to PNG");
+      }
+
+      final pngBytes = byteData.buffer.asUint8List();
+
+      await VideoScreenshotService.saveEncrypted(
+        pngBytes: pngBytes,
+        lessonId: widget.lessonId ?? widget.title,
+        videoTitle: widget.title,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)?.videoScreenshotSaved ??
+                'Screenshot saved',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        stack,
+        reason: 'NativeVideoPlayerScreen._captureCurrentFrame failed',
+        fatal: false,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)?.videoScreenshotFailed ??
+                'Failed to save screenshot',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isCapturingScreenshot = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -1450,18 +1537,60 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (_isRecordingDetected)
-                _buildSecurityAlert()
-              else if (_isError)
-                _buildErrorWidget(_errorMessage)
-              else if (_isInitializing || _betterPlayerController == null)
-                Center(
-                  child: CircularProgressIndicator(color: AppColors.accentYellow),
-                )
-              else
-                Positioned.fill(
-                  child: BetterPlayer(controller: _betterPlayerController!),
+              // ── Capturable layer (video frame + watermark ONLY) ────────
+              // ✅ ملفوفة بـ RepaintBoundary(key: _screenshotBoundaryKey) حتى
+              // تلتقط ميزة "لقطة الفيديو" الإطار الحالي + العلامة المائية
+              // معاً، دون أي عناصر تحكم (الأزرار/الجيسشر/التقدم) التي تبقى
+              // خارج هذه الطبقة تماماً. راجع _captureCurrentFrame().
+              RepaintBoundary(
+                key: _screenshotBoundaryKey,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (_isRecordingDetected)
+                      _buildSecurityAlert()
+                    else if (_isError)
+                      _buildErrorWidget(_errorMessage)
+                    else if (_isInitializing || _betterPlayerController == null)
+                      Center(
+                        child:
+                            CircularProgressIndicator(color: AppColors.accentYellow),
+                      )
+                    else
+                      Positioned.fill(
+                        child: BetterPlayer(controller: _betterPlayerController!),
+                      ),
+
+                    // ── Watermark ─────────────────────────────────────────
+                    // ✅ نُقلت إلى داخل نفس الطبقة القابلة للالتقاط حتى تظهر
+                    // العلامة المائية دائماً على أي لقطة فيديو محفوظة.
+                    if (!_isDisposing && !_isError && !_isInitializing)
+                      AnimatedAlign(
+                        alignment: _watermarkAlignment,
+                        duration: const Duration(seconds: 2),
+                        child: IgnorePointer(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.6),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              _watermarkText,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.85),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
+              ),
 
               // ── Gesture layer ──────────────────────────────────────────
               if (!_isRecordingDetected &&
@@ -1738,6 +1867,25 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 tooltip: _currentQuality,
                               ),
                             
+                            // ── Video Screenshot Button ──────────────
+                            if (!_isError && _betterPlayerController != null)
+                              IconButton(
+                                icon: _isCapturingScreenshot
+                                    ? SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppColors.accentYellow,
+                                        ),
+                                      )
+                                    : Icon(LucideIcons.camera,
+                                        color: AppColors.accentYellow),
+                                tooltip: 'التقاط لقطة من الفيديو',
+                                onPressed:
+                                    _isCapturingScreenshot ? null : _captureCurrentFrame,
+                              ),
+
                             // ── PIP (Floating Video) Button ──
                             if (!_isError && _betterPlayerController != null)
                               IconButton(
@@ -1806,32 +1954,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 },
                               ),
                           ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-              // ── Watermark ─────────────────────────────────────────────
-              if (!_isDisposing && !_isError && !_isInitializing)
-                AnimatedAlign(
-                  alignment: _watermarkAlignment,
-                  duration: const Duration(seconds: 2),
-                  child: IgnorePointer(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        _watermarkText,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.85),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                          decoration: TextDecoration.none,
                         ),
                       ),
                     ),
