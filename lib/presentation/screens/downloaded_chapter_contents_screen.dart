@@ -9,6 +9,8 @@ import '../../core/services/local_proxy.dart'; // ✅ استيراد خدمة ا
 import 'video_player_screen.dart';
 import 'pdf_viewer_screen.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/video_screenshot_service.dart';
+import 'video_screenshots_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
 import 'package:Medaad/presentation/widgets/marquee_text.dart';
@@ -109,6 +111,12 @@ class _DownloadedChapterContentsScreenState
 
               // ✅✅ هام جداً: نمرر رابط الصوت الجاهز هنا
               preReadyAudioUrl: audioUrl,
+
+              // ✅ [SCREENSHOT FEATURE] نمرر lessonId (نفس المعرّف المخزَّن
+              // في downloads_box كـ 'id') حتى تُربط أي لقطة فيديو تُلتقط
+              // أثناء التشغيل الأوفلاين بنفس الدرس — فتظهر في معرض هذا
+              // الفصل بغض النظر عن كون المشاهدة كانت أونلاين أو أوفلاين.
+              lessonId: item['id']?.toString(),
             ),
           ),
         );
