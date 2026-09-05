@@ -7,6 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/local_proxy.dart';
 import '../../core/services/download_manager.dart'; 
 import 'downloaded_subjects_screen.dart';
+import 'video_screenshots_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
@@ -108,25 +109,60 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                     ],
                   ),
                   
-                  // Active Downloads Badge
-                  ValueListenableBuilder<Map<String, double>>(
-                    valueListenable: DownloadManager.downloadingProgress,
-                    builder: (context, progressMap, _) {
-                      if (progressMap.isEmpty) return const SizedBox.shrink();
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.backgroundSecondary,
-                          borderRadius: BorderRadius.circular(50),
-                          border: Border.all(color: AppColors.accentYellow.withOpacity(0.2)),
-                          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
+                  // ✅ [SCREENSHOT FEATURE] فتح معرض كل لقطات الفيديو
+                  // المحفوظة على الجهاز (بدون تصفية حسب فصل/تنزيل معيّن) —
+                  // موضوعة هنا في شاشة "التنزيلات" الرئيسية بدل شاشة محتوى
+                  // كل فصل على حدة، حتى تُتاح دائماً بغض النظر عن كون
+                  // الفيديو الذي أُخذت منه اللقطة مُنزَّلاً أصلاً أم لا.
+                  Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const VideoScreenshotsScreen(),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.backgroundSecondary,
+                            borderRadius: BorderRadius.circular(50),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.05)),
+                            boxShadow: const [
+                              BoxShadow(color: Colors.black12, blurRadius: 4)
+                            ],
+                          ),
+                          child: Icon(LucideIcons.image,
+                              color: AppColors.accentYellow, size: 22),
                         ),
-                        child: Text(
-                          AppLocalizations.of(context)!.activeCountLabel(progressMap.length),
-                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.accentYellow),
-                        ),
-                      );
-                    }
+                      ),
+                      const SizedBox(width: 10),
+
+                      // Active Downloads Badge
+                      ValueListenableBuilder<Map<String, double>>(
+                        valueListenable: DownloadManager.downloadingProgress,
+                        builder: (context, progressMap, _) {
+                          if (progressMap.isEmpty) return const SizedBox.shrink();
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppColors.backgroundSecondary,
+                              borderRadius: BorderRadius.circular(50),
+                              border: Border.all(color: AppColors.accentYellow.withOpacity(0.2)),
+                              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
+                            ),
+                            child: Text(
+                              AppLocalizations.of(context)!.activeCountLabel(progressMap.length),
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.accentYellow),
+                            ),
+                          );
+                        }
+                      ),
+                    ],
                   ),
                 ],
               ),
