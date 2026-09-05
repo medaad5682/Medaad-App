@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -21,6 +24,7 @@ import '../../core/constants/api_constants.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/local_proxy.dart';
+import '../../core/services/video_screenshot_service.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
 import 'package:Medaad/presentation/widgets/safe_seek_bar.dart';
 
@@ -117,6 +121,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   Timer? _watermarkTimer;
   Alignment _watermarkAlignment = Alignment.topRight;
   String _watermarkText = "";
+
+  // ── ميزة "لقطة الفيديو" (Video Frame Screenshot) ──────────────────────
+  // ✅ نفس آلية NativeVideoPlayerScreen: RepaintBoundary يلف الفيديو +
+  // العلامة المائية، ثم تشفير فوري قبل أي كتابة على القرص.
+  // ⚠️ ملاحظة: هنا يلف الـ RepaintBoundary أيضاً عناصر تحكم media_kit
+  // الافتراضية (شريط التقدم/زر التشغيل) لأنها مرسومة داخل نفس شجرة
+  // ودجت Video نفسها (على عكس NativeVideoPlayerScreen حيث الأزرار طبقة
+  // منفصلة تماماً) — إن كانت هذه العناصر ظاهرة لحظة الالتقاط فستظهر في
+  // اللقطة. عملياً تختفي تلقائياً بعد ثوانٍ من عدم التفاعل.
+  final GlobalKey _screenshotBoundaryKey = GlobalKey();
+  bool _isCapturingScreenshot = false;
 
   Timer? _seekDebounceTimer;
   Duration _accumulatedSeekAmount = Duration.zero;
@@ -1143,6 +1158,75 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     );
   }
 
+  /// يلتقط الإطار الحالي للفيديو + العلامة المائية عبر RepaintBoundary
+  /// ويحفظه مشفَّراً فوراً — لا بايتات صورة غير مشفّرة تُكتب على القرص
+  /// في أي لحظة. راجع VideoScreenshotService.saveEncrypted والتعليق أعلى
+  /// _screenshotBoundaryKey لملاحظة عناصر التحكم.
+  Future<void> _captureCurrentFrame() async {
+    if (_isCapturingScreenshot) return;
+    if (_isError || !_isInitialized) return;
+
+    setState(() => _isCapturingScreenshot = true);
+
+    try {
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      final boundary = _screenshotBoundaryKey.currentContext
+          ?.findRenderObject() as RenderRepaintBoundary?;
+
+      if (boundary == null) {
+        throw Exception("Screenshot boundary not found in render tree");
+      }
+
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      final image = await boundary.toImage(pixelRatio: dpr);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+
+      if (byteData == null) {
+        throw Exception("Failed to encode captured frame to PNG");
+      }
+
+      final pngBytes = byteData.buffer.asUint8List();
+
+      await VideoScreenshotService.saveEncrypted(
+        pngBytes: pngBytes,
+        lessonId: widget.lessonId ?? widget.title,
+        videoTitle: widget.title,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)?.videoScreenshotSaved ??
+                'Screenshot saved',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        stack,
+        reason: 'VideoPlayerScreen._captureCurrentFrame failed',
+        fatal: false,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)?.videoScreenshotFailed ??
+                'Failed to save screenshot',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isCapturingScreenshot = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final padding = MediaQuery.of(context).viewPadding;
@@ -1187,6 +1271,20 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             activeColor: AppColors.accentYellow,
             thumbColor: AppColors.accentYellow,
           ),
+        ),
+        const SizedBox(width: 10),
+        MaterialCustomButton(
+          onPressed: _isCapturingScreenshot ? null : _captureCurrentFrame,
+          icon: _isCapturingScreenshot
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(LucideIcons.camera, color: Colors.white),
         ),
         const SizedBox(width: 10),
         MaterialCustomButton(
@@ -1235,60 +1333,103 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         body: Stack(
           fit: StackFit.expand,
           children: [
-            if (_isDisposing || !_isInitialized)
-              Center(
-                  child:
-                      CircularProgressIndicator(color: AppColors.accentYellow))
-            else if (_isError)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.wifi_off_rounded, color: AppColors.error, size: 64),
-                      const SizedBox(height: 16),
-                      Text(_errorMessage,
-                          style: const TextStyle(color: Colors.white, fontSize: 16),
-                          textAlign: TextAlign.center),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.refresh, color: Colors.black),
-                        onPressed: () {
-                          FirebaseCrashlytics.instance
-                              .log("🔄 User clicked Retry on network error");
-                          _retryPlayback();
-                        },
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.accentYellow,
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
-                        label: Text(AppLocalizations.of(context)!.retry,
-                            style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
-                      )
-                    ],
-                  ),
-                ),
-              )
-            else
-              Center(
-                child: IgnorePointer(
-                  ignoring: _isDisposing || _isError,
-                  // ✅ مشغل الفيديو وأدوات التحكم (شريط التقدم/الوقت) تبقى دائماً
-                  // باتجاه LTR بشكل متعمد، حتى داخل واجهة عربية RTL، لأن أشرطة
-                  // التقدم الزمني والأرقام تقرأ تقليدياً من اليسار لليمين.
-                  child: Directionality(
-                    textDirection: TextDirection.ltr,
-                    child: MaterialVideoControlsTheme(
-                      // Safe: this branch only renders when _isInitialized
-                      // is true (see the enclosing if/else above), which is
-                      // exactly when controlsTheme is non-null.
-                      normal: controlsTheme!,
-                      fullscreen: controlsTheme,
-                      child: Video(controller: _controller, fit: BoxFit.contain),
+            // ── Capturable layer (video + controls + watermark) ─────────
+            // ✅ ملفوفة بـ RepaintBoundary(key: _screenshotBoundaryKey)
+            // لميزة "لقطة الفيديو" — راجع التعليق فوق _screenshotBoundaryKey
+            // بخصوص عناصر التحكم الافتراضية لـ media_kit.
+            RepaintBoundary(
+              key: _screenshotBoundaryKey,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (_isDisposing || !_isInitialized)
+                    Center(
+                        child: CircularProgressIndicator(
+                            color: AppColors.accentYellow))
+                  else if (_isError)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.wifi_off_rounded,
+                                color: AppColors.error, size: 64),
+                            const SizedBox(height: 16),
+                            Text(_errorMessage,
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 16),
+                                textAlign: TextAlign.center),
+                            const SizedBox(height: 24),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.refresh,
+                                  color: Colors.black),
+                              onPressed: () {
+                                FirebaseCrashlytics.instance.log(
+                                    "🔄 User clicked Retry on network error");
+                                _retryPlayback();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.accentYellow,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 24, vertical: 12)),
+                              label: Text(AppLocalizations.of(context)!.retry,
+                                  style: const TextStyle(
+                                      color: Colors.black,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16)),
+                            )
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    Center(
+                      child: IgnorePointer(
+                        ignoring: _isDisposing || _isError,
+                        // ✅ مشغل الفيديو وأدوات التحكم (شريط التقدم/الوقت) تبقى دائماً
+                        // باتجاه LTR بشكل متعمد، حتى داخل واجهة عربية RTL، لأن أشرطة
+                        // التقدم الزمني والأرقام تقرأ تقليدياً من اليسار لليمين.
+                        child: Directionality(
+                          textDirection: TextDirection.ltr,
+                          child: MaterialVideoControlsTheme(
+                            // Safe: this branch only renders when _isInitialized
+                            // is true (see the enclosing if/else above), which is
+                            // exactly when controlsTheme is non-null.
+                            normal: controlsTheme!,
+                            fullscreen: controlsTheme,
+                            child: Video(
+                                controller: _controller, fit: BoxFit.contain),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+
+                  // ── Watermark ───────────────────────────────────────────
+                  // ✅ نُقلت إلى داخل نفس الطبقة القابلة للالتقاط.
+                  if (!_isDisposing && !_isError && _isInitialized)
+                    AnimatedAlign(
+                      alignment: _watermarkAlignment,
+                      duration: const Duration(seconds: 2),
+                      child: IgnorePointer(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 2),
+                          decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.6),
+                              borderRadius: BorderRadius.circular(8)),
+                          child: Text(_watermarkText,
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(0.85),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  decoration: TextDecoration.none)),
+                        ),
+                      ),
+                    ),
+                ],
               ),
+            ),
 
             if (!_isDisposing &&
                 !_isError &&
@@ -1443,27 +1584,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 ),
               ),
 
-            if (!_isDisposing && !_isError && _isInitialized)
-              AnimatedAlign(
-                alignment: _watermarkAlignment,
-                duration: const Duration(seconds: 2),
-                child: IgnorePointer(
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                    decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(8)),
-                    child: Text(_watermarkText,
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.85),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                            decoration: TextDecoration.none)),
-                  ),
-                ),
-              ),
-            
             // ── Security alert overlay ────────────────────────────────────
             if (_isRecordingDetected)
               Container(
