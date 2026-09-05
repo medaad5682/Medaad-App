@@ -2930,6 +2930,10 @@
   "@noVideoScreenshotsYet": {
     "description": "Empty state text in the video screenshots gallery"
   },
+  "decryptingScreenshots": "Decrypting screenshots…",
+  "@decryptingScreenshots": {
+    "description": "Loading-page label shown while screenshots are being decrypted before the gallery grid appears"
+  },
   "deleteScreenshotConfirmTitle": "Delete screenshot?",
   "@deleteScreenshotConfirmTitle": {
     "description": "Confirmation dialog title when deleting a video screenshot"

@@ -700,6 +700,7 @@
   "videoScreenshotsTitle": "لقطات الفيديو",
   "videoScreenshotsTooltip": "عرض لقطات الفيديو",
   "noVideoScreenshotsYet": "لا توجد لقطات بعد",
+  "decryptingScreenshots": "جارٍ فك تشفير اللقطات…",
   "deleteScreenshotConfirmTitle": "حذف اللقطة؟",
   "deleteScreenshotConfirmBody": "سيتم حذف هذه اللقطة نهائياً."
 }
