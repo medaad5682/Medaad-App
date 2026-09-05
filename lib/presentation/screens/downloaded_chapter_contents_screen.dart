@@ -9,8 +9,6 @@ import '../../core/services/local_proxy.dart'; // ✅ استيراد خدمة ا
 import 'video_player_screen.dart';
 import 'pdf_viewer_screen.dart';
 import '../../core/services/storage_service.dart';
-import '../../core/services/video_screenshot_service.dart';
-import 'video_screenshots_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
 import 'package:Medaad/presentation/widgets/marquee_text.dart';
@@ -216,14 +214,6 @@ class _DownloadedChapterContentsScreenState
                 .recordError(e, stack, reason: 'Error parsing Hive data');
           }
 
-          // ✅ [SCREENSHOT FEATURE] معرّفات الدروس (نفس lessonId المُمرَّر
-          // لـ VideoPlayerScreen عند التشغيل) الخاصة بفيديوهات هذا الفصل
-          // فقط — تُستخدم لتصفية معرض اللقطات ليعرض لقطات هذا الفصل حصراً.
-          final Set<String> chapterLessonIds = videoItems
-              .map((item) => item['id']?.toString())
-              .whereType<String>()
-              .toSet();
-
           return Scaffold(
             backgroundColor: AppColors.backgroundPrimary,
             body: SafeArea(
@@ -264,25 +254,6 @@ class _DownloadedChapterContentsScreenState
                               ),
                             ],
                           ),
-                        ),
-                        // ✅ [SCREENSHOT FEATURE] فتح معرض لقطات الفيديو
-                        // الخاصة بهذا الفصل (مصفّاة عبر lessonId).
-                        IconButton(
-                          tooltip: AppLocalizations.of(context)!
-                              .videoScreenshotsTooltip,
-                          icon: Icon(LucideIcons.image,
-                              color: AppColors.accentYellow, size: 22),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => VideoScreenshotsScreen(
-                                  title: widget.chapterTitle,
-                                  lessonIds: chapterLessonIds,
-                                ),
-                              ),
-                            );
-                          },
                         ),
                       ],
                     ),
