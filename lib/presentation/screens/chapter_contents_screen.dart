@@ -46,6 +46,11 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
   final String _baseUrl = ApiConstants.baseUrl;
   final TeacherService _teacherService = TeacherService();
   bool _isTeacher = false;
+  Map<String, dynamic> _permissions = {
+    'can_upload_pdf': true,
+    'can_upload_video': true,
+    'can_create_exam': true,
+  };
   late Map<String, dynamic> _currentChapter;
   bool _isLoading = false;
 
@@ -66,9 +71,34 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
 
       if (_isTeacher) {
         _refreshChapterData();
+        _fetchPermissions();
       }
     }
   }
+
+  // 🛡️ جلب صلاحيات المعلم (رفع فيديو / رفع PDF) لتحديد إظهار/تعطيل زر الإضافة
+  Future<void> _fetchPermissions() async {
+    final perms = await _teacherService.getPermissions();
+    if (mounted) {
+      setState(() => _permissions = perms);
+    }
+  }
+
+  // 🛡️ هل يملك المعلم صلاحية إضافة العنصر النشط حالياً (فيديو/PDF)؟
+  bool _canAddCurrentTab() {
+    final key = activeTab == 'videos' ? 'can_upload_video' : 'can_upload_pdf';
+    return _permissions[key] != false;
+  }
+
+  void _showPermissionDeniedMessage() {
+    final msg = activeTab == 'videos'
+        ? 'تم إيقاف صلاحية رفع الفيديوهات لحسابك من قبل الإدارة.'
+        : 'تم إيقاف صلاحية رفع ملفات PDF لحسابك من قبل الإدارة.';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: Colors.red),
+    );
+  }
+
 
   Future<void> _refreshChapterData() async {
     setState(() => _isLoading = true);
@@ -767,6 +797,10 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                             const SizedBox(width: 10),
                             GestureDetector(
                               onTap: () {
+                                if (!_canAddCurrentTab()) {
+                                  _showPermissionDeniedMessage();
+                                  return;
+                                }
                                 ContentType type = activeTab == 'videos'
                                     ? ContentType.video
                                     : ContentType.pdf;
@@ -785,18 +819,22 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color:
-                                      AppColors.accentYellow.withOpacity(0.1),
+                                  color: _canAddCurrentTab()
+                                      ? AppColors.accentYellow.withOpacity(0.1)
+                                      : AppColors.textSecondary.withOpacity(0.08),
                                   borderRadius: BorderRadius.circular(50),
                                   border: Border.all(
-                                      color: AppColors.accentYellow
-                                          .withOpacity(0.5)),
+                                      color: _canAddCurrentTab()
+                                          ? AppColors.accentYellow.withOpacity(0.5)
+                                          : AppColors.textSecondary.withOpacity(0.3)),
                                 ),
                                 child: Icon(
                                     activeTab == 'videos'
                                         ? LucideIcons.video
                                         : LucideIcons.filePlus,
-                                    color: AppColors.accentYellow,
+                                    color: _canAddCurrentTab()
+                                        ? AppColors.accentYellow
+                                        : AppColors.textSecondary.withOpacity(0.5),
                                     size: 22),
                               ),
                             ),

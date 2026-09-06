@@ -14,6 +14,7 @@ import 'exam_result_screen.dart';
 import 'teacher/manage_content_screen.dart';
 import 'teacher/create_exam_screen.dart';
 import 'teacher/exam_stats_screen.dart';
+import '../../core/services/teacher_service.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
@@ -51,6 +52,9 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
   final Set<String> _knownFolderNames = {};
 
   final String _baseUrl = ApiConstants.baseUrl;
+  final TeacherService _teacherService = TeacherService();
+  // 🛡️ صلاحية إنشاء/تعديل الامتحانات — يتحكم بها السوبر أدمن
+  bool _canCreateExam = true;
 
   @override
   void initState() {
@@ -68,7 +72,24 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
       setState(() {
         _isTeacher = role == 'teacher';
       });
+      if (_isTeacher) _fetchPermissions();
     }
+  }
+
+  Future<void> _fetchPermissions() async {
+    final perms = await _teacherService.getPermissions();
+    if (mounted) {
+      setState(() => _canCreateExam = perms['can_create_exam'] != false);
+    }
+  }
+
+  void _showExamPermissionDenied() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('تم إيقاف صلاحية إنشاء/تعديل الامتحانات لحسابك من قبل الإدارة.'),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
 
   Future<void> _fetchContent() async {
@@ -570,6 +591,10 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                                 if (val == true) _fetchContent();
                               });
                             } else {
+                              if (!_canCreateExam) {
+                                _showExamPermissionDenied();
+                                return;
+                              }
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
@@ -582,17 +607,22 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: AppColors.accentYellow.withOpacity(0.1),
+                              color: (_activeTab == 'chapters' || _canCreateExam)
+                                  ? AppColors.accentYellow.withOpacity(0.1)
+                                  : AppColors.textSecondary.withOpacity(0.08),
                               borderRadius: BorderRadius.circular(50),
                               border: Border.all(
-                                  color:
-                                      AppColors.accentYellow.withOpacity(0.5)),
+                                  color: (_activeTab == 'chapters' || _canCreateExam)
+                                      ? AppColors.accentYellow.withOpacity(0.5)
+                                      : AppColors.textSecondary.withOpacity(0.3)),
                             ),
                             child: Icon(
                                 _activeTab == 'chapters'
                                     ? LucideIcons.folderPlus
                                     : LucideIcons.filePlus,
-                                color: AppColors.accentYellow,
+                                color: (_activeTab == 'chapters' || _canCreateExam)
+                                    ? AppColors.accentYellow
+                                    : AppColors.textSecondary.withOpacity(0.5),
                                 size: 22),
                           ),
                         ),
@@ -784,6 +814,10 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                           color: AppColors.accentOrange, size: 20),
                       tooltip: AppLocalizations.of(context)!.editExamTooltip,
                       onPressed: () {
+                        if (!_canCreateExam) {
+                          _showExamPermissionDenied();
+                          return;
+                        }
                         Navigator.push(
                           context,
                           MaterialPageRoute(
