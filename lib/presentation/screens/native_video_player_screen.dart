@@ -293,10 +293,11 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       //     FlutterWindowManagerPlus.FLAG_SECURE);
       await _protectionService.blockAudioCapture();
       await _protectionService.startMonitoring();
-      _recordingSubscription =
-          _protectionService.recordingStateStream.listen((isRecording) {
-        if (isRecording) _handleRecordingDetected();
-      });
+      // 🚫 Mute/pause-on-recording-detected disabled.
+      // _recordingSubscription =
+      //     _protectionService.recordingStateStream.listen((isRecording) {
+      //   if (isRecording) _handleRecordingDetected();
+      // });
       debugPrint("🛡️ Protection Enabled in Native Video Player");
     } catch (e) {
       FirebaseCrashlytics.instance

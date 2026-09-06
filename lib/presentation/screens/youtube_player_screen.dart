@@ -104,13 +104,13 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
       // بدء مراقبة تطبيقات التسجيل
       await _protectionService.startMonitoring();
 
-      // الاستماع لأي محاولة تسجيل
-      _recordingSubscription =
-          _protectionService.recordingStateStream.listen((isRecording) {
-        if (isRecording) {
-          _handleRecordingDetected();
-        }
-      });
+      // 🚫 الاستماع لأي محاولة تسجيل — معطّل
+      // _recordingSubscription =
+      //     _protectionService.recordingStateStream.listen((isRecording) {
+      //   if (isRecording) {
+      //     _handleRecordingDetected();
+      //   }
+      // });
     } catch (e) {
       FirebaseCrashlytics.instance
           .recordError(e, null, reason: 'Protection Init Error');
