@@ -5,7 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
 import 'storage_service.dart';
-import '../utils/encryption_helper.dart';
+import '../utils/screenshot_encryption_helper.dart';
 
 /// خدمة "لقطات الفيديو" (Video Frame Screenshots).
 ///
@@ -16,8 +16,9 @@ import '../utils/encryption_helper.dart';
 ///
 /// ✅ لا يوجد أي نص صريح (plaintext) للصورة يُكتب على القرص في أي لحظة:
 /// - البايتات الخام (PNG) تبقى في الذاكرة فقط.
-/// - تُشفَّر عبر [EncryptionHelper.encryptBlock] (AES-256-GCM، نفس المفتاح
-///   الرئيسي المستخدم لتشفير الفيديوهات) قبل أي `writeAsBytes`.
+/// - تُشفَّر عبر [ScreenshotCryptoService.encryptBlock] (ChaCha20-Poly1305،
+///   مفتاح مستقل خاص باللقطات — مختار عمداً بدل AES لأنه أنسب للأجهزة
+///   الضعيفة التي تفتقر لتسريع AES العتادي) قبل أي `writeAsBytes`.
 /// - القراءة تسير بنفس الاتجاه المعاكس: تُفك التشفير في الذاكرة فقط عند
 ///   العرض، ولا تُكتب نسخة مفكوكة على القرص أبداً.
 ///
@@ -103,7 +104,8 @@ class VideoScreenshotService {
 
     try {
       // ✅ التشفير يتم في الذاكرة فقط — لا ملف مؤقت غير مشفّر إطلاقاً.
-      final encryptedBytes = EncryptionHelper.encryptBlock(pngBytes);
+      final encryptedBytes =
+          await ScreenshotCryptoService.encryptBlock(pngBytes);
       await File(filePath).writeAsBytes(encryptedBytes, flush: true);
 
       final record = VideoScreenshotRecord(
@@ -137,7 +139,7 @@ class VideoScreenshotService {
   static Future<Uint8List> decryptForView(String filePath) async {
     final file = File(filePath);
     final encryptedBytes = await file.readAsBytes();
-    return EncryptionHelper.decryptBlock(encryptedBytes);
+    return ScreenshotCryptoService.decryptBlock(encryptedBytes);
   }
 
   /// كل اللقطات (لكل الفيديوهات)، الأحدث أولاً.
