@@ -14,7 +14,6 @@ import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:secure_display/secure_display.dart';
 
 // ✅ استيراد حزمة App Check و Foundation لمعرفة وضع التطبيق
 import 'package:flutter/foundation.dart';
@@ -551,10 +550,8 @@ void main() async {
     await AppState().initThemeFast();
 
     runApp(
-      SecureScreenWidget(useBlur: true,
-        child: const RestartWidget(
-          child: EduVantageApp(),
-        ),
+      const RestartWidget(
+        child: EduVantageApp(),
       ),
     );
 
