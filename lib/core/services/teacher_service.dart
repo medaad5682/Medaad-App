@@ -83,6 +83,32 @@ class TeacherService {
   }
 
   // ==========================================================
+  // 🛡️ صلاحيات المعلم (رفع PDF / رفع فيديو / إنشاء امتحانات)
+  // ==========================================================
+  // يتحكم بها السوبر أدمن من لوحة التحكم. القيمة الافتراضية لكل مفتاح
+  // غير موجود في الرد = true (مسموح)، حتى لا تُعطَّل أي ميزة بالخطأ في
+  // حال فشل الطلب أو تأخره.
+  Future<Map<String, dynamic>> getPermissions() async {
+    try {
+      final response = await ApiClient.instance.get(
+        '$baseUrl/teacher/permissions',
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return Map<String, dynamic>.from(response.data['permissions'] ?? {});
+      }
+      throw Exception('فشل جلب الصلاحيات');
+    } catch (e) {
+      // ❗ لا نُفشل الشاشة بسبب هذا الطلب — نُعيد صلاحيات افتراضية (كل شيء
+      // مسموح) ونترك أي فعل فعلي محظور ليُرفض من الباك إند مباشرة برسالة واضحة.
+      return {
+        'can_upload_pdf': true,
+        'can_upload_video': true,
+        'can_create_exam': true,
+      };
+    }
+  }
+
+  // ==========================================================
   // 1️⃣ إدارة المحتوى (إضافة - تعديل - حذف)
   // ==========================================================
   Future<dynamic> manageContent({
