@@ -672,8 +672,9 @@ Future<void> _safeRecordError(
 
 Future<void> _enableSecureMode() async {
   try {
-    await FlutterWindowManagerPlus.addFlags(
-        FlutterWindowManagerPlus.FLAG_SECURE);
+    // 🚫 Screen recording / screenshot protection disabled app-wide.
+    // await FlutterWindowManagerPlus.addFlags(
+    //     FlutterWindowManagerPlus.FLAG_SECURE);
   } catch (e) {
     debugPrint("Security Mode Error: $e");
   }
