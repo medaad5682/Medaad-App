@@ -29,17 +29,19 @@ class SecurityManager {
   void initListeners() {
     _audioProtection.startMonitoring();
 
-    _audioProtection.recordingStateStream.listen((isRecording) {
-      if (isRecording) {
-        _triggerBreach("تم اكتشاف تسجيل للشاشة أو الصوت!");
-      }
-    });
+    // 🚫 Screen/audio recording detection breach trigger disabled.
+    // _audioProtection.recordingStateStream.listen((isRecording) {
+    //   if (isRecording) {
+    //     _triggerBreach("تم اكتشاف تسجيل للشاشة أو الصوت!");
+    //   }
+    // });
 
-    ScreenProtector.addListener(() {
-      // Screenshot callback
-    }, (isCapturing) {
-      if (isCapturing) _triggerBreach("تم اكتشاف تصوير للشاشة!");
-    });
+    // 🚫 Screenshot detection breach trigger disabled.
+    // ScreenProtector.addListener(() {
+    //   // Screenshot callback
+    // }, (isCapturing) {
+    //   if (isCapturing) _triggerBreach("تم اكتشاف تصوير للشاشة!");
+    // });
   }
 
   // [FIX F-14] Enhanced emulator detection using hardware-based signals:
