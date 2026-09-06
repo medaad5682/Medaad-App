@@ -131,8 +131,9 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
 
   Future<void> _assertFlagSecure() async {
     try {
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
+      // 🚫 Screenshot/screen-recording block disabled.
+      // await FlutterWindowManagerPlus.addFlags(
+      //     FlutterWindowManagerPlus.FLAG_SECURE);
     } catch (_) {}
   }
 
