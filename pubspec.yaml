@@ -1,7 +1,7 @@
 name: Medaad
 description: Modern Learning Platform (Dark Slate Design)
 publish_to: 'none'
-version: 2.0.5+28
+version: 2.1.0+30
 
 environment:
   sdk: '>=3.2.3 <4.0.0'
