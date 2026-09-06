@@ -53,6 +53,10 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
   };
   late Map<String, dynamic> _currentChapter;
   bool _isLoading = false;
+  // 🛡️ يبقى false إلى أن يصل رد /teacher/permissions الحقيقي — نستخدمه لمنع
+  // ظهور الأيقونة كمفعّلة لحظياً (بالاعتماد على القيمة الافتراضية أعلاه) قبل
+  // معرفة الصلاحية الفعلية، ثم تتحول فجأة لمعطّلة بعد وصول الرد.
+  bool _permissionsLoaded = false;
 
   @override
   void initState() {
@@ -80,12 +84,19 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
   Future<void> _fetchPermissions() async {
     final perms = await _teacherService.getPermissions();
     if (mounted) {
-      setState(() => _permissions = perms);
+      setState(() {
+        _permissions = perms;
+        _permissionsLoaded = true;
+      });
     }
   }
 
   // 🛡️ هل يملك المعلم صلاحية إضافة العنصر النشط حالياً (فيديو/PDF)؟
+  // قبل وصول رد الصلاحيات الفعلي، نعتبرها غير مسموحة مؤقتاً (آمن افتراضياً)
+  // بدلاً من الاعتماد على القيمة الافتراضية "مسموح" التي قد تُظهر الأيقونة
+  // مفعّلة لحظياً لمعلم صلاحيته فعلياً معطّلة.
   bool _canAddCurrentTab() {
+    if (!_permissionsLoaded) return false;
     final key = activeTab == 'videos' ? 'can_upload_video' : 'can_upload_pdf';
     return _permissions[key] != false;
   }
@@ -797,6 +808,10 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                             const SizedBox(width: 10),
                             GestureDetector(
                               onTap: () {
+                                // 🛡️ لا نزال ننتظر رد الصلاحيات الفعلي — لا نعرض رسالة
+                                // "أوقفها الأدمن" لأننا لا نعرف بعد (قد تكون مسموحة فعلاً)،
+                                // ونتجاهل الضغطة بصمت بدلاً من الجزم بمنعها خطأً.
+                                if (!_permissionsLoaded) return;
                                 if (!_canAddCurrentTab()) {
                                   _showPermissionDeniedMessage();
                                   return;
