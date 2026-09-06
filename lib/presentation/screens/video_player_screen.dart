@@ -184,8 +184,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Future<void> _initializeProtection() async {
     try {
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
+      // 🚫 Screenshot/screen-recording block disabled.
+      // await FlutterWindowManagerPlus.addFlags(
+      //     FlutterWindowManagerPlus.FLAG_SECURE);
       await _protectionService.blockAudioCapture();
       await _protectionService.startMonitoring();
       _recordingSubscription =

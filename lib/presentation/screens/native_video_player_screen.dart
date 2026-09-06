@@ -288,8 +288,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
   Future<void> _initializeProtection() async {
     try {
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
+      // 🚫 Screenshot/screen-recording block disabled.
+      // await FlutterWindowManagerPlus.addFlags(
+      //     FlutterWindowManagerPlus.FLAG_SECURE);
       await _protectionService.blockAudioCapture();
       await _protectionService.startMonitoring();
       _recordingSubscription =
@@ -317,8 +318,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (state == AppLifecycleState.paused) {
       _betterPlayerController?.pause();
     } else if (state == AppLifecycleState.resumed) {
-      FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
-          .catchError((_) {});
+      // 🚫 Screenshot/screen-recording block disabled.
+      // FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
+      //     .catchError((_) {});
       _protectionService.blockAudioCapture();
       if (_isRecordingDetected) {
         _betterPlayerController?.setVolume(0.0);
