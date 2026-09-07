@@ -6,6 +6,7 @@ import 'package:Medaad/core/services/widgets/restart_widget.dart';
 import 'package:Medaad/firebase_options.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 // ✅ استيراد مكتبة الإشعارات من فايربيز
@@ -333,6 +334,31 @@ Future<void> _initStorageAfterAppReady() async {
 
 void main() async {
   runZonedGuarded<Future<void>>(() async {
+    // ✅ [CRASH-FIX] "Fatal Exception: FlutterError — Exception: Failed to
+    // load font with url https://fonts.gstatic.com/...": AppTheme
+    // (app_theme.dart) uses GoogleFonts.roboto(...) for the whole app text
+    // theme. By default google_fonts only ships font *metadata* in the
+    // package — the first time a given weight/style of a font is actually
+    // used, it tries to download the real .ttf from fonts.gstatic.com in
+    // the background and cache it, falling back to the closest bundled
+    // system font in the meantime. When that download fails (no
+    // connectivity, captive portal, DNS hijack, CDN hiccup, "Connection
+    // closed before full header was received", etc.), the package lets the
+    // error escape as an uncaught Future error. Nothing in this app awaits
+    // that internal future, so it always surfaces here in this zone's
+    // onError handler — which (see below) records anything not explicitly
+    // whitelisted as fatal:true, inflating Crashlytics' fatal-crash count
+    // for something that never actually crashed the UI (the text just kept
+    // rendering with the fallback system font).
+    //
+    // Root-cause fix: disable google_fonts' runtime network fetching
+    // entirely. "Roboto" is already Android's/Flutter's default system
+    // font, so GoogleFonts.roboto() renders identically either way — this
+    // just stops it from ever making a network request (and therefore from
+    // ever throwing this error) in the first place. Must be set before any
+    // GoogleFonts.* call, i.e. before runApp()/AppTheme is built.
+    GoogleFonts.config.allowRuntimeFetching = false;
+
     WidgetsFlutterBinding.ensureInitialized();
 
     // =========================================================
@@ -605,6 +631,19 @@ void main() async {
       }
       return;
     }
+    // ✅ راجع _isBenignGoogleFontsNetworkError أعلاه: فشل تحميل خط Google
+    // Fonts عبر الشبكة لا يمثل انهيارًا حقيقيًا للتطبيق — الواجهة تستمر
+    // بالعرض بالخط الاحتياطي للنظام. مُعالَج بشكل أساسي عبر
+    // `GoogleFonts.config.allowRuntimeFetching = false` في بداية main()،
+    // وهذا فقط خط دفاع ثانٍ.
+    if (_isBenignGoogleFontsNetworkError(error)) {
+      debugPrint(
+          '⚠️ Downgrading benign google_fonts network fetch failure to non-fatal: $error');
+      if (Firebase.apps.isNotEmpty) {
+        await _safeRecordError(error, stack, fatal: false);
+      }
+      return;
+    }
     if (Firebase.apps.isNotEmpty) {
       await _safeRecordError(error, stack, fatal: true);
     }
@@ -732,6 +771,18 @@ bool _isBenignVideoPlayerError(Object error) {
   return error.code == 'VideoError';
 }
 
+// ✅ [CRASH-FIX] Belt-and-suspenders alongside `GoogleFonts.config
+// .allowRuntimeFetching = false` set at the top of main() above: if some
+// future code path ever re-enables runtime fetching, or if the failure
+// slips through before that config takes effect, still don't count it as a
+// real app crash. The app never actually stops working — GoogleFonts
+// renders with the fallback system font either way — so this is identical
+// in spirit to _isBenignAppCheckTokenListenerError/_isBenignVideoPlayerError
+// above.
+bool _isBenignGoogleFontsNetworkError(Object error) {
+  return error.toString().contains('Failed to load font with url');
+}
+
 /// Wraps [FirebaseCrashlytics.instance.recordFlutterFatalError] so the known
 /// benign App Check token-listener [MissingPluginException] (see comment on
 /// [_isBenignAppCheckTokenListenerError]) is recorded as non-fatal instead of
@@ -750,6 +801,16 @@ Future<void> _handleFlutterFatalError(FlutterErrorDetails details) async {
   if (_isBenignVideoPlayerError(details.exception)) {
     debugPrint(
         '⚠️ Downgrading benign video-player PlatformException(VideoError) to non-fatal: ${details.exception}');
+    if (Firebase.apps.isNotEmpty) {
+      await FirebaseCrashlytics.instance
+          .recordError(details.exception, details.stack, fatal: false);
+    }
+    return;
+  }
+  // ✅ راجع _isBenignGoogleFontsNetworkError أعلاه.
+  if (_isBenignGoogleFontsNetworkError(details.exception)) {
+    debugPrint(
+        '⚠️ Downgrading benign google_fonts network fetch failure to non-fatal: ${details.exception}');
     if (Firebase.apps.isNotEmpty) {
       await FirebaseCrashlytics.instance
           .recordError(details.exception, details.stack, fatal: false);
