@@ -192,7 +192,10 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
       BetterPlayerDataSourceType.network,
       state.streams[_currentQuality]!,
       headers: const {'User-Agent': 'ExoPlayerLib/2.18.1 (Linux; Android 12)'},
-      videoFormat: BetterPlayerVideoFormat.hls,
+      // ✅ [OFFLINE] نفس منطق NativeVideoPlayerScreen — لا نفرض hls على ملف
+      // أوفلاين محلي (TS متسلسل من local_proxy)، حتى لو صُغِّر إلى الوضع
+      // العائم أثناء التشغيل.
+      videoFormat: state.isOfflineSource ? null : BetterPlayerVideoFormat.hls,
       resolutions: state.streams,
       cacheConfiguration:
           const BetterPlayerCacheConfiguration(useCache: false),
@@ -388,6 +391,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     final streams = fvcState.streams;
     final title = fvcState.title;
     final lessonId = fvcState.lessonId;
+    final isOfflineSource = fvcState.isOfflineSource;
 
     _disposePlayer();
     _fvc.stopFloating();
@@ -402,6 +406,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
           initialSpeed: _currentSpeed,
           initialQuality: _currentQuality,
           initialAutoPlay: isPlaying,
+          isOfflineSource: isOfflineSource,
         ),
       ),
     );
