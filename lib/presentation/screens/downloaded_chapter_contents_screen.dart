@@ -7,7 +7,6 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/local_proxy.dart'; // ✅ استيراد خدمة البروكسي
 import 'video_player_screen.dart';
-import 'native_video_player_screen.dart';
 import 'pdf_viewer_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -99,50 +98,26 @@ class _DownloadedChapterContentsScreenState
       if (mounted) Navigator.pop(context);
 
       // 6. الانتقال للمشغل بالروابط الجاهزة
-      //
-      // ✅ [PLAYER ROUTING] audioUrl != null فقط يحدث لتحميلات مسار
-      // get-stream-proxy الاحتياطي (يوتيوب/بروكسي) حيث الفيديو والصوت
-      // ملفان منفصلان — وهذا يحتاج media_kit's setAudioTrack لدمجهما عند
-      // التشغيل (ميزة لا يوفرها better_player). أما تحميلات Bunny HLS
-      // العادية (audioPath == null دائمًا، انظر download_manager.dart) فهي
-      // ملف TS واحد مدموج بالفعل صوت+صورة، فتُفتح بالمشغّل الأصلي
-      // NativeVideoPlayerScreen مثل نظيرتها الأونلاين تمامًا.
       if (mounted) {
-        if (audioUrl != null) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => VideoPlayerScreen(
-                // نمرر رابط الفيديو الجاهز
-                streams: {"Offline": playUrl},
-                title: item['title'] ?? AppLocalizations.of(context)!.offlineVideoFallbackTitle,
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VideoPlayerScreen(
+              // نمرر رابط الفيديو الجاهز
+              streams: {"Offline": playUrl},
+              title: item['title'] ?? AppLocalizations.of(context)!.offlineVideoFallbackTitle,
 
-                // ✅✅ هام جداً: نمرر رابط الصوت الجاهز هنا
-                preReadyAudioUrl: audioUrl,
+              // ✅✅ هام جداً: نمرر رابط الصوت الجاهز هنا
+              preReadyAudioUrl: audioUrl,
 
-                // ✅ [SCREENSHOT FEATURE] نمرر lessonId (نفس المعرّف المخزَّن
-                // في downloads_box كـ 'id') حتى تُربط أي لقطة فيديو تُلتقط
-                // أثناء التشغيل الأوفلاين بنفس الدرس — فتظهر في معرض هذا
-                // الفصل بغض النظر عن كون المشاهدة كانت أونلاين أو أوفلاين.
-                lessonId: item['id']?.toString(),
-              ),
+              // ✅ [SCREENSHOT FEATURE] نمرر lessonId (نفس المعرّف المخزَّن
+              // في downloads_box كـ 'id') حتى تُربط أي لقطة فيديو تُلتقط
+              // أثناء التشغيل الأوفلاين بنفس الدرس — فتظهر في معرض هذا
+              // الفصل بغض النظر عن كون المشاهدة كانت أونلاين أو أوفلاين.
+              lessonId: item['id']?.toString(),
             ),
-          );
-        } else {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => NativeVideoPlayerScreen(
-                streams: {"Offline": playUrl},
-                title: item['title'] ?? AppLocalizations.of(context)!.offlineVideoFallbackTitle,
-                lessonId: item['id']?.toString(),
-                // ✅ يمنع فرض صيغة hls ويعطّل إعادة الجلب الأونلاين عند إعادة
-                // المحاولة — انظر التعليق على isOfflineSource في تعريف الودجت.
-                isOfflineSource: true,
-              ),
-            ),
-          );
-        }
+          ),
+        );
       }
     } catch (e, stack) {
       // في حال حدوث خطأ، نغلق التحميل ونظهر رسالة
