@@ -28,6 +28,14 @@ class FloatingVideoState {
   final String? initialQuality;
   final bool wasPlaying;
 
+  /// True when [streams] points at a locally decrypted offline file (see
+  /// NativeVideoPlayerScreen.isOfflineSource) rather than a live Bunny CDN
+  /// URL. Carried through minimize→float→expand so both the floating
+  /// player and the full-screen player it's later expanded back into keep
+  /// treating the source as offline (no forced HLS format, no online
+  /// get-video-id refresh on retry).
+  final bool isOfflineSource;
+
   const FloatingVideoState({
     required this.streams,
     required this.title,
@@ -37,6 +45,7 @@ class FloatingVideoState {
     this.playbackSpeed = 1.0,
     this.initialQuality,
     this.wasPlaying = true,
+    this.isOfflineSource = false,
   });
 
   FloatingVideoState copyWith({
@@ -54,6 +63,7 @@ class FloatingVideoState {
       playbackSpeed: playbackSpeed ?? this.playbackSpeed,
       initialQuality: initialQuality ?? this.initialQuality,
       wasPlaying: wasPlaying ?? this.wasPlaying,
+      isOfflineSource: isOfflineSource,
     );
   }
 }
@@ -87,6 +97,7 @@ class FloatingVideoController extends ChangeNotifier {
     double playbackSpeed = 1.0,
     String? initialQuality,
     bool wasPlaying = true,
+    bool isOfflineSource = false,
   }) {
     _videoState = FloatingVideoState(
       streams: streams,
@@ -97,6 +108,7 @@ class FloatingVideoController extends ChangeNotifier {
       playbackSpeed: playbackSpeed,
       initialQuality: initialQuality,
       wasPlaying: wasPlaying,
+      isOfflineSource: isOfflineSource,
     );
     _isFloating = true;
     notifyListeners();
