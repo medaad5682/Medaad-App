@@ -1,7 +1,7 @@
 name: Medaad
 description: Modern Learning Platform (Dark Slate Design)
 publish_to: 'none'
-version: 2.0.5+28
+version: 2.1.0+30
 
 environment:
   sdk: '>=3.2.3 <4.0.0'
@@ -80,7 +80,7 @@ dependencies:
   image_picker: ^1.2.1 # اختيار صور الإيصالات
 
   # Video Players
-  better_player_plus: ^1.2.1 # مشغل الفيديو الأصلي (يدعم MPEG-TS HLS بالكامل)
+  better_player_plus: ^1.4.1 # مشغل الفيديو الأصلي (يدعم MPEG-TS HLS بالكامل)
   youtube_player_flutter: ^9.1.3 # مشغل يوتيوب
 
   
