@@ -452,6 +452,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       videoFormat: BetterPlayerVideoFormat.hls,
       resolutions: _streamsMap,
       cacheConfiguration: const BetterPlayerCacheConfiguration(useCache: false),
+      bufferingConfiguration: const BetterPlayerBufferingConfiguration(
+        minBufferMs: 15000,
+        maxBufferMs: 30000,
+        bufferForPlaybackMs: 2500,
+        bufferForPlaybackAfterRebufferMs: 5000,
+      ),
       notificationConfiguration: const BetterPlayerNotificationConfiguration(
         showNotification: false,
       ),
