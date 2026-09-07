@@ -44,6 +44,20 @@ class NativeVideoPlayerScreen extends StatefulWidget {
   final String? initialQuality;
   final bool initialAutoPlay;
 
+  /// Set when [streams] points at a locally decrypted file served by
+  /// LocalProxyService (offline/downloaded playback) rather than a live
+  /// Bunny CDN URL. Two behaviors change when true:
+  ///  1. The data source is NOT tagged as HLS — the offline file is raw
+  ///     concatenated MPEG-TS from the downloaded segments, not a .m3u8
+  ///     playlist, so forcing the HLS format would make ExoPlayer try (and
+  ///     fail) to parse it as a manifest. Leaving the format unset lets
+  ///     ExoPlayer's default extractors (TsExtractor) auto-detect it.
+  ///  2. `_refreshStreamUrlsIfPossible()` is skipped on retry — otherwise a
+  ///     transient local-proxy hiccup could silently swap offline playback
+  ///     over to a freshly-fetched *online* get-video-id URL. `lessonId` is
+  ///     still used as before for screenshot linking either way.
+  final bool isOfflineSource;
+
   const NativeVideoPlayerScreen({
     super.key,
     required this.streams,
@@ -53,6 +67,7 @@ class NativeVideoPlayerScreen extends StatefulWidget {
     this.initialSpeed,
     this.initialQuality,
     this.initialAutoPlay = true,
+    this.isOfflineSource = false,
   });
 
   @override
@@ -449,7 +464,10 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       BetterPlayerDataSourceType.network,
       initialUrl,
       headers: _headers,
-      videoFormat: BetterPlayerVideoFormat.hls,
+      // ✅ [OFFLINE] لا نفرض hls على مصدر أوفلاين محلي (ملف TS متسلسل من
+      // local_proxy وليس m3u8) — نترك ExoPlayer يكتشف الصيغة تلقائيًا.
+      videoFormat:
+          widget.isOfflineSource ? null : BetterPlayerVideoFormat.hls,
       resolutions: _streamsMap,
       cacheConfiguration: const BetterPlayerCacheConfiguration(useCache: false),
       notificationConfiguration: const BetterPlayerNotificationConfiguration(
@@ -1199,6 +1217,13 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   /// cases [_retryCurrentQuality] simply falls back to retrying with
   /// whatever URLs are already in [_streamsMap], same as before this fix.
   Future<void> _refreshStreamUrlsIfPossible() async {
+    // ✅ [OFFLINE] لا يوجد "رابط جديد" ذو معنى لملف محلي — ومحاولة الجلب هنا
+    // قد تستبدل التشغيل الأوفلاين برابط بث أونلاين فعلي بصمت لو حدث عطل
+    // مؤقت في local_proxy فقط بينما الجهاز متصل بالإنترنت. widget.lessonId
+    // يبقى متاحًا كما هو لربط لقطات الشاشة (VideoScreenshotService) — هذا
+    // الحارس يخص فقط إعادة الجلب من الشبكة عند إعادة المحاولة.
+    if (widget.isOfflineSource) return;
+
     final lessonId = widget.lessonId;
     if (lessonId == null || lessonId.isEmpty) return;
 
@@ -1940,6 +1965,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                     initialQuality: quality,
                                     wasPlaying: wasPlaying,
                                     lessonId: lessonId,
+                                    isOfflineSource: widget.isOfflineSource,
                                   );
 
                                   // 3. الآن أغلق المشغل الحالي وحرر الـ decoder/Surface
