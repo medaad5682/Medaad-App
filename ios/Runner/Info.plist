@@ -4,6 +4,20 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- ✅ Root fix: iOS video-frame screenshot bug (native_video_player_screen.dart
+	     _captureCurrentFrame). RepaintBoundary.toImage() renders the video texture
+	     as solid black on iOS while the watermark (a plain Flutter widget) captures
+	     fine — the watermark-only result is the signature of Flutter's Impeller
+	     renderer failing to composite video_player's external CVPixelBuffer texture
+	     into the offscreen snapshot target (see flutter/flutter#161146: "Images and
+	     Videos Do Not Render Properly with Impeller Enabled on iOS"). Android is
+	     unaffected because it still uses Skia's texture path there. Disabling
+	     Impeller for iOS (falls back to Skia, same renderer Android effectively
+	     mirrors for this purpose) makes the video texture part of the same Skia
+	     scene toImage() reads back from, so the captured PNG contains the actual
+	     frame instead of black. -->
+	<key>FLTEnableImpeller</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
