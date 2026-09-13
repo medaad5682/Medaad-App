@@ -16,6 +16,11 @@ import UIKit
     // setupDataProtectionChannel() أدناه للتفاصيل.
     private var dataProtectionChannel: FlutterMethodChannel?
 
+    // ✅ [iOS FIX] قناة استخراج إطار الفيديو الأصلي لميزة "لقطة الفيديو" —
+    // راجع FrameGrabberChannel.swift للشرح الكامل لسبب الحاجة إليها
+    // (RepaintBoundary لا يلتقط بكسلات UiKitView على iOS).
+    private var frameGrabberChannel: FrameGrabberChannel?
+
     // MARK: - Secure Logging Helper (Fix N-02)
     private func secureLog(_ message: String) {
         #if DEBUG
@@ -28,6 +33,18 @@ import UIKit
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+
+        // ✅ [FIX - لا نص صريح على القرص] يمنع طبقة الشبكة النظامية
+        // (CFNetwork/URLCache) من تخزين استجابات HTTP (بما فيها مقاطع
+        // HLS .ts/.m4s) على القرص بصيغتها الأصلية غير المشفّرة. هذا
+        // يغطي أيضاً طلب AVAssetImageGenerator الجديد في
+        // FrameGrabberChannel.swift — الذي ينشئ AVURLAsset مستقلاً
+        // لاستخراج إطار "لقطة الفيديو" فيمر عبر نفس طبقة الشبكة هذه —
+        // بحيث لا تُترك أي بايتات فيديو غير مشفّرة في
+        // ~/Library/Caches أثناء التقاط اللقطة أو أثناء التشغيل العادي.
+        // يجب أن يكون هذا أول استدعاء قبل أي طلب شبكة (تشغيل الفيديو أو
+        // استخراج اللقطة)، لذا يأتي قبل GeneratedPluginRegistrant.
+        disableSystemURLCache()
 
         // Configure Flutter engine
         GeneratedPluginRegistrant.register(with: self)
@@ -60,6 +77,9 @@ import UIKit
 
         // ✅ [FIX -25308] راجع تعريف الدالة أدناه لشرح كامل للمشكلة والحل.
         setupDataProtectionChannel()
+
+        // ✅ [iOS FIX] قناة استخراج إطار الفيديو الأصلي (لقطة الفيديو).
+        setupFrameGrabberChannel()
 
         // Prevent screenshots and screen recording
         setupScreenProtection()
@@ -187,6 +207,33 @@ import UIKit
     @objc private func protectedDataDidBecomeAvailable() {
         secureLog("✅ Amr AI: UIApplication.protectedDataDidBecomeAvailableNotification fired")
         dataProtectionChannel?.invokeMethod("onProtectedDataAvailable", arguments: nil)
+    }
+
+    // MARK: - Frame Grabber (Video Screenshot Fix)
+    private func setupFrameGrabberChannel() {
+        guard let controller = window?.rootViewController as? FlutterViewController else {
+            secureLog("⚠️ Amr AI: Failed to get FlutterViewController for frame grabber channel")
+            return
+        }
+
+        frameGrabberChannel = FrameGrabberChannel(messenger: controller.binaryMessenger)
+        secureLog("✅ Amr AI: Frame grabber channel initialized")
+    }
+
+    // MARK: - Disk Cache Hardening (No Plaintext On Disk)
+    //
+    // ✅ يستبدل URLCache.shared (المستخدَمة داخلياً من طرف AVFoundation
+    // لأي AVURLAsset شبكي — سواء تشغيل الفيديو العادي أو AVAssetImageGenerator
+    // في FrameGrabberChannel.swift) بنسخة سعتها صفر على القرص. النتيجة:
+    // أي استجابة HTTP (مقاطع HLS، رؤوس الترويسة...) تبقى في الذاكرة فقط
+    // ولا تُكتب كملفات مؤقتة على القرص، بصرف النظر عن ترويسات
+    // Cache-Control القادمة من الخادم/الـ CDN. هذا يكمّل — لا يستبدل —
+    // `cacheConfiguration: useCache: false` المضبوطة على مستوى
+    // BetterPlayerDataSource في Flutter (تلك تتحكم بتخزين البلجن
+    // المخصص، وهذه تتحكم بتخزين نظام التشغيل نفسه).
+    private func disableSystemURLCache() {
+        URLCache.shared = URLCache(memoryCapacity: 8 * 1024 * 1024, diskCapacity: 0, diskPath: nil)
+        secureLog("✅ Amr AI: System URLCache disk capacity disabled (memory-only)")
     }
 
     // MARK: - Screen Protection
