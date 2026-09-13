@@ -1,5 +1,6 @@
 import AVFoundation
 import Flutter
+import FirebaseCrashlytics
 import UIKit
 
 /// ✅ [iOS Screenshot Fix] قناة استخراج الإطار الأصلي لميزة "لقطة الفيديو".
@@ -54,6 +55,14 @@ final class FrameGrabberChannel: NSObject {
             let urlString = args["url"] as? String,
             let url = URL(string: urlString)
         else {
+            // ✅ [Crashlytics] لا نُسجّل رابط الفيديو نفسه هنا لأنه غير
+            // متاح أصلاً (فشل التحقق قبل الوصول إليه) — آمن بالكامل.
+            let error = NSError(
+                domain: "FrameGrabberChannel",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing or invalid 'url' argument"]
+            )
+            Crashlytics.crashlytics().record(error: error)
             result(FlutterError(
                 code: "BAD_ARGS",
                 message: "Missing or invalid 'url' argument",
@@ -67,6 +76,19 @@ final class FrameGrabberChannel: NSObject {
         let positionMs = (args["positionMs"] as? NSNumber)?.int64Value ?? 0
 
         grabFrame(url: url, headers: headers, positionMs: positionMs, result: result)
+    }
+
+    // ✅ [Crashlytics] نُسجّل فقط المخطط + المضيف + المسار (بلا query
+    // string) قبل إرساله لـ Crashlytics — روابط البث هنا موقّعة (Bunny
+    // CDN tokens) ونحن لا نريد أن ينتهي أي توكن وصول صالح داخل تقارير
+    // الأعطال على لوحة Firebase.
+    private func sanitizedForLogging(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return "<unparseable-url>"
+        }
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? "<unparseable-url>"
     }
 
     private func grabFrame(
@@ -100,11 +122,18 @@ final class FrameGrabberChannel: NSObject {
 
         let time = CMTime(seconds: Double(positionMs) / 1000.0, preferredTimescale: 600)
 
-        generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { _, cgImage, _, status, error in
+        generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { [weak self] _, cgImage, _, status, error in
             DispatchQueue.main.async {
+                guard let self = self else { return }
                 switch status {
                 case .succeeded:
                     guard let cgImage = cgImage else {
+                        self.recordFailure(
+                            code: "NO_IMAGE",
+                            message: "Generator succeeded but produced no image",
+                            url: url,
+                            positionMs: positionMs
+                        )
                         result(FlutterError(
                             code: "NO_IMAGE",
                             message: "Generator succeeded but produced no image",
@@ -115,6 +144,12 @@ final class FrameGrabberChannel: NSObject {
 
                     let uiImage = UIImage(cgImage: cgImage)
                     guard let pngData = uiImage.pngData() else {
+                        self.recordFailure(
+                            code: "ENCODE_FAILED",
+                            message: "Failed to encode extracted frame to PNG",
+                            url: url,
+                            positionMs: positionMs
+                        )
                         result(FlutterError(
                             code: "ENCODE_FAILED",
                             message: "Failed to encode extracted frame to PNG",
@@ -127,6 +162,13 @@ final class FrameGrabberChannel: NSObject {
 
                 case .failed, .cancelled:
                     let message = error?.localizedDescription ?? "Frame generation failed"
+                    self.recordFailure(
+                        code: "GENERATION_FAILED",
+                        message: message,
+                        url: url,
+                        positionMs: positionMs,
+                        underlyingError: error
+                    )
                     result(FlutterError(
                         code: "GENERATION_FAILED",
                         message: message,
@@ -134,6 +176,12 @@ final class FrameGrabberChannel: NSObject {
                     ))
 
                 @unknown default:
+                    self.recordFailure(
+                        code: "UNKNOWN_STATUS",
+                        message: "Unknown AVAssetImageGenerator status",
+                        url: url,
+                        positionMs: positionMs
+                    )
                     result(FlutterError(
                         code: "UNKNOWN_STATUS",
                         message: "Unknown AVAssetImageGenerator status",
@@ -142,5 +190,30 @@ final class FrameGrabberChannel: NSObject {
                 }
             }
         }
+    }
+
+    /// ✅ [Crashlytics] تسجيل غير-قاتل (non-fatal) لأي فشل في استخراج
+    /// إطار "لقطة الفيديو" على iOS، مع سياق كافٍ للتشخيص (رمز الفشل،
+    /// لحظة التشغيل المطلوبة، ورابط "مُنظَّف" بلا توكن التوقيع) دون
+    /// تسريب أي بيانات وصول حساسة.
+    private func recordFailure(
+        code: String,
+        message: String,
+        url: URL,
+        positionMs: Int64,
+        underlyingError: Error? = nil
+    ) {
+        let error = NSError(
+            domain: "FrameGrabberChannel",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: message,
+                "errorCode": code,
+                "sanitizedUrl": sanitizedForLogging(url),
+                "positionMs": positionMs,
+                "underlyingError": underlyingError?.localizedDescription ?? "n/a",
+            ]
+        )
+        Crashlytics.crashlytics().record(error: error)
     }
 }
