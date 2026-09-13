@@ -1510,6 +1510,16 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
           url: url,
           headers: _headers,
           positionMs: _position.inMilliseconds,
+        ).timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {
+            // ✅ يمنع بقاء مؤشر التحميل عالقاً إلى الأبد على اتصال بطيء/
+            // معطوب — بعد 8 ثوانٍ نعتبرها فاشلة ونعرض نفس رسالة الخطأ
+            // المعتادة للمستخدم بدل انتظار غير محدود.
+            throw TimeoutException(
+              'Native frame grab timed out after 8s (network/CDN too slow)',
+            );
+          },
         );
 
         pngBytes = await _compositeWatermarkOnFrame(
@@ -1570,7 +1580,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       FirebaseCrashlytics.instance.recordError(
         e,
         stack,
-        reason: 'NativeVideoPlayerScreen._captureCurrentFrame failed',
+        reason: e is TimeoutException
+            ? 'NativeVideoPlayerScreen._captureCurrentFrame timed out (native frame grab, iOS)'
+            : 'NativeVideoPlayerScreen._captureCurrentFrame failed',
         fatal: false,
       );
       if (!mounted) return;
