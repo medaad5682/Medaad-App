@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -116,31 +117,37 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                   // الفيديو الذي أُخذت منه اللقطة مُنزَّلاً أصلاً أم لا.
                   Row(
                     children: [
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const VideoScreenshotsScreen(),
+                      // ✅ [SCREENSHOT FEATURE] لقطات الفيديو متاحة على أندرويد
+                      // فقط (طابق شرط زر الالتقاط نفسه في
+                      // native_video_player_screen.dart)، لذا أيقونة المعرض
+                      // تظهر على أندرويد فقط.
+                      if (Platform.isAndroid) ...[
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const VideoScreenshotsScreen(),
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.backgroundSecondary,
+                              borderRadius: BorderRadius.circular(50),
+                              border: Border.all(
+                                  color: Colors.white.withOpacity(0.05)),
+                              boxShadow: const [
+                                BoxShadow(color: Colors.black12, blurRadius: 4)
+                              ],
                             ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.backgroundSecondary,
-                            borderRadius: BorderRadius.circular(50),
-                            border: Border.all(
-                                color: Colors.white.withOpacity(0.05)),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black12, blurRadius: 4)
-                            ],
+                            child: Icon(LucideIcons.image,
+                                color: AppColors.accentYellow, size: 22),
                           ),
-                          child: Icon(LucideIcons.image,
-                              color: AppColors.accentYellow, size: 22),
                         ),
-                      ),
-                      const SizedBox(width: 10),
+                        const SizedBox(width: 10),
+                      ],
 
                       // Active Downloads Badge
                       ValueListenableBuilder<Map<String, double>>(
