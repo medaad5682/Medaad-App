@@ -105,23 +105,15 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   Alignment _watermarkAlignment = Alignment.topRight;
   String _watermarkText = "";
 
-  // ── ميزة "لقطة الفيديو" (Video Frame Screenshot) ──────────────────────
+  // ── ميزة "لقطة الفيديو" (Video Frame Screenshot) — أندرويد فقط ────────
   // ✅ مفتاح RepaintBoundary الذي يلف طبقة [الفيديو + العلامة المائية]
-  // فقط (بلا أي أزرار تحكم) — يُستخدم على أندرويد فقط. راجع build()
-  // و_captureCurrentFrame().
+  // فقط (بلا أي أزرار تحكم). راجع build() و_captureCurrentFrame().
+  // ملاحظة: الميزة مُعطّلة بالكامل على iOS (الزر مخفي)، لأن
+  // better_player_plus يركّب الفيديو هناك عبر UiKitView (Platform View
+  // حقيقي) خارج شجرة رسم Flutter، فلا يمكن لـ RepaintBoundary التقاط
+  // بكسلاته.
   final GlobalKey _screenshotBoundaryKey = GlobalKey();
   bool _isCapturingScreenshot = false;
-
-  // ✅ [iOS FIX] قناة استخراج الإطار الأصلي على iOS — راجع التعليق الكامل
-  // أعلى _captureCurrentFrame() و ios/Runner/FrameGrabberChannel.swift.
-  // على iOS يركّب better_player_plus الفيديو عبر UiKitView (Platform
-  // View حقيقي مع AVPlayerLayer) خارج شجرة رسم Flutter تماماً، لذا
-  // RenderRepaintBoundary.toImage() لا يمكنها التقاط بكسلات الفيديو
-  // إطلاقاً (تخرج سوداء) رغم أن العلامة المائية (ودجت Flutter عادي)
-  // تُلتقط بنجاح — وهذا بالضبط ما كان يُلاحظ: فك تشفير ناجح + علامة
-  // مائية ظاهرة + إطار فيديو أسود بالكامل.
-  static const MethodChannel _frameGrabberChannel =
-      MethodChannel('medaad.app.com/frame_grabber');
 
   double _currentSpeed = 1.0;
   static const List<double> _speedOptions = [
@@ -1470,27 +1462,13 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   /// ⚠️ هذه ليست لقطة شاشة نظام (لا تستخدم أي MediaProjection/Screenshot
   /// API)، لذا فهي لا تتعارض مع FLAG_SECURE المُفعّل على هذه الشاشة.
   ///
-  /// ✅ [iOS FIX] المسارين مختلفان عمداً حسب المنصة:
-  /// - أندرويد: better_player_plus يركّب الفيديو عبر `Texture` (نسيج
-  ///   OpenGL/SurfaceTexture) وهو جزء فعلي من شجرة رسم Flutter (Skia)،
-  ///   لذا RenderRepaintBoundary.toImage() يلتقطه بشكل صحيح مع العلامة
-  ///   المائية معاً في عملية واحدة — كما كان يعمل دائماً.
-  /// - iOS: better_player_plus يركّب الفيديو عبر `UiKitView` — أي
-  ///   FlutterPlatformView حقيقي (AVPlayerLayer داخل UIView أصلي) خارج
-  ///   شجرة رسم Flutter تماماً (راجع buildView() في
-  ///   method_channel_video_player.dart من الحزمة). RepaintBoundary
-  ///   .toImage() لا يمكنها فعلياً "رؤية" بكسلات أي Platform View —
-  ///   هذا ليس عطلاً بل قيد معماري في Flutter نفسه (بصرف النظر عن
-  ///   Impeller/Skia)، لذا كانت النتيجة دائماً: علامة مائية ظاهرة (ودجت
-  ///   Flutter عادي يُرسم ضمن الشجرة) + إطار فيديو أسود بالكامل (Platform
-  ///   View غير موجود في الشجرة أصلاً وقت الالتقاط).
-  ///   الحل: نطلب الإطار مباشرة من طبقة AVFoundation الأصلية عبر
-  ///   [_frameGrabberChannel] (راجع ios/Runner/FrameGrabberChannel.swift)
-  ///   — نبني AVURLAsset مستقل من نفس رابط البث الحالي + نفس رؤوس HTTP
-  ///   المستخدمة في Flutter، ونستخرج الإطار عند نفس لحظة التشغيل
-  ///   (بمعزل تام عن مثيل AVPlayer الداخلي التابع للبلجن، وهو غير متاح
-  ///   لنا أصلاً)، ثم نركّب العلامة المائية عليه هنا في Dart عبر Canvas
-  ///   (راجع _compositeWatermarkOnFrame) بدل الاعتماد على RepaintBoundary.
+  /// ملاحظة: أندرويد فقط. better_player_plus يركّب الفيديو عبر `Texture`
+  /// (نسيج OpenGL/SurfaceTexture) وهو جزء فعلي من شجرة رسم Flutter
+  /// (Skia)، لذا RenderRepaintBoundary.toImage() يلتقطه بشكل صحيح مع
+  /// العلامة المائية معاً في عملية واحدة. هذا الزر مخفي على iOS (راجع
+  /// شرط الظهور في build()) لأن better_player_plus هناك يركّب الفيديو
+  /// عبر `UiKitView` (Platform View حقيقي خارج شجرة رسم Flutter) فلا
+  /// يمكن لـ RepaintBoundary.toImage() التقاط بكسلاته.
   Future<void> _captureCurrentFrame() async {
     if (_isCapturingScreenshot) return;
     if (_isError || _isInitializing || _betterPlayerController == null) return;
@@ -1500,65 +1478,31 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     try {
       final Uint8List pngBytes;
 
-      if (Platform.isIOS) {
-        final url = _streamsMap[_currentQuality];
-        if (url == null || url.isEmpty) {
-          throw Exception("No active stream URL for frame capture");
-        }
+      // مهلة قصيرة لضمان انتهاء أي إعادة رسم جارية (مثل حركة العلامة
+      // المائية) قبل الالتقاط.
+      await Future.delayed(const Duration(milliseconds: 20));
 
-        final rawFrame = await _grabNativeFrame(
-          url: url,
-          headers: _headers,
-          positionMs: _position.inMilliseconds,
-        ).timeout(
-          const Duration(seconds: 8),
-          onTimeout: () {
-            // ✅ يمنع بقاء مؤشر التحميل عالقاً إلى الأبد على اتصال بطيء/
-            // معطوب — بعد 8 ثوانٍ نعتبرها فاشلة ونعرض نفس رسالة الخطأ
-            // المعتادة للمستخدم بدل انتظار غير محدود.
-            throw TimeoutException(
-              'Native frame grab timed out after 8s (network/CDN too slow)',
-            );
-          },
-        );
+      final boundary = _screenshotBoundaryKey.currentContext
+          ?.findRenderObject() as RenderRepaintBoundary?;
 
-        pngBytes = await _compositeWatermarkOnFrame(
-          frameBytes: rawFrame,
-          text: _watermarkText,
-          alignment: _watermarkAlignment,
-          // ✅ نفس "الصندوق" المنطقي الذي كانت تتحرك بداخله العلامة
-          // المائية على الشاشة (Positioned.fill يملأ الشاشة بالكامل في
-          // وضع أفقي) — يُستخدم فقط لحساب مقياس تناسب حجم النص/الحشو مع
-          // دقة الإطار الأصلية (التي غالباً تختلف عن دقة الشاشة).
-          screenLogicalWidth: MediaQuery.of(context).size.width,
-        );
-      } else {
-        // مهلة قصيرة لضمان انتهاء أي إعادة رسم جارية (مثل حركة العلامة
-        // المائية) قبل الالتقاط.
-        await Future.delayed(const Duration(milliseconds: 20));
-
-        final boundary = _screenshotBoundaryKey.currentContext
-            ?.findRenderObject() as RenderRepaintBoundary?;
-
-        if (boundary == null) {
-          throw Exception("Screenshot boundary not found in render tree");
-        }
-
-        // pixelRatio أعلى قليلاً من دقة الجهاز يعطي جودة جيدة بلا حجم
-        // مبالغ فيه (الفيديو نفسه هو العامل المحدد للجودة الفعلية على
-        // أي حال).
-        final dpr = MediaQuery.of(context).devicePixelRatio;
-        final image = await boundary.toImage(pixelRatio: dpr);
-        final byteData =
-            await image.toByteData(format: ui.ImageByteFormat.png);
-        image.dispose();
-
-        if (byteData == null) {
-          throw Exception("Failed to encode captured frame to PNG");
-        }
-
-        pngBytes = byteData.buffer.asUint8List();
+      if (boundary == null) {
+        throw Exception("Screenshot boundary not found in render tree");
       }
+
+      // pixelRatio أعلى قليلاً من دقة الجهاز يعطي جودة جيدة بلا حجم
+      // مبالغ فيه (الفيديو نفسه هو العامل المحدد للجودة الفعلية على
+      // أي حال).
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      final image = await boundary.toImage(pixelRatio: dpr);
+      final byteData =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+
+      if (byteData == null) {
+        throw Exception("Failed to encode captured frame to PNG");
+      }
+
+      pngBytes = byteData.buffer.asUint8List();
 
       await VideoScreenshotService.saveEncrypted(
         pngBytes: pngBytes,
@@ -1580,9 +1524,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       FirebaseCrashlytics.instance.recordError(
         e,
         stack,
-        reason: e is TimeoutException
-            ? 'NativeVideoPlayerScreen._captureCurrentFrame timed out (native frame grab, iOS)'
-            : 'NativeVideoPlayerScreen._captureCurrentFrame failed',
+        reason: 'NativeVideoPlayerScreen._captureCurrentFrame failed',
         fatal: false,
       );
       if (!mounted) return;
@@ -1597,121 +1539,6 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       );
     } finally {
       if (mounted) setState(() => _isCapturingScreenshot = false);
-    }
-  }
-
-  /// [iOS فقط] يطلب من الطبقة الأصلية (AVAssetImageGenerator) استخراج
-  /// إطار PNG خام (بلا علامة مائية) من نفس رابط البث الحالي، عند نفس
-  /// لحظة التشغيل الظاهرة على الشاشة — راجع تعليق _captureCurrentFrame
-  /// أعلاه للسياق الكامل، وios/Runner/FrameGrabberChannel.swift للتنفيذ.
-  Future<Uint8List> _grabNativeFrame({
-    required String url,
-    required Map<String, String> headers,
-    required int positionMs,
-  }) async {
-    final result = await _frameGrabberChannel.invokeMethod<Uint8List>(
-      'grabFrame',
-      {
-        'url': url,
-        'headers': headers,
-        'positionMs': positionMs,
-      },
-    );
-
-    if (result == null) {
-      throw Exception("Native frame grab returned no data");
-    }
-
-    return result;
-  }
-
-  /// [iOS فقط] يرسم العلامة المائية فوق إطار PNG خام مُستخرَج أصلياً
-  /// (بما أن RepaintBoundary لا يمكنه التقاطها مع بكسلات Platform View
-  /// معاً على iOS — راجع _captureCurrentFrame). يحاكي نفس شكل الودجت
-  /// الأصلي (AnimatedAlign + Container أسود شفاف + نص أبيض عريض) الذي
-  /// يظهر فعلياً على الشاشة، مع تحجيم النص/الحشو تناسبياً مع دقة الإطار
-  /// الفعلية (التي تختلف عادة عن دقة الشاشة المنطقية).
-  Future<Uint8List> _compositeWatermarkOnFrame({
-    required Uint8List frameBytes,
-    required String text,
-    required Alignment alignment,
-    required double screenLogicalWidth,
-  }) async {
-    final codec = await ui.instantiateImageCodec(frameBytes);
-    final frameInfo = await codec.getNextFrame();
-    final ui.Image frameImage = frameInfo.image;
-
-    try {
-      final frameWidth = frameImage.width.toDouble();
-      final frameHeight = frameImage.height.toDouble();
-
-      // مقياس التناسب: كم بكسل-إطار يقابل كل نقطة منطقية كانت العلامة
-      // المائية تُرسم بها على الشاشة — يحافظ على حجم بصري مشابه بصرف
-      // النظر عن دقة الفيديو الفعلية (480p مقابل 1080p مثلاً).
-      final scale = screenLogicalWidth > 0
-          ? frameWidth / screenLogicalWidth
-          : 1.0;
-
-      final fontSize = 12.0 * scale;
-      final paddingH = 10.0 * scale;
-      final paddingV = 2.0 * scale;
-      final radius = 8.0 * scale;
-
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: text,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.85),
-            fontWeight: FontWeight.bold,
-            fontSize: fontSize,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-
-      final boxWidth = textPainter.width + paddingH * 2;
-      final boxHeight = textPainter.height + paddingV * 2;
-
-      // نفس معادلة محاذاة Alignment في Flutter: تحويل [-1, 1] إلى إزاحة
-      // بكسلية ضمن حدود الإطار.
-      final left = (alignment.x + 1) / 2 * (frameWidth - boxWidth);
-      final top = (alignment.y + 1) / 2 * (frameHeight - boxHeight);
-
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(
-        recorder,
-        Rect.fromLTWH(0, 0, frameWidth, frameHeight),
-      );
-
-      canvas.drawImage(frameImage, Offset.zero, Paint());
-
-      final rrect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(left, top, boxWidth, boxHeight),
-        Radius.circular(radius),
-      );
-      canvas.drawRRect(rrect, Paint()..color = Colors.black.withOpacity(0.6));
-
-      textPainter.paint(canvas, Offset(left + paddingH, top + paddingV));
-
-      final picture = recorder.endRecording();
-      ui.Image? composedImage;
-      try {
-        composedImage =
-            await picture.toImage(frameWidth.round(), frameHeight.round());
-        final byteData =
-            await composedImage.toByteData(format: ui.ImageByteFormat.png);
-
-        if (byteData == null) {
-          throw Exception("Failed to encode composed frame to PNG");
-        }
-
-        return byteData.buffer.asUint8List();
-      } finally {
-        composedImage?.dispose();
-        picture.dispose();
-      }
-    } finally {
-      frameImage.dispose();
     }
   }
 
@@ -2060,8 +1887,10 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
                                 tooltip: _currentQuality,
                               ),
                             
-                            // ── Video Screenshot Button ──────────────
-                            if (!_isError && _betterPlayerController != null)
+                            // ── Video Screenshot Button (Android only) ──
+                            if (!_isError &&
+                                _betterPlayerController != null &&
+                                !Platform.isIOS)
                               IconButton(
                                 icon: _isCapturingScreenshot
                                     ? SizedBox(
