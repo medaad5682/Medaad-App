@@ -650,6 +650,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       scrollHorizontallyByMouseWheel:
           PdfLayoutEngine.scrollHorizontallyByMouseWheel,
       scrollPhysics: PdfLayoutEngine.scrollPhysics,
+      // ── Fix: منع صفحة استثنائية العرض (مثل صفحة 50) من التحكم في
+      // أدنى مستوى تصغير (minScale) للمستند بالكامل عبر
+      // alternativeFitScale، والذي كان يجعل التكبير/التصغير غير
+      // مستقر (تتحرك الصفحة يميناً/يساراً عند الزوم).
+      useAlternativeFitScaleAsMinScale: false,
+      minScale: 1.0,
+      maxScale: 8.0,
       // ✅ تحديد النص: يُفعَّل دائماً في وضع الهايلايتر/التسطير مع إتاحة الوقت
       // للمستخدم لضبط نقطتَي البداية والنهاية قبل تطبيق التمييز.
       textSelectionParams: PdfTextSelectionParams(
