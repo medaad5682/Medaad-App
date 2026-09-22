@@ -1,7 +1,7 @@
 name: Medaad
 description: Modern Learning Platform (Dark Slate Design)
 publish_to: 'none'
-version: 2.1.0+30
+version: 2.1.1+31
 
 environment:
   sdk: '>=3.2.3 <4.0.0'
@@ -36,7 +36,7 @@ dependencies:
   device_info_plus: ^12.3.0
   android_id: ^0.5.1
   wakelock_plus: ^1.4.0        # لإبقاء الشاشة تعمل
-  pdfrx: ^2.2.24
+  pdfrx: ^2.6.5
   file_picker: 10.3.8
   connectivity_plus: ^6.0.3
   shared_preferences: ^2.2.3
