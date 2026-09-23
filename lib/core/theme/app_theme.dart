@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../constants/app_colors.dart';
 
 class AppTheme {
+  // ✅ [CRASH-FIX v2.1.2] تم التخلي عن حزمة google_fonts (كانت تنهار بسبب
+  // غياب ملفات الخط داخل الـ assets مع تعطيل التحميل من الشبكة). الآن Roboto
+  // مُضمَّن فعليًا في pubspec.yaml (assets/fonts) ويُطبَّق على كامل التطبيق عبر
+  // ThemeData.fontFamily، فيظهر متطابقًا على Android و iOS ولا يحتاج إنترنت.
+  // الأوزان المتوفرة: 400 / 500 / 700 / 900 (الوزن 600 يُختار له 700 تلقائيًا).
+  static const String _fontFamily = 'Roboto';
+
   static ThemeData get darkTheme {
     return ThemeData(
       useMaterial3: true,
+      fontFamily: _fontFamily,
       // ملاحظة: سيتم تجاوز brightness في main.dart بناءً على الوضع الحالي
       brightness: Brightness.dark,
       scaffoldBackgroundColor: AppColors.backgroundPrimary,
@@ -22,29 +29,35 @@ class AppTheme {
       ),
 
       textTheme: TextTheme(
-        displayLarge: GoogleFonts.roboto(
+        displayLarge: TextStyle(
+          fontFamily: _fontFamily,
           color: AppColors.textPrimary, 
           fontWeight: FontWeight.w900,
           letterSpacing: -1.0,
         ),
-        headlineLarge: GoogleFonts.roboto(
+        headlineLarge: TextStyle(
+          fontFamily: _fontFamily,
           color: AppColors.textPrimary, 
           fontWeight: FontWeight.bold,
           letterSpacing: -0.5,
         ),
-        titleLarge: GoogleFonts.roboto(
+        titleLarge: TextStyle(
+          fontFamily: _fontFamily,
           color: AppColors.textPrimary, 
           fontWeight: FontWeight.bold,
         ),
-        bodyLarge: GoogleFonts.roboto(
+        bodyLarge: TextStyle(
+          fontFamily: _fontFamily,
           color: AppColors.textPrimary,
           fontSize: 16,
         ),
-        bodyMedium: GoogleFonts.roboto(
+        bodyMedium: TextStyle(
+          fontFamily: _fontFamily,
           color: AppColors.textSecondary,
           fontSize: 14,
         ),
-        labelLarge: GoogleFonts.roboto(
+        labelLarge: TextStyle(
+          fontFamily: _fontFamily,
           fontWeight: FontWeight.bold,
           letterSpacing: 1.0,
         ),
