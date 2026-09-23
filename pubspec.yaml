@@ -1,7 +1,7 @@
 name: Medaad
 description: Modern Learning Platform (Dark Slate Design)
 publish_to: 'none'
-version: 2.1.1+31
+version: 2.1.2+32
 
 environment:
   sdk: '>=3.2.3 <4.0.0'
@@ -27,7 +27,6 @@ dependencies:
   get_it: ^9.2.0
   
   # UI Components & Icons
-  google_fonts: ^7.0.2
   flutter_svg: ^2.2.3
   url_launcher: ^6.3.2
   lucide_icons_flutter: ^3.1.14
@@ -111,3 +110,16 @@ flutter:
   # مسار الصور
   assets:
     - assets/images/
+
+  # ✅ خط Roboto مُضمَّن داخل التطبيق (assets/fonts) ليظهر بشكل متطابق على
+  # Android و iOS دون أي تحميل من الشبكة.
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
+        - asset: assets/fonts/Roboto-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Roboto-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Roboto-Black.ttf
+          weight: 900
