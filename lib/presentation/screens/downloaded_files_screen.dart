@@ -5,8 +5,10 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart'; 
 import '../../core/constants/app_colors.dart';
+import '../../core/services/app_state.dart';
 import '../../core/services/local_proxy.dart';
 import '../../core/services/download_manager.dart'; 
+import 'downloaded_package_courses_screen.dart';
 import 'downloaded_subjects_screen.dart';
 import 'video_screenshots_screen.dart';
 import '../../core/services/storage_service.dart';
@@ -231,6 +233,41 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                       groupedCourses[courseName] = (groupedCourses[courseName] ?? 0) + 1;
                     }
                   } catch (e) {}
+
+                  // 📦 نفس منطق تجميع الباقات في صفحة المكتبة: إن كان عنوان
+                  // الكورس المُحمَّل تابعاً لباقة يملكها الطالب، نجمعه مع
+                  // بقية كورسات نفس الباقة في مجلد واحد بدل ظهوره منفرداً.
+                  final Map<String, String> courseTitleToPackageTitle = {};
+                  for (var libItem in AppState().myLibrary) {
+                    if (libItem['type'] == 'package' &&
+                        libItem['courses'] is List) {
+                      final String pkgTitle =
+                          libItem['title']?.toString() ?? '';
+                      for (var course in libItem['courses']) {
+                        if (course is Map && course['title'] != null) {
+                          courseTitleToPackageTitle[course['title']
+                              .toString()] = pkgTitle;
+                        }
+                      }
+                    }
+                  }
+
+                  final Map<String, int> groupedPackages = {};
+                  final Map<String, List<String>> packageCourseTitles = {};
+                  final Map<String, int> ungroupedCourses = {};
+
+                  groupedCourses.forEach((courseTitle, count) {
+                    final pkgTitle = courseTitleToPackageTitle[courseTitle];
+                    if (pkgTitle != null) {
+                      groupedPackages[pkgTitle] =
+                          (groupedPackages[pkgTitle] ?? 0) + count;
+                      packageCourseTitles
+                          .putIfAbsent(pkgTitle, () => [])
+                          .add(courseTitle);
+                    } else {
+                      ungroupedCourses[courseTitle] = count;
+                    }
+                  });
 
                   return ValueListenableBuilder<Map<String, double>>(
                     valueListenable: DownloadManager.downloadingProgress,
@@ -466,9 +503,88 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                               const SizedBox(height: 24),
                             ],
 
-                            // قسم الكورسات المحملة (كما هو)
-                            if (groupedCourses.isNotEmpty) ...[
-                              ...groupedCourses.entries.map((entry) => GestureDetector(
+                            // 📦 قسم مجلدات الباقات (كورسات محمّلة تابعة لنفس الباقة)
+                            if (groupedPackages.isNotEmpty) ...[
+                              ...groupedPackages.entries.map((entry) => GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => DownloadedPackageCoursesScreen(
+                                        packageTitle: entry.key,
+                                        courseTitles: List<String>.from(
+                                            packageCourseTitles[entry.key] ?? []),
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        AppColors.accentYellow.withOpacity(0.12),
+                                        AppColors.accentOrange.withOpacity(0.12),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: AppColors.accentYellow.withOpacity(0.25)),
+                                    boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 48, height: 48,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.backgroundPrimary,
+                                          borderRadius: BorderRadius.circular(12),
+                                          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
+                                        ),
+                                        child: Icon(LucideIcons.package, color: AppColors.accentYellow, size: 22),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              entry.key.toUpperCase(),
+                                              style: TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.bold,
+                                                color: AppColors.textPrimary,
+                                                letterSpacing: -0.5
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              AppLocalizations.of(context)!.filesDownloadedCountLabel(entry.value),
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                                color: AppColors.textSecondary.withOpacity(0.7),
+                                                letterSpacing: 1.5
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: 20)),
+                                    ],
+                                  ),
+                                ),
+                              )),
+                              const SizedBox(height: 12),
+                            ],
+
+                            // قسم الكورسات المحملة (كما هو، فيما عدا ما انضم منها لمجلد باقة أعلاه)
+                            if (ungroupedCourses.isNotEmpty) ...[
+                              ...ungroupedCourses.entries.map((entry) => GestureDetector(
                                 onTap: () {
                                   Navigator.push(
                                     context,
