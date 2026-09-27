@@ -6,9 +6,9 @@ import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
 // ✅ إضافة استيراد خدمة المدرس
 import '../../core/services/teacher_service.dart';
-import 'course_details_screen.dart';
 import 'course_materials_screen.dart';
 import 'login_screen.dart';
+import 'package_courses_screen.dart';
 import 'teacher/manage_content_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
@@ -21,8 +21,6 @@ class MyCoursesScreen extends StatefulWidget {
 }
 
 class _MyCoursesScreenState extends State<MyCoursesScreen> {
-  String _view = 'library'; // library | market
-  String _searchTerm = '';
   bool _isTeacher = false;
   bool _isUpdating = false;
   bool _isFreeMode = false; // ✅ متغير لحفظ حالة الوضع المجاني
@@ -83,14 +81,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
   @override
   Widget build(BuildContext context) {
     if (AppState().isGuest) {
-      if (_view == 'market') {
-        return _buildMarketView();
-      }
       return _buildGuestView();
-    }
-
-    if (_view == 'market') {
-      return _buildMarketView();
     }
     return _buildLibraryView();
   }
@@ -149,24 +140,6 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                         ],
                       ),
                     ],
-                  ),
-                  // زر الذهاب للمتجر
-                  GestureDetector(
-                    onTap: () => setState(() => _view = 'market'),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.backgroundSecondary,
-                        borderRadius: BorderRadius.circular(50),
-                        border:
-                            Border.all(color: Colors.white.withOpacity(0.05)),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black26, blurRadius: 4)
-                        ],
-                      ),
-                      child: Icon(LucideIcons.shoppingCart,
-                          color: AppColors.accentYellow, size: 22),
-                    ),
                   ),
                 ],
               ),
@@ -325,25 +298,6 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                         ),
                         const SizedBox(width: 12),
                       ],
-
-                      // زر المتجر
-                      GestureDetector(
-                        onTap: () => setState(() => _view = 'market'),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.backgroundSecondary,
-                            borderRadius: BorderRadius.circular(50),
-                            border: Border.all(
-                                color: Colors.white.withOpacity(0.05)),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black26, blurRadius: 4)
-                            ],
-                          ),
-                          child: Icon(LucideIcons.shoppingCart,
-                              color: AppColors.accentYellow, size: 22),
-                        ),
-                      ),
                     ],
                   ),
                 ],
@@ -375,6 +329,13 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                         itemCount: libraryItems.length,
                         itemBuilder: (context, index) {
                           final item = libraryItems[index];
+
+                          // 📦 مجلد باقة: يضم عدة كورسات مملوكة تابعة لنفس
+                          // الباقة (تفعيل كامل أو جزئي) — تصميم مختلف عن
+                          // بطاقة الكورس العادية.
+                          if (item['type'] == 'package') {
+                            return _buildPackageFolderCard(item);
+                          }
 
                           final String title = item['title'] ?? 'Unknown';
                           final String instructor =
@@ -652,192 +613,153 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
     );
   }
 
-  // --- 4. واجهة المتجر ---
-  Widget _buildMarketView() {
-    final availableCourses = AppState()
-        .allCourses
-        .where((course) =>
-            course.title.toLowerCase().contains(_searchTerm.toLowerCase()) ||
-            course.code.toLowerCase().contains(_searchTerm.toLowerCase()))
-        .toList();
+  // --- 5. بطاقة مجلد الباقة ---
+  // تصميم مختلف عن بطاقة الكورس العادية: تدرج لوني + أيقونة صندوق مكدّسة +
+  // شارة بعدد الكورسات، لتمييزها بصرياً كـ"مجلد" يضم عدة كورسات وليس كورساً
+  // واحداً. تظهر لكل باقة يملك الطالب كورساً واحداً على الأقل منها (سواء
+  // كانت الباقة مُفعّلة بالكامل أو جزئياً).
+  Widget _buildPackageFolderCard(Map<String, dynamic> item) {
+    final String title = item['title']?.toString() ?? 'Unknown';
+    final List<dynamic> coursesInPackage =
+        item['courses'] is List ? item['courses'] as List<dynamic> : [];
+    final int courseCount = coursesInPackage.length;
+    final bool isArabic = AppState.isArabic;
+    final String subtitle = isArabic
+        ? '$courseCount كورس داخل الباقة'
+        : '$courseCount COURSES IN THIS PACKAGE';
 
-    double screenWidth = MediaQuery.of(context).size.width;
-    int crossAxisCount = 2;
-    if (screenWidth >= 600) crossAxisCount = 3;
-    if (screenWidth >= 900) crossAxisCount = 4;
-    if (screenWidth >= 1200) crossAxisCount = 5;
-
-    return Scaffold(
-      backgroundColor: AppColors.backgroundPrimary,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => setState(() => _view = 'library'),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.backgroundSecondary,
-                        borderRadius: BorderRadius.circular(50),
-                        border:
-                            Border.all(color: Colors.white.withOpacity(0.05)),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black26, blurRadius: 4)
-                        ],
-                      ),
-                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
-                          color: AppColors.accentYellow, size: 20)),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Text(
-                    AppLocalizations.of(context)!.marketTitle,
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                ],
-              ),
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PackageCoursesScreen(
+              packageTitle: title,
+              courses: coursesInPackage
+                  .map((c) => Map<String, dynamic>.from(c as Map))
+                  .toList(),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppColors.backgroundSecondary,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.05)),
-                ),
-                child: TextField(
-                  autofocus: false,
-                  onChanged: (val) => setState(() => _searchTerm = val),
-                  style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
-                  decoration: InputDecoration(
-                    prefixIcon: Icon(
-                      LucideIcons.search,
-                      size: 18,
-                      color: _searchTerm.isNotEmpty
-                          ? AppColors.accentYellow
-                          : AppColors.textSecondary,
-                    ),
-                    hintText: AppLocalizations.of(context)!.searchCourseMarketHint,
-                    hintStyle: TextStyle(
-                        color: AppColors.textSecondary.withOpacity(0.6)),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: crossAxisCount,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 1.0,
-                ),
-                itemCount: availableCourses.length,
-                itemBuilder: (context, index) {
-                  final course = availableCourses[index];
-
-                  return GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              CourseDetailsScreen(courseCode: course.code),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: AppColors.backgroundSecondary,
-                        borderRadius: BorderRadius.circular(24),
-                        border:
-                            Border.all(color: Colors.white.withOpacity(0.2)),
-                        boxShadow: [
-                          BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 4)
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Icon(LucideIcons.compass,
-                                  size: 14, color: AppColors.accentYellow),
-                              Icon(LucideIcons.shoppingCart,
-                                  size: 14,
-                                  color:
-                                      AppColors.textSecondary.withOpacity(0.4)),
-                            ],
-                          ),
-                          Text(
-                            course.title.toUpperCase(),
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              height: 1.1,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                course.instructorName.toUpperCase(),
-                                style: TextStyle(
-                                  color:
-                                      AppColors.textSecondary.withOpacity(0.7),
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.5,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 4),
-                              // ✅ هنا التعديل: إخفاء السعر فقط إذا كان الوضع المجاني مفعلاً
-                              if (!_isFreeMode)
-                                Text(
-                                  AppLocalizations.of(context)!.priceEgp(
-                                      course.fullPrice.toInt().toString()),
-                                  style: TextStyle(
-                                    color: AppColors.accentYellow,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
+          ),
+        ).then((_) {
+          // ✅ عناصر المكتبة قد تتغير (مثلاً بعد فتح مادة) - نعيد البناء
+          if (mounted) setState(() {});
+        });
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.accentYellow.withOpacity(0.9),
+              AppColors.accentOrange.withOpacity(0.9),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.accentOrange.withOpacity(0.25),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
             ),
           ],
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.backgroundSecondary,
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Row(
+            children: [
+              // أيقونة "مجلد مكدّس" لإيحاء أن هذا يضم عدة عناصر
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: Stack(
+                  children: [
+                    Positioned(
+                      left: 4,
+                      top: 6,
+                      child: Icon(LucideIcons.layers,
+                          size: 22,
+                          color: AppColors.accentYellow.withOpacity(0.35)),
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: AppColors.accentYellow.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: AppColors.accentYellow.withOpacity(0.4)),
+                        ),
+                        child: Icon(LucideIcons.package,
+                            color: AppColors.accentYellow, size: 18),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.accentYellow.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        isArabic ? 'باقة' : 'PACKAGE',
+                        style: TextStyle(
+                          color: AppColors.accentYellow,
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      title.toUpperCase(),
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: -0.5,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: AppColors.textSecondary.withOpacity(0.7),
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              DirectionalFlip(
+                child: Icon(LucideIcons.chevronRight,
+                    color: AppColors.textSecondary.withOpacity(0.6),
+                    size: 20),
+              ),
+            ],
+          ),
         ),
       ),
     );
