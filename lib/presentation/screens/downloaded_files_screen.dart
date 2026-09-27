@@ -8,7 +8,6 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/local_proxy.dart';
 import '../../core/services/download_manager.dart'; 
-import 'downloaded_package_courses_screen.dart';
 import 'downloaded_subjects_screen.dart';
 import 'video_screenshots_screen.dart';
 import '../../core/services/storage_service.dart';
@@ -25,7 +24,12 @@ class DownloadedFilesScreen extends StatefulWidget {
 
 class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
   final LocalProxyService _proxy = LocalProxyService();
-   
+
+  // 📦 عناوين مجلدات الباقات المفتوحة حالياً (أكورديون) — بنفس فكرة شاشة
+  // المكتبة: الضغط على مجلد باقة يفتح/يطوي قائمة كورساتها المحمّلة في نفس
+  // المكان، بدون أي تنقّل لشاشة جديدة.
+  final Set<String> _expandedPackageTitles = {};
+
   @override
   void initState() {
     super.initState();
@@ -504,149 +508,115 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                             ],
 
                             // 📦 قسم مجلدات الباقات (كورسات محمّلة تابعة لنفس الباقة)
+                            // أكورديون: الضغط على المجلد يفتح/يطوي كورساته
+                            // مباشرة أسفله في نفس القائمة (بدون شاشة جديدة).
                             if (groupedPackages.isNotEmpty) ...[
-                              ...groupedPackages.entries.map((entry) => GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => DownloadedPackageCoursesScreen(
-                                        packageTitle: entry.key,
-                                        courseTitles: List<String>.from(
-                                            packageCourseTitles[entry.key] ?? []),
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: Container(
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  padding: const EdgeInsets.all(20),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        AppColors.accentYellow.withOpacity(0.12),
-                                        AppColors.accentOrange.withOpacity(0.12),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(color: AppColors.accentYellow.withOpacity(0.25)),
-                                    boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 48, height: 48,
-                                        decoration: BoxDecoration(
-                                          color: AppColors.backgroundPrimary,
-                                          borderRadius: BorderRadius.circular(12),
-                                          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
-                                        ),
-                                        child: Icon(LucideIcons.package, color: AppColors.accentYellow, size: 22),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              entry.key.toUpperCase(),
-                                              style: TextStyle(
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.bold,
-                                                color: AppColors.textPrimary,
-                                                letterSpacing: -0.5
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              AppLocalizations.of(context)!.filesDownloadedCountLabel(entry.value),
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.bold,
-                                                color: AppColors.textSecondary.withOpacity(0.7),
-                                                letterSpacing: 1.5
-                                              ),
-                                            ),
+                              ...groupedPackages.entries.expand((entry) {
+                                final packageTitle = entry.key;
+                                final isExpanded = _expandedPackageTitles
+                                    .contains(packageTitle);
+                                final titlesInPackage = List<String>.from(
+                                    packageCourseTitles[packageTitle] ?? []);
+
+                                return [
+                                  GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        if (isExpanded) {
+                                          _expandedPackageTitles
+                                              .remove(packageTitle);
+                                        } else {
+                                          _expandedPackageTitles
+                                              .add(packageTitle);
+                                        }
+                                      });
+                                    },
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.all(20),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            AppColors.accentYellow.withOpacity(0.12),
+                                            AppColors.accentOrange.withOpacity(0.12),
                                           ],
                                         ),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(color: AppColors.accentYellow.withOpacity(0.25)),
+                                        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
                                       ),
-                                      DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: 20)),
-                                    ],
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 48, height: 48,
+                                            decoration: BoxDecoration(
+                                              color: AppColors.backgroundPrimary,
+                                              borderRadius: BorderRadius.circular(12),
+                                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
+                                            ),
+                                            child: Icon(LucideIcons.package, color: AppColors.accentYellow, size: 22),
+                                          ),
+                                          const SizedBox(width: 16),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  packageTitle.toUpperCase(),
+                                                  style: TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: AppColors.textPrimary,
+                                                    letterSpacing: -0.5
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  AppLocalizations.of(context)!.filesDownloadedCountLabel(entry.value),
+                                                  style: TextStyle(
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: AppColors.textSecondary.withOpacity(0.7),
+                                                    letterSpacing: 1.5
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          AnimatedRotation(
+                                            turns: isExpanded ? 0.25 : 0.0,
+                                            duration: const Duration(milliseconds: 200),
+                                            child: DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: 20)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              )),
+                                  // كورسات الباقة تظهر هنا مباشرة عند الفتح فقط
+                                  if (isExpanded)
+                                    ...titlesInPackage.map((courseTitle) =>
+                                        _buildDownloadedCourseCard(
+                                          context,
+                                          courseTitle,
+                                          groupedCourses[courseTitle] ?? 0,
+                                          nested: true,
+                                        )),
+                                  if (isExpanded)
+                                    const SizedBox(height: 4),
+                                ];
+                              }),
                               const SizedBox(height: 12),
                             ],
 
                             // قسم الكورسات المحملة (كما هو، فيما عدا ما انضم منها لمجلد باقة أعلاه)
                             if (ungroupedCourses.isNotEmpty) ...[
-                              ...ungroupedCourses.entries.map((entry) => GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => DownloadedSubjectsScreen(courseTitle: entry.key),
-                                    ),
-                                  );
-                                },
-                                child: Container(
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  padding: const EdgeInsets.all(20),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.backgroundSecondary,
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(color: Colors.white.withOpacity(0.05)),
-                                    boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 48, height: 48,
-                                        decoration: BoxDecoration(
-                                          color: AppColors.backgroundPrimary,
-                                          borderRadius: BorderRadius.circular(12),
-                                          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
-                                        ),
-                                        child: const Icon(LucideIcons.book, color: AppColors.accentOrange, size: 24),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              entry.key.toUpperCase(),
-                                              style: TextStyle(
-                                                fontSize: 15, 
-                                                fontWeight: FontWeight.bold, 
-                                                color: AppColors.textPrimary, 
-                                                letterSpacing: -0.5
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              AppLocalizations.of(context)!.filesDownloadedCountLabel(entry.value),
-                                              style: TextStyle(
-                                                fontSize: 9, 
-                                                fontWeight: FontWeight.bold, 
-                                                color: AppColors.textSecondary.withOpacity(0.7), 
-                                                letterSpacing: 1.5
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: 20)),
-                                    ],
-                                  ),
-                                ),
-                              )),
+                              ...ungroupedCourses.entries.map((entry) =>
+                                  _buildDownloadedCourseCard(
+                                      context, entry.key, entry.value)),
                             ],
                           ],
                         ),
@@ -698,6 +668,101 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
           style: TextStyle(fontSize: 11, color: AppColors.textSecondary.withOpacity(0.9), fontWeight: FontWeight.w500),
         ),
       ],
+    );
+  }
+
+  // بطاقة كورس محمّل عادية — تُستخدم لكورس منفرد في القائمة الرئيسية، أو
+  // لكورس ظاهر تحت مجلد باقة مفتوح عند nested=true (بنفس فتح
+  // DownloadedSubjectsScreen بالضبط، فقط بإزاحة وتصغير بسيط ليبدو بصرياً
+  // كعنصر تابع للمجلد أعلاه، بنفس أسلوب الفصول).
+  Widget _buildDownloadedCourseCard(
+      BuildContext context, String courseTitle, int fileCount,
+      {bool nested = false}) {
+    final card = GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DownloadedSubjectsScreen(courseTitle: courseTitle),
+        ),
+      ),
+      child: Container(
+        margin: EdgeInsets.only(bottom: nested ? 8 : 12),
+        padding: EdgeInsets.all(nested ? 16 : 20),
+        decoration: BoxDecoration(
+          color: nested
+              ? AppColors.backgroundPrimary
+              : AppColors.backgroundSecondary,
+          borderRadius: BorderRadius.circular(nested ? 16 : 20),
+          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          boxShadow: nested
+              ? null
+              : const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: nested ? 40 : 48,
+              height: nested ? 40 : 48,
+              decoration: BoxDecoration(
+                color: AppColors.backgroundPrimary,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
+              ),
+              child: Icon(LucideIcons.book, color: AppColors.accentOrange, size: nested ? 18 : 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    courseTitle.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: nested ? 13 : 15,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.5
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    AppLocalizations.of(context)!.filesDownloadedCountLabel(fileCount),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textSecondary.withOpacity(0.7),
+                      letterSpacing: 1.5
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: nested ? 18 : 20)),
+          ],
+        ),
+      ),
+    );
+
+    if (!nested) return card;
+
+    // إزاحة بصرية بخط رفيع يصل الكورس بمجلد الباقة أعلاه، بنفس أسلوب
+    // بطاقات الكورسات المتفرعة تحت مجلد باقة في شاشة المكتبة.
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 2,
+            margin: const EdgeInsets.only(top: 8, bottom: 16),
+            color: AppColors.accentYellow.withOpacity(0.2),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: card),
+        ],
+      ),
     );
   }
 }
