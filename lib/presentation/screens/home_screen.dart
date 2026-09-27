@@ -103,10 +103,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ✅ يُستدعى مع كل تغيير في خانة البحث؛ يُأخّر الطلب 400ms حتى لا نُرسل
   // طلب سيرفر مع كل حرف يكتبه المستخدم.
+  // ✅ الحد الأدنى لعدد الأحرف/الأرقام قبل بدء البحث الفعلي عبر السيرفر
+  static const int _minSearchLength = 3;
+
   void _onSearchChanged(String value) {
     _searchDebounce?.cancel();
 
-    if (value.trim().isEmpty) {
+    final trimmed = value.trim();
+
+    // أقل من 3 أحرف/أرقام: لا نبحث، فقط نفرغ النتائج السابقة
+    if (trimmed.length < _minSearchLength) {
       setState(() {
         _searchResults = [];
         _isSearching = false;
@@ -115,7 +121,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     _searchDebounce = Timer(const Duration(milliseconds: 400), () {
-      _performSearch(value.trim());
+      _performSearch(trimmed);
     });
   }
 
@@ -426,7 +432,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 16),
 
                     // Course List
-                    (_searchTerm.isNotEmpty && _isSearching && coursesToDisplay.isEmpty)
+                    (_searchTerm.trim().isNotEmpty && _searchTerm.trim().length < _minSearchLength)
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 40),
+                        child: Text(
+                          'Type at least $_minSearchLength characters to search', // TODO: move to l10n if you want it translated
+                          style: TextStyle(color: AppColors.textSecondary.withOpacity(0.5)),
+                        ),
+                      )
+                    : (_searchTerm.isNotEmpty && _isSearching && coursesToDisplay.isEmpty)
                     ? Padding(
                         padding: const EdgeInsets.symmetric(vertical: 40),
                         child: Center(
