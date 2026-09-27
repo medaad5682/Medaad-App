@@ -363,13 +363,26 @@ class AppState {
   // ============================================================
   List<String> _getAllAuthorizedSubjectIds() {
     Set<String> authorizedSubjects = {};
-    for (var item in myLibrary) {
+
+    void collectFrom(Map item) {
       if (item['owned_subjects'] != null) {
         for (var sub in item['owned_subjects']) {
           if (sub['id'] != null) {
             authorizedSubjects.add(sub['id'].toString());
           }
         }
+      }
+    }
+
+    for (var item in myLibrary) {
+      // 📦 مجلد الباقة لا يحمل owned_subjects على مستواه هو، بل داخل كل
+      // كورس مُجمّع تحته - يجب النزول لمستوى الكورسات لجمعها كلها.
+      if (item['type'] == 'package' && item['courses'] is List) {
+        for (var course in item['courses']) {
+          if (course is Map) collectFrom(course);
+        }
+      } else {
+        collectFrom(item);
       }
     }
     return authorizedSubjects.toList();
