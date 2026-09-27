@@ -12,6 +12,29 @@ import 'teacher/manage_content_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
+// 📦 صف واحد في قائمة المكتبة المسطّحة: إما مجلد باقة، كورس/مجموعة مواد
+// منفردة، أو صف "مجموعة كورسات باقة مفتوحة" (يُرسم بخط شجرة متصل واحد).
+class _LibraryRow {
+  final Map<String, dynamic>? packageItem;
+  final Map<String, dynamic>? courseItem;
+  final List<Map<String, dynamic>>? nestedCourses;
+
+  _LibraryRow.package(Map<String, dynamic> item)
+      : packageItem = item,
+        courseItem = null,
+        nestedCourses = null;
+
+  _LibraryRow.course(Map<String, dynamic> item)
+      : packageItem = null,
+        courseItem = item,
+        nestedCourses = null;
+
+  _LibraryRow.nestedGroup(List<Map<String, dynamic>> courses)
+      : packageItem = null,
+        courseItem = null,
+        nestedCourses = courses;
+}
+
 class MyCoursesScreen extends StatefulWidget {
   const MyCoursesScreen({super.key});
 
@@ -330,7 +353,8 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                       )
                     : Builder(builder: (context) {
                         // 📦 نبني قائمة "مسطّحة": كل عنصر مجلد باقة يتبعه
-                        // مباشرة كورساته إن كان مفتوحاً (أكورديون) — بدون أي
+                        // مباشرة صف واحد يحتوي كل كورساتها معاً (بخط شجرة
+                        // متصل واحد) إن كان مفتوحاً (أكورديون) — بدون أي
                         // تنقّل لشاشة جديدة، فقط توسيع/طي داخل نفس القائمة.
                         final rows = _flattenLibraryRows(libraryItems);
 
@@ -339,18 +363,20 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                           itemCount: rows.length,
                           itemBuilder: (context, index) {
                             final row = rows[index];
-                            final item = row.$1;
-                            final bool nested = row.$2;
 
-                            // 📦 مجلد باقة: يضم عدة كورسات مملوكة تابعة لنفس
-                            // الباقة (تفعيل كامل أو جزئي) — تصميم مختلف عن
-                            // بطاقة الكورس العادية، والضغط عليه يفتح/يطوي
-                            // قائمة كورساتها في نفس المكان (أكورديون).
-                            if (item['type'] == 'package') {
-                              return _buildPackageFolderCard(item);
+                            if (row.packageItem != null) {
+                              // 📦 مجلد باقة: يضم عدة كورسات/مواد مملوكة
+                              // تابعة لنفس الباقة (تفعيل كامل أو جزئي) —
+                              // تصميم مختلف عن بطاقة الكورس العادية، والضغط
+                              // عليه يفتح/يطوي قائمة كورساتها في نفس المكان.
+                              return _buildPackageFolderCard(row.packageItem!);
                             }
 
-                            return _buildCourseCard(item, nested: nested);
+                            if (row.nestedCourses != null) {
+                              return _buildNestedCoursesGroup(row.nestedCourses!);
+                            }
+
+                            return _buildCourseCard(row.courseItem!);
                           },
                         );
                       }),
@@ -362,32 +388,67 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
   }
 
   // 📦 يحوّل عناصر المكتبة إلى قائمة "مسطّحة" من الصفوف: كل عنصر مجلد باقة
-  // يتبعه مباشرة كورساته إن كان مفتوحاً حالياً — هذا ما يصنع شكل الأكورديون
-  // (الطي/الفتح) داخل نفس ListView دون أي تنقّل لشاشة جديدة.
-  // كل صف عبارة عن (item, nested) حيث nested=true تعني أن هذا العنصر كورس
-  // ظاهر تحت مجلد باقة مفتوح، ويُستخدم لتصغير/إزاحة بطاقته بصرياً.
-  List<(Map<String, dynamic>, bool)> _flattenLibraryRows(
-      List<Map<String, dynamic>> items) {
-    final List<(Map<String, dynamic>, bool)> rows = [];
+  // يتبعه مباشرة صف واحد يضم كل كورساتها معاً (إن كان مفتوحاً حالياً) —
+  // هذا ما يصنع شكل الأكورديون (الطي/الفتح) بخط شجرة متصل واحد، بدلاً من
+  // خط منفصل لكل بطاقة.
+  List<_LibraryRow> _flattenLibraryRows(List<Map<String, dynamic>> items) {
+    final List<_LibraryRow> rows = [];
     for (final item in items) {
-      rows.add((item, false));
-      if (item['type'] == 'package' &&
-          _expandedPackageIds.contains(item['id'].toString()) &&
-          item['courses'] is List) {
-        for (final course in item['courses']) {
-          if (course is Map) {
-            rows.add((Map<String, dynamic>.from(course), true));
+      if (item['type'] == 'package') {
+        rows.add(_LibraryRow.package(item));
+        if (_expandedPackageIds.contains(item['id'].toString()) &&
+            item['courses'] is List) {
+          final nestedCourses = (item['courses'] as List)
+              .whereType<Map>()
+              .map((c) => Map<String, dynamic>.from(c))
+              .toList();
+          if (nestedCourses.isNotEmpty) {
+            rows.add(_LibraryRow.nestedGroup(nestedCourses));
           }
         }
+      } else {
+        rows.add(_LibraryRow.course(item));
       }
     }
     return rows;
   }
 
-  // بطاقة كورس عادية (تُستخدم لكورس منفرد في المكتبة، أو لكورس ظاهر تحت
+  // 🌳 صف كورسات باقة مفتوحة: خط شجرة رأسي واحد متصل يمتد على طول كل
+  // الكورسات المتفرّعة منه معاً (بدل خط منفصل لكل بطاقة)، تماماً كأسلوب
+  // الفصول المتفرعة من مادة.
+  Widget _buildNestedCoursesGroup(List<Map<String, dynamic>> courses) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 14),
+              child: Container(
+                width: 2,
+                color: AppColors.accentYellow.withOpacity(0.25),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                children: courses
+                    .map((c) => _buildCourseCard(c, nested: true))
+                    .toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // بطاقة كورس عادية — تُستخدم لكورس منفرد في المكتبة، أو لكورس ظاهر تحت
   // مجلد باقة مفتوح عند nested=true — بنفس المنطق ونفس الفتح لـ
-  // CourseMaterialsScreen، فقط بإزاحة وتصغير بسيط ليظهر بصرياً كـ"عنصر
-  // داخل مجلد" أشبه بشكل الفصول).
+  // CourseMaterialsScreen، فقط بحجم أصغر (ارتفاع أقل) ليظهر بصرياً كـ"عنصر
+  // داخل مجلد" أشبه بشكل الفصول. خط الشجرة الذي يصلها بالمجلد يُرسم مرة
+  // واحدة لكل الكورسات معاً من _buildNestedCoursesGroup، وليس هنا.
   Widget _buildCourseCard(Map<String, dynamic> item, {bool nested = false}) {
     final String title = item['title'] ?? 'Unknown';
     final String instructor = item['instructor'] ?? 'Instructor';
@@ -403,12 +464,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
       subjectsToPass = item['owned_subjects'];
     }
 
-    // ⏳ [Feature B] عدّاد انتهاء الصلاحية لهذا العنصر (إن وُجد). لكورس
-    // كامل: عدّاد الكورس نفسه. لمجموعة مواد منفصلة: أقرب مادة على وشك
-    // الانتهاء (الأكثر إلحاحاً).
-    final int? daysLeft = _daysLeftForLibraryItem(item, subjectsToPass);
-
-    final card = GestureDetector(
+    return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
@@ -428,13 +484,13 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
         });
       },
       child: Container(
-        margin: EdgeInsets.only(bottom: nested ? 12 : 16),
-        padding: EdgeInsets.all(nested ? 16 : 20),
+        margin: EdgeInsets.only(bottom: nested ? 10 : 16),
+        padding: EdgeInsets.all(nested ? 12 : 20),
         decoration: BoxDecoration(
           color: nested
               ? AppColors.backgroundPrimary
               : AppColors.backgroundSecondary,
-          borderRadius: BorderRadius.circular(nested ? 18 : 24),
+          borderRadius: BorderRadius.circular(nested ? 14 : 24),
           border: Border.all(color: Colors.white.withOpacity(0.05)),
           boxShadow: nested
               ? null
@@ -443,19 +499,19 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
         child: Row(
           children: [
             Container(
-              width: nested ? 40 : 48,
-              height: nested ? 40 : 48,
+              width: nested ? 34 : 48,
+              height: nested ? 34 : 48,
               decoration: BoxDecoration(
                 color: AppColors.backgroundPrimary,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(nested ? 10 : 12),
                 boxShadow: const [
                   BoxShadow(color: Colors.black26, blurRadius: 4)
                 ],
               ),
               child: Icon(LucideIcons.playCircle,
-                  color: AppColors.accentOrange, size: nested ? 20 : 24),
+                  color: AppColors.accentOrange, size: nested ? 16 : 24),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: nested ? 12 : 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -485,32 +541,27 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                     title.toUpperCase(),
                     style: TextStyle(
                       color: AppColors.textPrimary,
-                      fontSize: nested ? 13 : 15,
+                      fontSize: nested ? 12 : 15,
                       fontWeight: FontWeight.bold,
                       letterSpacing: -0.5,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          instructor.toUpperCase(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppColors.textSecondary.withOpacity(0.7),
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
+                  if (!nested) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      instructor.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textSecondary.withOpacity(0.7),
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
                       ),
-                      if (daysLeft != null) _buildExpiryBadge(daysLeft),
-                    ],
-                  ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -564,94 +615,10 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
               DirectionalFlip(
                 child: Icon(LucideIcons.chevronRight,
                     color: AppColors.textSecondary.withOpacity(0.6),
-                    size: nested ? 18 : 20),
+                    size: nested ? 16 : 20),
               ),
           ],
         ),
-      ),
-    );
-
-    // 📦 كورس ظاهر تحت مجلد باقة مفتوح: نُزيحه لليمين قليلاً (بخط رفيع
-    // يصله بالمجلد) ليبدو بصرياً كعنصر تابع له، تماماً كأسلوب الفصول تحت
-    // مادتها.
-    if (!nested) return card;
-
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(start: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 2,
-            margin: const EdgeInsets.only(top: 8, bottom: 20),
-            color: AppColors.accentYellow.withOpacity(0.2),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: card),
-        ],
-      ),
-    );
-  }
-
-  // ⏳ [Feature B] يحسب عدد الأيام المتبقية على عنصر مكتبة معين (كورس كامل
-  // أو مجموعة مواد منفصلة)، أو null إن كان الوصول مدى الحياة أو غير معروف
-  // بعد. لمجموعة المواد المنفصلة، نعرض أقرب مادة على وشك الانتهاء لأنها
-  // الأكثر إلحاحاً بالنسبة للطالب.
-  int? _daysLeftForLibraryItem(
-      Map<String, dynamic> item, List<dynamic>? ownedSubjects) {
-    final String id = item['id'].toString();
-    final bool isFullCourse = item['type'] == 'course';
-
-    if (isFullCourse) {
-      return AppState().daysRemainingForCourse(id);
-    }
-
-    // مجموعة مواد منفصلة: نأخذ أصغر قيمة (الأقرب للانتهاء) بين المواد التي
-    // لها عدّاد فعلي؛ المواد ذات وصول مدى الحياة (null) لا تدخل في الحساب.
-    if (ownedSubjects == null || ownedSubjects.isEmpty) return null;
-    int? soonest;
-    for (final sub in ownedSubjects) {
-      if (sub is! Map) continue;
-      final subId = sub['id']?.toString();
-      if (subId == null) continue;
-      final subDays = AppState().daysRemainingForSubject(subId);
-      if (subDays == null) continue;
-      if (soonest == null || subDays < soonest) soonest = subDays;
-    }
-    return soonest;
-  }
-
-  // ⏳ [Feature B] شارة صغيرة "ينتهي خلال N يوم" — تتحول للون التحذير (برتقالي)
-  // عندما يتبقى أسبوع أو أقل.
-  Widget _buildExpiryBadge(int daysLeft) {
-    final bool soon = AppState().isExpiringSoon(daysLeft);
-    final Color color = soon ? AppColors.error : AppColors.textSecondary;
-    final bool isArabic = AppState.isArabic;
-    final String label = daysLeft <= 0
-        ? (isArabic ? 'ينتهي اليوم' : 'Expires today')
-        : (isArabic ? 'باقي $daysLeft يوم' : '$daysLeft day(s) left');
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.3), width: 0.5),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(LucideIcons.clock, size: 9, color: color),
-          const SizedBox(width: 3),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 8,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
       ),
     );
   }
