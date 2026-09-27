@@ -8,7 +8,6 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/teacher_service.dart';
 import 'course_materials_screen.dart';
 import 'login_screen.dart';
-import 'package_courses_screen.dart';
 import 'teacher/manage_content_screen.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
@@ -24,6 +23,11 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
   bool _isTeacher = false;
   bool _isUpdating = false;
   bool _isFreeMode = false; // ✅ متغير لحفظ حالة الوضع المجاني
+
+  // 📦 معرّفات مجلدات الباقات المفتوحة حالياً (أكورديون) — بدون شاشة
+  // منفصلة، بمجرد الضغط على مجلد باقة تُضاف/تُحذف هنا وتظهر/تختفي
+  // كورساتها كصفوف فرعية أسفل المجلد مباشرة في نفس القائمة.
+  final Set<String> _expandedPackageIds = {};
 
   // ✅ تعريف خدمة المدرس
   final TeacherService _teacherService = TeacherService();
@@ -324,228 +328,267 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                           ),
                         ),
                       )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        itemCount: libraryItems.length,
-                        itemBuilder: (context, index) {
-                          final item = libraryItems[index];
+                    : Builder(builder: (context) {
+                        // 📦 نبني قائمة "مسطّحة": كل عنصر مجلد باقة يتبعه
+                        // مباشرة كورساته إن كان مفتوحاً (أكورديون) — بدون أي
+                        // تنقّل لشاشة جديدة، فقط توسيع/طي داخل نفس القائمة.
+                        final rows = _flattenLibraryRows(libraryItems);
 
-                          // 📦 مجلد باقة: يضم عدة كورسات مملوكة تابعة لنفس
-                          // الباقة (تفعيل كامل أو جزئي) — تصميم مختلف عن
-                          // بطاقة الكورس العادية.
-                          if (item['type'] == 'package') {
-                            return _buildPackageFolderCard(item);
-                          }
+                        return ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          itemCount: rows.length,
+                          itemBuilder: (context, index) {
+                            final row = rows[index];
+                            final item = row.$1;
+                            final bool nested = row.$2;
 
-                          final String title = item['title'] ?? 'Unknown';
-                          final String instructor =
-                              item['instructor'] ?? 'Instructor';
-                          final String code = item['code']?.toString() ?? '';
-                          final String id = item['id'].toString();
+                            // 📦 مجلد باقة: يضم عدة كورسات مملوكة تابعة لنفس
+                            // الباقة (تفعيل كامل أو جزئي) — تصميم مختلف عن
+                            // بطاقة الكورس العادية، والضغط عليه يفتح/يطوي
+                            // قائمة كورساتها في نفس المكان (أكورديون).
+                            if (item['type'] == 'package') {
+                              return _buildPackageFolderCard(item);
+                            }
 
-                          final String description = item['description'] ?? '';
-                          final double localPrice = double.tryParse(
-                                  item['price']?.toString() ?? '0') ??
-                              0.0;
-
-                          List<dynamic>? subjectsToPass;
-                          if (item['owned_subjects'] is List) {
-                            subjectsToPass = item['owned_subjects'];
-                          }
-
-                          // ⏳ [Feature B] عدّاد انتهاء الصلاحية لهذا العنصر (إن
-                          // وُجد). لكورس كامل: عدّاد الكورس نفسه. لمجموعة مواد
-                          // منفصلة: أقرب مادة على وشك الانتهاء (الأكثر إلحاحاً).
-                          final int? daysLeft =
-                              _daysLeftForLibraryItem(item, subjectsToPass);
-
-                          return GestureDetector(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => CourseMaterialsScreen(
-                                    courseId: id,
-                                    courseTitle: title,
-                                    courseCode: code,
-                                    instructorName: instructor,
-                                    preLoadedSubjects: subjectsToPass,
-                                  ),
-                                ),
-                              ).then((updatedSubjects) {
-                                if (updatedSubjects != null &&
-                                    updatedSubjects is List) {
-                                  final index = AppState().myLibrary.indexWhere(
-                                      (c) => c['id'].toString() == id);
-                                  if (index != -1) {
-                                    AppState().myLibrary[index]
-                                        ['owned_subjects'] = updatedSubjects;
-                                    if (mounted) setState(() {});
-                                  }
-                                }
-                              });
-                            },
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(20),
-                              decoration: BoxDecoration(
-                                color: AppColors.backgroundSecondary,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                    color: Colors.white.withOpacity(0.05)),
-                                boxShadow: [
-                                  BoxShadow(
-                                      color: Colors.black.withOpacity(0.1),
-                                      blurRadius: 8)
-                                ],
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 48,
-                                    height: 48,
-                                    decoration: BoxDecoration(
-                                      color: AppColors.backgroundPrimary,
-                                      borderRadius: BorderRadius.circular(12),
-                                      boxShadow: const [
-                                        BoxShadow(
-                                            color: Colors.black26,
-                                            blurRadius: 4)
-                                      ],
-                                    ),
-                                    child: Icon(LucideIcons.playCircle,
-                                        color: AppColors.accentOrange,
-                                        size: 24),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        if (code.isNotEmpty)
-                                          Container(
-                                            margin: const EdgeInsets.only(
-                                                bottom: 4),
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.accentOrange
-                                                  .withOpacity(0.1),
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                              border: Border.all(
-                                                  color: AppColors.accentOrange
-                                                      .withOpacity(0.2),
-                                                  width: 0.5),
-                                            ),
-                                            child: Text(
-                                              "#$code",
-                                              style: TextStyle(
-                                                color: AppColors.accentOrange,
-                                                fontSize: 8,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                        Text(
-                                          title.toUpperCase(),
-                                          style: TextStyle(
-                                            color: AppColors.textPrimary,
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: -0.5,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                instructor.toUpperCase(),
-                                                maxLines: 1,
-                                                overflow:
-                                                    TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: AppColors
-                                                      .textSecondary
-                                                      .withOpacity(0.7),
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.bold,
-                                                  letterSpacing: 1.5,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-
-                                  // 🟢 زر التعديل (داخل البطاقة)
-                                  if (_isTeacher)
-                                    GestureDetector(
-                                      onTap: () {
-                                        double realPrice = localPrice;
-                                        try {
-                                          final freshCourse = AppState()
-                                              .allCourses
-                                              .firstWhere((c) => c.id == id);
-                                          realPrice = freshCourse.fullPrice;
-                                        } catch (_) {}
-
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => ManageContentScreen(
-                                              contentType: ContentType.course,
-                                              initialData: {
-                                                'id': id,
-                                                'title': title,
-                                                'code': code,
-                                                'price': realPrice,
-                                                'fullPrice': realPrice,
-                                                'description': description,
-                                              },
-                                            ),
-                                          ),
-                                        ).then((value) {
-                                          if (value == true) {
-                                            _refreshData();
-                                          }
-                                        });
-                                      },
-                                      child: Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.accentYellow
-                                              .withOpacity(0.1),
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                              color: AppColors.accentYellow
-                                                  .withOpacity(0.3)),
-                                        ),
-                                        child: Icon(LucideIcons.edit3,
-                                            color: AppColors.accentYellow,
-                                            size: 18),
-                                      ),
-                                    )
-                                  else
-                                    DirectionalFlip(child: Icon(LucideIcons.chevronRight,
-                                        color: AppColors.textSecondary
-                                            .withOpacity(0.6),
-                                        size: 20)),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+                            return _buildCourseCard(item, nested: nested);
+                          },
+                        );
+                      }),
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  // 📦 يحوّل عناصر المكتبة إلى قائمة "مسطّحة" من الصفوف: كل عنصر مجلد باقة
+  // يتبعه مباشرة كورساته إن كان مفتوحاً حالياً — هذا ما يصنع شكل الأكورديون
+  // (الطي/الفتح) داخل نفس ListView دون أي تنقّل لشاشة جديدة.
+  // كل صف عبارة عن (item, nested) حيث nested=true تعني أن هذا العنصر كورس
+  // ظاهر تحت مجلد باقة مفتوح، ويُستخدم لتصغير/إزاحة بطاقته بصرياً.
+  List<(Map<String, dynamic>, bool)> _flattenLibraryRows(
+      List<Map<String, dynamic>> items) {
+    final List<(Map<String, dynamic>, bool)> rows = [];
+    for (final item in items) {
+      rows.add((item, false));
+      if (item['type'] == 'package' &&
+          _expandedPackageIds.contains(item['id'].toString()) &&
+          item['courses'] is List) {
+        for (final course in item['courses']) {
+          if (course is Map) {
+            rows.add((Map<String, dynamic>.from(course), true));
+          }
+        }
+      }
+    }
+    return rows;
+  }
+
+  // بطاقة كورس عادية (تُستخدم لكورس منفرد في المكتبة، أو لكورس ظاهر تحت
+  // مجلد باقة مفتوح عند nested=true — بنفس المنطق ونفس الفتح لـ
+  // CourseMaterialsScreen، فقط بإزاحة وتصغير بسيط ليظهر بصرياً كـ"عنصر
+  // داخل مجلد" أشبه بشكل الفصول).
+  Widget _buildCourseCard(Map<String, dynamic> item, {bool nested = false}) {
+    final String title = item['title'] ?? 'Unknown';
+    final String instructor = item['instructor'] ?? 'Instructor';
+    final String code = item['code']?.toString() ?? '';
+    final String id = item['id'].toString();
+
+    final String description = item['description'] ?? '';
+    final double localPrice =
+        double.tryParse(item['price']?.toString() ?? '0') ?? 0.0;
+
+    List<dynamic>? subjectsToPass;
+    if (item['owned_subjects'] is List) {
+      subjectsToPass = item['owned_subjects'];
+    }
+
+    // ⏳ [Feature B] عدّاد انتهاء الصلاحية لهذا العنصر (إن وُجد). لكورس
+    // كامل: عدّاد الكورس نفسه. لمجموعة مواد منفصلة: أقرب مادة على وشك
+    // الانتهاء (الأكثر إلحاحاً).
+    final int? daysLeft = _daysLeftForLibraryItem(item, subjectsToPass);
+
+    final card = GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CourseMaterialsScreen(
+              courseId: id,
+              courseTitle: title,
+              courseCode: code,
+              instructorName: instructor,
+              preLoadedSubjects: subjectsToPass,
+            ),
+          ),
+        ).then((updatedSubjects) {
+          if (updatedSubjects != null && updatedSubjects is List) {
+            _updateOwnedSubjects(id, updatedSubjects);
+          }
+        });
+      },
+      child: Container(
+        margin: EdgeInsets.only(bottom: nested ? 12 : 16),
+        padding: EdgeInsets.all(nested ? 16 : 20),
+        decoration: BoxDecoration(
+          color: nested
+              ? AppColors.backgroundPrimary
+              : AppColors.backgroundSecondary,
+          borderRadius: BorderRadius.circular(nested ? 18 : 24),
+          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          boxShadow: nested
+              ? null
+              : [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8)],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: nested ? 40 : 48,
+              height: nested ? 40 : 48,
+              decoration: BoxDecoration(
+                color: AppColors.backgroundPrimary,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black26, blurRadius: 4)
+                ],
+              ),
+              child: Icon(LucideIcons.playCircle,
+                  color: AppColors.accentOrange, size: nested ? 20 : 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (code.isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.accentOrange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                            color: AppColors.accentOrange.withOpacity(0.2),
+                            width: 0.5),
+                      ),
+                      child: Text(
+                        "#$code",
+                        style: TextStyle(
+                          color: AppColors.accentOrange,
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  Text(
+                    title.toUpperCase(),
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: nested ? 13 : 15,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.5,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          instructor.toUpperCase(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.textSecondary.withOpacity(0.7),
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ),
+                      if (daysLeft != null) _buildExpiryBadge(daysLeft),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // 🟢 زر التعديل (داخل البطاقة)
+            if (_isTeacher)
+              GestureDetector(
+                onTap: () {
+                  double realPrice = localPrice;
+                  try {
+                    final freshCourse = AppState()
+                        .allCourses
+                        .firstWhere((c) => c.id == id);
+                    realPrice = freshCourse.fullPrice;
+                  } catch (_) {}
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ManageContentScreen(
+                        contentType: ContentType.course,
+                        initialData: {
+                          'id': id,
+                          'title': title,
+                          'code': code,
+                          'price': realPrice,
+                          'fullPrice': realPrice,
+                          'description': description,
+                        },
+                      ),
+                    ),
+                  ).then((value) {
+                    if (value == true) {
+                      _refreshData();
+                    }
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.accentYellow.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: AppColors.accentYellow.withOpacity(0.3)),
+                  ),
+                  child: Icon(LucideIcons.edit3,
+                      color: AppColors.accentYellow, size: 18),
+                ),
+              )
+            else
+              DirectionalFlip(
+                child: Icon(LucideIcons.chevronRight,
+                    color: AppColors.textSecondary.withOpacity(0.6),
+                    size: nested ? 18 : 20),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    // 📦 كورس ظاهر تحت مجلد باقة مفتوح: نُزيحه لليمين قليلاً (بخط رفيع
+    // يصله بالمجلد) ليبدو بصرياً كعنصر تابع له، تماماً كأسلوب الفصول تحت
+    // مادتها.
+    if (!nested) return card;
+
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 2,
+            margin: const EdgeInsets.only(top: 8, bottom: 20),
+            color: AppColors.accentYellow.withOpacity(0.2),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: card),
+        ],
       ),
     );
   }
@@ -620,29 +663,27 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
   // كانت الباقة مُفعّلة بالكامل أو جزئياً).
   Widget _buildPackageFolderCard(Map<String, dynamic> item) {
     final String title = item['title']?.toString() ?? 'Unknown';
+    final String packageId = item['id'].toString();
     final List<dynamic> coursesInPackage =
         item['courses'] is List ? item['courses'] as List<dynamic> : [];
     final int courseCount = coursesInPackage.length;
     final bool isArabic = AppState.isArabic;
+    final bool isExpanded = _expandedPackageIds.contains(packageId);
     final String subtitle = isArabic
         ? '$courseCount كورس داخل الباقة'
         : '$courseCount COURSES IN THIS PACKAGE';
 
     return GestureDetector(
+      // 📦 فتح/طي أكورديون: مجرد إضافة/حذف من مجموعة المعرّفات المفتوحة،
+      // فتظهر كورسات الباقة كصفوف مباشرة أسفل هذا المجلد في نفس القائمة —
+      // بدون أي تنقّل لشاشة جديدة.
       onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => PackageCoursesScreen(
-              packageTitle: title,
-              courses: coursesInPackage
-                  .map((c) => Map<String, dynamic>.from(c as Map))
-                  .toList(),
-            ),
-          ),
-        ).then((_) {
-          // ✅ عناصر المكتبة قد تتغير (مثلاً بعد فتح مادة) - نعيد البناء
-          if (mounted) setState(() {});
+        setState(() {
+          if (isExpanded) {
+            _expandedPackageIds.remove(packageId);
+          } else {
+            _expandedPackageIds.add(packageId);
+          }
         });
       },
       child: Container(
@@ -753,15 +794,43 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                   ],
                 ),
               ),
-              DirectionalFlip(
-                child: Icon(LucideIcons.chevronRight,
-                    color: AppColors.textSecondary.withOpacity(0.6),
-                    size: 20),
+              // ⬇️ السهم يتقلّب لأسفل عند الفتح، ويعود لليمين/اليسار (حسب
+              // الاتجاه) عند الطي — نفس فكرة سهم مجلد الفصول.
+              AnimatedRotation(
+                turns: isExpanded ? 0.25 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: DirectionalFlip(
+                  child: Icon(LucideIcons.chevronRight,
+                      color: AppColors.textSecondary.withOpacity(0.6),
+                      size: 20),
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  // بعد فتح كورس تابع لباقة قد تتغير owned_subjects الخاصة به (مثلاً بعد
+  // شراء مادة إضافية). نحدّثها هنا داخل نسخة الكورس المُخزّنة تحت مجلد
+  // الباقة في AppState().myLibrary مباشرة، حتى تبقى متزامنة عند طي/فتح
+  // المجلد دون الحاجة لإعادة تحميل init كامل.
+  void _updateOwnedSubjects(String id, List<dynamic> updatedSubjects) {
+    bool changed = false;
+    for (var libItem in AppState().myLibrary) {
+      if (libItem['type'] == 'package' && libItem['courses'] is List) {
+        for (var course in libItem['courses']) {
+          if (course is Map && course['id'].toString() == id) {
+            course['owned_subjects'] = updatedSubjects;
+            changed = true;
+          }
+        }
+      } else if (libItem['id'].toString() == id) {
+        libItem['owned_subjects'] = updatedSubjects;
+        changed = true;
+      }
+    }
+    if (changed && mounted) setState(() {});
   }
 }
