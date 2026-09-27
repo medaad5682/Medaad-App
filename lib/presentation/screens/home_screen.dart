@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/api_constants.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/api_client.dart';
 import '../../data/models/course_model.dart'; // تأكد من استيراد الموديل الخاص بالكورس
 import 'course_details_screen.dart';
 import 'my_requests_screen.dart';
@@ -35,6 +37,12 @@ class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> _randomCourses = []; 
 
   bool _isTeacher = false;
+
+  // ✅ البحث الآن يتم عبر السيرفر (search-courses) بدل الفلترة المحلية،
+  // لأن get-app-init-data لم يعد يرسل كل الكورسات (5 عشوائية فقط)
+  Timer? _searchDebounce;
+  List<CourseModel> _searchResults = [];
+  bool _isSearching = false;
 
   // ✅ عدد الجمل التشجيعية ثابت (النصوص الفعلية تُبنى داخل build() لأنها تحتاج context للترجمة)
   static const int _encouragementsCount = 5;
@@ -88,8 +96,56 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _timer.cancel();
+    _searchDebounce?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  // ✅ يُستدعى مع كل تغيير في خانة البحث؛ يُأخّر الطلب 400ms حتى لا نُرسل
+  // طلب سيرفر مع كل حرف يكتبه المستخدم.
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+
+    if (value.trim().isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      _performSearch(value.trim());
+    });
+  }
+
+  Future<void> _performSearch(String term) async {
+    if (!mounted) return;
+    setState(() => _isSearching = true);
+
+    try {
+      final response = await ApiClient.instance.get(
+        '${ApiConstants.apiUrl}/public/search-courses',
+        queryParameters: {'q': term},
+      );
+
+      if (!mounted) return;
+
+      final data = response.data;
+      final List<dynamic> rawCourses =
+          (data is Map && data['courses'] is List) ? data['courses'] : [];
+
+      setState(() {
+        _searchResults = rawCourses
+            .map((e) => CourseModel.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+      });
+    } catch (e) {
+      // ✅ فشل البحث لا يجب أن يكسر الشاشة - فقط لا تظهر نتائج
+      if (mounted) setState(() => _searchResults = []);
+    } finally {
+      if (mounted) setState(() => _isSearching = false);
+    }
   }
 
   @override
@@ -117,11 +173,9 @@ class _HomeScreenState extends State<HomeScreen> {
          coursesToDisplay = _randomCourses;
       }
     } else {
-      // إذا كان المستخدم يبحث، قم بالفلترة من القائمة الكاملة
-      coursesToDisplay = _allCourses.where((course) => 
-        course.title.toLowerCase().contains(_searchTerm.toLowerCase()) ||
-        course.code.toLowerCase().contains(_searchTerm.toLowerCase())
-      ).toList();
+      // ✅ البحث أصبح عبر السيرفر (search-courses) بدل الفلترة المحلية،
+      // لأن allCourses تحتوي فقط على 5 كورسات مقترحة الآن
+      coursesToDisplay = _searchResults;
     }
 
     return Scaffold(
@@ -247,7 +301,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       border: Border.all(color: Colors.white.withOpacity(0.05)),
                     ),
                     child: TextField(
-                      onChanged: (val) => setState(() => _searchTerm = val),
+                      onChanged: (val) {
+                        setState(() => _searchTerm = val);
+                        _onSearchChanged(val);
+                      },
                       style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
                       decoration: InputDecoration(
                         prefixIcon: Icon(
@@ -369,7 +426,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 16),
 
                     // Course List
-                    coursesToDisplay.isEmpty 
+                    (_searchTerm.isNotEmpty && _isSearching && coursesToDisplay.isEmpty)
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 40),
+                        child: Center(
+                          child: CircularProgressIndicator(color: AppColors.accentYellow),
+                        ),
+                      )
+                    : coursesToDisplay.isEmpty 
                     ? Padding(
                         padding: const EdgeInsets.symmetric(vertical: 40),
                         child: Text(l10n.noCoursesFound, style: TextStyle(color: AppColors.textSecondary.withOpacity(0.5))),
