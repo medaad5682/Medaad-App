@@ -596,17 +596,15 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                                       ),
                                     ),
                                   ),
-                                  // كورسات الباقة تظهر هنا مباشرة عند الفتح فقط
+                                  // كورسات الباقة تظهر هنا مباشرة عند الفتح فقط،
+                                  // كصف واحد بخط شجرة متصل يجمعها كلها معاً
+                                  // (بدل خط منفصل لكل بطاقة).
                                   if (isExpanded)
-                                    ...titlesInPackage.map((courseTitle) =>
-                                        _buildDownloadedCourseCard(
-                                          context,
-                                          courseTitle,
-                                          groupedCourses[courseTitle] ?? 0,
-                                          nested: true,
-                                        )),
-                                  if (isExpanded)
-                                    const SizedBox(height: 4),
+                                    _buildNestedDownloadedCoursesGroup(
+                                      context,
+                                      titlesInPackage,
+                                      groupedCourses,
+                                    ),
                                 ];
                               }),
                               const SizedBox(height: 12),
@@ -671,14 +669,52 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
     );
   }
 
+  // 🌳 صف كورسات باقة مفتوحة: خط شجرة رأسي واحد متصل يمتد على طول كل
+  // الكورسات المتفرّعة منه معاً (بدل خط منفصل لكل بطاقة)، بنفس أسلوب
+  // شاشة المكتبة.
+  Widget _buildNestedDownloadedCoursesGroup(BuildContext context,
+      List<String> courseTitles, Map<String, int> fileCounts) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 14),
+              child: Container(
+                width: 2,
+                color: AppColors.accentYellow.withOpacity(0.25),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                children: courseTitles
+                    .map((courseTitle) => _buildDownloadedCourseCard(
+                          context,
+                          courseTitle,
+                          fileCounts[courseTitle] ?? 0,
+                          nested: true,
+                        ))
+                    .toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // بطاقة كورس محمّل عادية — تُستخدم لكورس منفرد في القائمة الرئيسية، أو
   // لكورس ظاهر تحت مجلد باقة مفتوح عند nested=true (بنفس فتح
-  // DownloadedSubjectsScreen بالضبط، فقط بإزاحة وتصغير بسيط ليبدو بصرياً
-  // كعنصر تابع للمجلد أعلاه، بنفس أسلوب الفصول).
+  // DownloadedSubjectsScreen بالضبط، فقط بحجم أصغر — ارتفاع أقل — ليبدو
+  // بصرياً كعنصر تابع للمجلد أعلاه. خط الشجرة يُرسم مرة واحدة لكل
+  // الكورسات معاً من _buildNestedDownloadedCoursesGroup، وليس هنا.
   Widget _buildDownloadedCourseCard(
       BuildContext context, String courseTitle, int fileCount,
       {bool nested = false}) {
-    final card = GestureDetector(
+    return GestureDetector(
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
@@ -686,13 +722,13 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
         ),
       ),
       child: Container(
-        margin: EdgeInsets.only(bottom: nested ? 8 : 12),
-        padding: EdgeInsets.all(nested ? 16 : 20),
+        margin: EdgeInsets.only(bottom: nested ? 10 : 12),
+        padding: EdgeInsets.all(nested ? 12 : 20),
         decoration: BoxDecoration(
           color: nested
               ? AppColors.backgroundPrimary
               : AppColors.backgroundSecondary,
-          borderRadius: BorderRadius.circular(nested ? 16 : 20),
+          borderRadius: BorderRadius.circular(nested ? 14 : 20),
           border: Border.all(color: Colors.white.withOpacity(0.05)),
           boxShadow: nested
               ? null
@@ -701,16 +737,16 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
         child: Row(
           children: [
             Container(
-              width: nested ? 40 : 48,
-              height: nested ? 40 : 48,
+              width: nested ? 34 : 48,
+              height: nested ? 34 : 48,
               decoration: BoxDecoration(
                 color: AppColors.backgroundPrimary,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(nested ? 10 : 12),
                 boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
               ),
-              child: Icon(LucideIcons.book, color: AppColors.accentOrange, size: nested ? 18 : 24),
+              child: Icon(LucideIcons.book, color: AppColors.accentOrange, size: nested ? 16 : 24),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: nested ? 12 : 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -718,7 +754,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                   Text(
                     courseTitle.toUpperCase(),
                     style: TextStyle(
-                      fontSize: nested ? 13 : 15,
+                      fontSize: nested ? 12 : 15,
                       fontWeight: FontWeight.bold,
                       color: AppColors.textPrimary,
                       letterSpacing: -0.5
@@ -726,42 +762,24 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    AppLocalizations.of(context)!.filesDownloadedCountLabel(fileCount),
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textSecondary.withOpacity(0.7),
-                      letterSpacing: 1.5
+                  if (!nested) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      AppLocalizations.of(context)!.filesDownloadedCountLabel(fileCount),
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textSecondary.withOpacity(0.7),
+                        letterSpacing: 1.5
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
-            DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: nested ? 18 : 20)),
+            DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: nested ? 16 : 20)),
           ],
         ),
-      ),
-    );
-
-    if (!nested) return card;
-
-    // إزاحة بصرية بخط رفيع يصل الكورس بمجلد الباقة أعلاه، بنفس أسلوب
-    // بطاقات الكورسات المتفرعة تحت مجلد باقة في شاشة المكتبة.
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(start: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 2,
-            margin: const EdgeInsets.only(top: 8, bottom: 16),
-            color: AppColors.accentYellow.withOpacity(0.2),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: card),
-        ],
       ),
     );
   }
