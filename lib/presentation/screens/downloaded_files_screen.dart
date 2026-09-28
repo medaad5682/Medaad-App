@@ -25,10 +25,10 @@ class DownloadedFilesScreen extends StatefulWidget {
 class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
   final LocalProxyService _proxy = LocalProxyService();
 
-  // 📦 عناوين مجلدات الباقات المفتوحة حالياً (أكورديون) — بنفس فكرة شاشة
+  // 📦 معرّفات مجلدات الباقات المفتوحة حالياً (أكورديون) — بنفس فكرة شاشة
   // المكتبة: الضغط على مجلد باقة يفتح/يطوي قائمة كورساتها المحمّلة في نفس
   // المكان، بدون أي تنقّل لشاشة جديدة.
-  final Set<String> _expandedPackageTitles = {};
+  final Set<String> _expandedPackageIds = {};
 
   @override
   void initState() {
@@ -239,39 +239,47 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                   } catch (e) {}
 
                   // 📦 نفس منطق تجميع الباقات في صفحة المكتبة: إن كان عنوان
-                  // الكورس المُحمَّل تابعاً لباقة يملكها الطالب، نجمعه مع
-                  // بقية كورسات نفس الباقة في مجلد واحد بدل ظهوره منفرداً.
-                  final Map<String, String> courseTitleToPackageTitle = {};
+                  // الكورس المُحمَّل تابعاً لباقة (أو أكثر من باقة) يملكها
+                  // الطالب، يظهر داخل مجلد كل باقة منها. والكورس الواحد
+                  // التابع لباقتين يظهر مرتين (مرة تحت كل باقة).
+                  final Map<String, String> packageTitles = {}; // id -> title
+                  final Map<String, List<String>> packageCourseTitles = {};
+                  final Set<String> coursesInAnyPackage = {};
+
                   for (var libItem in AppState().myLibrary) {
                     if (libItem['type'] == 'package' &&
                         libItem['courses'] is List) {
+                      final String pkgId = libItem['id'].toString();
                       final String pkgTitle =
                           libItem['title']?.toString() ?? '';
                       for (var course in libItem['courses']) {
-                        if (course is Map && course['title'] != null) {
-                          courseTitleToPackageTitle[course['title']
-                              .toString()] = pkgTitle;
+                        if (course is! Map || course['title'] == null) {
+                          continue;
                         }
+                        final String courseTitle = course['title'].toString();
+                        // لا نعرض إلا الكورسات التي لها تنزيلات فعلية
+                        if (!groupedCourses.containsKey(courseTitle)) continue;
+
+                        packageTitles[pkgId] = pkgTitle;
+                        final list = packageCourseTitles.putIfAbsent(
+                            pkgId, () => <String>[]);
+                        if (!list.contains(courseTitle)) list.add(courseTitle);
+                        coursesInAnyPackage.add(courseTitle);
                       }
                     }
                   }
 
+                  // إجمالي الملفات المحمّلة داخل كل باقة
                   final Map<String, int> groupedPackages = {};
-                  final Map<String, List<String>> packageCourseTitles = {};
-                  final Map<String, int> ungroupedCourses = {};
-
-                  groupedCourses.forEach((courseTitle, count) {
-                    final pkgTitle = courseTitleToPackageTitle[courseTitle];
-                    if (pkgTitle != null) {
-                      groupedPackages[pkgTitle] =
-                          (groupedPackages[pkgTitle] ?? 0) + count;
-                      packageCourseTitles
-                          .putIfAbsent(pkgTitle, () => [])
-                          .add(courseTitle);
-                    } else {
-                      ungroupedCourses[courseTitle] = count;
-                    }
+                  packageCourseTitles.forEach((pkgId, titles) {
+                    groupedPackages[pkgId] = titles.fold<int>(
+                        0, (sum, t) => sum + (groupedCourses[t] ?? 0));
                   });
+
+                  final Map<String, int> ungroupedCourses = {
+                    for (final e in groupedCourses.entries)
+                      if (!coursesInAnyPackage.contains(e.key)) e.key: e.value
+                  };
 
                   return ValueListenableBuilder<Map<String, double>>(
                     valueListenable: DownloadManager.downloadingProgress,
@@ -512,89 +520,21 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
                             // مباشرة أسفله في نفس القائمة (بدون شاشة جديدة).
                             if (groupedPackages.isNotEmpty) ...[
                               ...groupedPackages.entries.expand((entry) {
-                                final packageTitle = entry.key;
-                                final isExpanded = _expandedPackageTitles
-                                    .contains(packageTitle);
+                                final packageId = entry.key;
+                                final packageTitle =
+                                    packageTitles[packageId] ?? '';
+                                final isExpanded =
+                                    _expandedPackageIds.contains(packageId);
                                 final titlesInPackage = List<String>.from(
-                                    packageCourseTitles[packageTitle] ?? []);
+                                    packageCourseTitles[packageId] ?? []);
 
                                 return [
-                                  GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        if (isExpanded) {
-                                          _expandedPackageTitles
-                                              .remove(packageTitle);
-                                        } else {
-                                          _expandedPackageTitles
-                                              .add(packageTitle);
-                                        }
-                                      });
-                                    },
-                                    child: Container(
-                                      margin: const EdgeInsets.only(bottom: 12),
-                                      padding: const EdgeInsets.all(20),
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            AppColors.accentYellow.withOpacity(0.12),
-                                            AppColors.accentOrange.withOpacity(0.12),
-                                          ],
-                                        ),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(color: AppColors.accentYellow.withOpacity(0.25)),
-                                        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Container(
-                                            width: 48, height: 48,
-                                            decoration: BoxDecoration(
-                                              color: AppColors.backgroundPrimary,
-                                              borderRadius: BorderRadius.circular(12),
-                                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
-                                            ),
-                                            child: Icon(LucideIcons.package, color: AppColors.accentYellow, size: 22),
-                                          ),
-                                          const SizedBox(width: 16),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  packageTitle.toUpperCase(),
-                                                  style: TextStyle(
-                                                    fontSize: 15,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: AppColors.textPrimary,
-                                                    letterSpacing: -0.5
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text(
-                                                  AppLocalizations.of(context)!.filesDownloadedCountLabel(entry.value),
-                                                  style: TextStyle(
-                                                    fontSize: 9,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: AppColors.textSecondary.withOpacity(0.7),
-                                                    letterSpacing: 1.5
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          AnimatedRotation(
-                                            turns: isExpanded ? 0.25 : 0.0,
-                                            duration: const Duration(milliseconds: 200),
-                                            child: DirectionalFlip(child: Icon(LucideIcons.chevronRight, color: AppColors.textSecondary.withOpacity(0.6), size: 20)),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
+                                  _buildPackageFolderCard(
+                                    context,
+                                    packageId: packageId,
+                                    title: packageTitle,
+                                    fileCount: entry.value,
+                                    isExpanded: isExpanded,
                                   ),
                                   // كورسات الباقة تظهر هنا مباشرة عند الفتح فقط،
                                   // كصف واحد بخط شجرة متصل يجمعها كلها معاً
@@ -669,6 +609,153 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
     );
   }
 
+  // 📦 بطاقة مجلد الباقة — نسخة طبق الأصل من بطاقة المكتبة
+  // (my_courses_screen.dart → _buildPackageFolderCard): إطار متدرج +
+  // أيقونة صندوق مكدّسة + شارة "PACKAGE"، مع اختلاف واحد فقط: السطر
+  // الفرعي يعرض عدد الملفات المحمّلة بدل عدد الكورسات.
+  Widget _buildPackageFolderCard(
+    BuildContext context, {
+    required String packageId,
+    required String title,
+    required int fileCount,
+    required bool isExpanded,
+  }) {
+    final bool isArabic = AppState.isArabic;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          if (isExpanded) {
+            _expandedPackageIds.remove(packageId);
+          } else {
+            _expandedPackageIds.add(packageId);
+          }
+        });
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.accentYellow.withOpacity(0.9),
+              AppColors.accentOrange.withOpacity(0.9),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.accentOrange.withOpacity(0.25),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.backgroundSecondary,
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: Stack(
+                  children: [
+                    Positioned(
+                      left: 4,
+                      top: 6,
+                      child: Icon(LucideIcons.layers,
+                          size: 22,
+                          color: AppColors.accentYellow.withOpacity(0.35)),
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: AppColors.accentYellow.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: AppColors.accentYellow.withOpacity(0.4)),
+                        ),
+                        child: Icon(LucideIcons.package,
+                            color: AppColors.accentYellow, size: 18),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.accentYellow.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        isArabic ? 'باقة' : 'PACKAGE',
+                        style: TextStyle(
+                          color: AppColors.accentYellow,
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      title.toUpperCase(),
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: -0.5,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      AppLocalizations.of(context)!
+                          .filesDownloadedCountLabel(fileCount),
+                      style: TextStyle(
+                        color: AppColors.textSecondary.withOpacity(0.7),
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              AnimatedRotation(
+                turns: isExpanded ? 0.25 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: DirectionalFlip(
+                  child: Icon(LucideIcons.chevronRight,
+                      color: AppColors.textSecondary.withOpacity(0.6),
+                      size: 20),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // 🌳 صف كورسات باقة مفتوحة: خط شجرة رأسي واحد متصل يمتد على طول كل
   // الكورسات المتفرّعة منه معاً (بدل خط منفصل لكل بطاقة)، بنفس أسلوب
   // شاشة المكتبة.
@@ -729,7 +816,14 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
               ? AppColors.backgroundPrimary
               : AppColors.backgroundSecondary,
           borderRadius: BorderRadius.circular(nested ? 14 : 20),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          // ☀️ نفس حد بطاقة الكورس التابع لباقة في المكتبة (واضح في الفاتح،
+          // ونفس الحد القديم في الداكن).
+          border: Border.all(
+            color: nested
+                ? AppColors.nestedCardBorder
+                : Colors.white.withOpacity(0.05),
+            width: nested && !AppState.isDark ? 1.2 : 1.0,
+          ),
           boxShadow: nested
               ? null
               : const [BoxShadow(color: Colors.black12, blurRadius: 4)],
@@ -742,7 +836,7 @@ class _DownloadedFilesScreenState extends State<DownloadedFilesScreen> {
               decoration: BoxDecoration(
                 color: AppColors.backgroundPrimary,
                 borderRadius: BorderRadius.circular(nested ? 10 : 12),
-                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
+                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: nested ? 4 : 2)],
               ),
               child: Icon(LucideIcons.book, color: AppColors.accentOrange, size: nested ? 16 : 24),
             ),
