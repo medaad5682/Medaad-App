@@ -491,7 +491,14 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
               ? AppColors.backgroundPrimary
               : AppColors.backgroundSecondary,
           borderRadius: BorderRadius.circular(nested ? 14 : 24),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          // ☀️ الكورس التابع لباقة: حد واضح في الوضع الفاتح، ونفس الحد
+          // القديم في الوضع الداكن (راجع AppColors.nestedCardBorder).
+          border: Border.all(
+            color: nested
+                ? AppColors.nestedCardBorder
+                : Colors.white.withOpacity(0.05),
+            width: nested && !AppState.isDark ? 1.2 : 1.0,
+          ),
           boxShadow: nested
               ? null
               : [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8)],
