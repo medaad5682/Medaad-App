@@ -36,6 +36,13 @@ class AppColors {
   // سنقوم بتغيير اللون الأصفر في الداكن إلى اللون الطوبي في الفاتح تلقائياً
   static Color get accentYellow => AppState.isDark ? _darkAccentYellow : _lightBtnInteractive;
 
+  // حدود بطاقات الكورسات المتفرعة تحت مجلد باقة (nested):
+  // - الداكن: نفس الحد الشفاف القديم (بدون أي تغيير).
+  // - الفاتح: حد واضح، لأن لون البطاقة يطابق الخلفية فلا يظهر أي حد فاصل.
+  static Color get nestedCardBorder => AppState.isDark
+      ? Colors.white.withOpacity(0.05)
+      : _lightTextSecondary.withOpacity(0.45);
+
   // ألوان ثابتة لا تتغير (إلا إذا أردت تغييرها أيضاً)
   static const Color accentOrange = Color(0xFFb45309);
   static const Color accentBlue = Color(0xFF3B82F6);
