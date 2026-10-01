@@ -1711,6 +1711,10 @@
   "@palmRejectionOff": {
     "description": "Tooltip when palm rejection is disabled"
   },
+  "palmRejectionNoStylusHint": "Palm Rejection is on: only a stylus can draw and edit now. Use a stylus, or turn it off to use your finger.",
+  "@palmRejectionNoStylusHint": {
+    "description": "Snackbar shown when palm rejection is turned on but no stylus has been detected yet"
+  },
   "boldLabel": "Bold",
   "@boldLabel": {
     "description": "Label for the bold text toggle in PDF text annotation panel"

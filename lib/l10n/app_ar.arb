@@ -391,6 +391,7 @@
   "undoTooltip": "تراجع",
   "palmRejectionOn": "رفض راحة اليد: مفعّل",
   "palmRejectionOff": "رفض راحة اليد: معطّل",
+  "palmRejectionNoStylusHint": "رفض راحة اليد مفعّل: الرسم والتعديل بالقلم فقط. استخدم قلماً أو أطفئ الميزة لتستخدم إصبعك.",
   "boldLabel": "عريض",
   "underlineLabel": "تسطير",
   "borderLabel": "الحدود: ",
