@@ -3,7 +3,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/pdf_viewer/pdf_tool.dart';
-import '../../../l10n/generated/app_localizations.dart';
 import '../../../core/models/shape_model.dart';
 import 'color_palette_row.dart';
 import 'thickness_opacity_controls.dart';
@@ -169,19 +168,18 @@ class PdfAnnotationToolbar extends StatelessWidget {
             tooltip: 'تراجع',
           ),
           const SizedBox(width: 4),
-          _palmRejectionButton(context),
+          _palmRejectionButton(),
         ],
       ),
     );
   }
 
-  Widget _palmRejectionButton(BuildContext context) {
+  Widget _palmRejectionButton() {
     final bool on = palmRejectionEnabled;
-    final l10n = AppLocalizations.of(context);
     return GestureDetector(
       onTap: () => onPalmRejectionChanged(!on),
       child: Tooltip(
-        message: on ? l10n.palmRejectionOn : l10n.palmRejectionOff,
+        message: on ? 'رفض راحة اليد: مفعّل' : 'رفض راحة اليد: معطّل',
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
