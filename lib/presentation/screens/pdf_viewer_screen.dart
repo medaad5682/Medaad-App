@@ -38,6 +38,7 @@ import '../widgets/pdf_tools/pdf_annotation_toolbar.dart';
 import '../widgets/pdf_tools/movable_text_note.dart';
 import '../widgets/pdf_tools/movable_resizable_image.dart';
 import '../widgets/pdf_tools/color_palette_row.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class PdfViewerScreen extends StatefulWidget {
   final String pdfId;
@@ -104,6 +105,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   late PdfImageAnnotationController _imageController;
   final PdfPageTextCache _textCache = PdfPageTextCache();
   final PalmRejectionFilter _palmFilter = PalmRejectionFilter();
+
+  // هل رأينا قلماً فعلياً في هذه الجلسة؟ (لتنبيه من فعّل الرفض بلا قلم)
+  bool _stylusSeen = false;
 
   int _activePage = 0;
   int _totalPages = 0;
@@ -417,22 +421,30 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       appBar: _buildAppBar(),
       body: Stack(
         children: [
-          _isOffline && _encryptedFile != null && _originalFileSize != null
-              ? PdfViewer.custom(
-                  key: _viewerKey,
-                  fileSize: _originalFileSize!,
-                  read: _customRead,
-                  sourceName: _encryptedFile!.path,
-                  controller: controller,
-                  params: _buildPdfParams(),
-                )
-              : PdfViewer.uri(
-                  key: _viewerKey,
-                  Uri.parse(_onlineUrl!),
-                  headers: _onlineHeaders,
-                  controller: controller,
-                  params: _buildPdfParams(),
-                ),
+          // Listener سلبي (لا ينضم لسباق الإيماءات) فقط لمعرفة نوع المؤشر.
+          // بدون Positioned حتى لا يتغيّر حجم الـ Stack عمّا كان.
+          Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _onViewerPointerDown,
+            child: _isOffline &&
+                    _encryptedFile != null &&
+                    _originalFileSize != null
+                ? PdfViewer.custom(
+                    key: _viewerKey,
+                    fileSize: _originalFileSize!,
+                    read: _customRead,
+                    sourceName: _encryptedFile!.path,
+                    controller: controller,
+                    params: _buildPdfParams(),
+                  )
+                : PdfViewer.uri(
+                    key: _viewerKey,
+                    Uri.parse(_onlineUrl!),
+                    headers: _onlineHeaders,
+                    controller: controller,
+                    params: _buildPdfParams(),
+                  ),
+          ),
           _buildWatermark(),
           if (_isDrawingMode)
             Positioned(bottom: 40, left: 20, right: 20, child: _buildToolbar()),
@@ -865,6 +877,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                             pageWidth: pageRect.width,
                             pageHeight: pageRect.height,
                             editable: _isDrawingMode,
+                            supportedDevices: _palmFilter.supportedDevices,
                             onMoveDelta: (delta) => _imageController.moveImage(
                                 page.pageNumber, img, delta),
                             onResizeDelta: (delta) => _imageController
@@ -890,6 +903,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           _activeTool == PdfTool.underline,
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
+                        // ── رفض راحة اليد: الإصبع لا يدخل سباق الإيماءات أصلاً،
+                        // فيمرّ للـ PDF تحته (تمرير/تكبير) والقلم يرسم بلا تشويش.
+                        supportedDevices: _palmFilter.supportedDevices,
                         onTapUp: (details) =>
                             _handleTapUp(details, context, pageRect, page),
                         onPanStart: (details) =>
@@ -941,6 +957,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           height: bottom - top,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
+                            supportedDevices: _palmFilter.supportedDevices,
                             // السحب لتحريك الشكل
                             onPanUpdate: _activeTool == PdfTool.shape ||
                                     _activeTool == PdfTool.none
@@ -976,6 +993,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                             // ✅ الملاحظات قابلة للسحب في أي وضع تعديل (كشف ذكي)
                             // النقر يفتح المحرر فقط إذا كانت أداة النص نشطة أو none
                             editable: _isDrawingMode,
+                            supportedDevices: _palmFilter.supportedDevices,
                             onDragDelta: (delta) => _textNoteController
                                 .moveNote(page.pageNumber, note, delta),
                             onTap: () {
@@ -1010,6 +1028,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                             (20 * comment.scale),
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
+                          supportedDevices: _palmFilter.supportedDevices,
                           // السحب يعمل في وضع التعديل بغض النظر عن الأداة النشطة
                           onScaleStart: _isDrawingMode ? (_) {} : null,
                           onScaleEnd: _isDrawingMode ? (_) {} : null,
@@ -1066,6 +1085,29 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   // --- معالجة الإيماءات الموحّدة (تحترم رفض راحة اليد) ---
 
   bool _palmAllows(PointerDeviceKind? kind) => _palmFilter.isAllowed(kind);
+
+  // ── كشف وجود قلم (Listener سلبي حول عارض الـ PDF، لا يؤثر على الإيماءات) ──
+
+  void _onViewerPointerDown(PointerDownEvent e) {
+    if (PalmRejectionFilter.isStylus(e.kind)) _stylusSeen = true;
+  }
+
+  /// تنبيه عند تفعيل الرفض دون أن يظهر أي قلم في هذه الجلسة: بدون قلم لن يستطيع
+  /// المستخدم الرسم، فنخبره بدل أن يظن أن التطبيق معطّل.
+  void _maybeShowNoStylusHint() {
+    if (!mounted || _stylusSeen) return;
+    final l10n = AppLocalizations.of(context);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(l10n.palmRejectionNoStylusHint,
+              style: TextStyle(color: AppColors.textPrimary)),
+          backgroundColor: AppColors.backgroundSecondary,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+  }
 
   /// Returns (or lazily creates) the per-page ValueNotifier used to push
   /// live stroke updates without rebuilding the whole widget tree.
@@ -1994,6 +2036,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           _palmFilter.enabled = enabled;
         });
         _persistToolSettings();
+        if (enabled) _maybeShowNoStylusHint();
       },
     );
   }
