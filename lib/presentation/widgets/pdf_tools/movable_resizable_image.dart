@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -32,6 +33,11 @@ class MovableResizableImage extends StatefulWidget {
 
   final VoidCallback onDelete;
 
+  /// أنواع المؤشرات المسموح لها بتحريك/تغيير حجم/حذف الصورة (رفض راحة اليد).
+  /// null = كل الأنواع (الرفض معطّل). عند التفعيل لا تدخل لمسة الإصبع
+  /// الـ recognizer أصلاً فتمرّ للـ PDF الذي تحتها (تمرير/تكبير).
+  final Set<PointerDeviceKind>? supportedDevices;
+
   const MovableResizableImage({
     super.key,
     required this.image,
@@ -43,6 +49,7 @@ class MovableResizableImage extends StatefulWidget {
     required this.onResizeEnd,
     this.onMoveEnd,
     required this.onDelete,
+    this.supportedDevices,
   });
 
   @override
@@ -86,6 +93,7 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
           // ── جسم الصورة: السحب للتحريك ──
           GestureDetector(
             behavior: HitTestBehavior.opaque,
+            supportedDevices: widget.supportedDevices,
             onPanUpdate: widget.editable
                 ? (details) {
                     widget.onMoveDelta(Offset(
@@ -125,6 +133,7 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
               left: -handleOffset,
               top:  -handleOffset,
               child: GestureDetector(
+                supportedDevices: widget.supportedDevices,
                 onTap: widget.onDelete,
                 child: Container(
                   width:  handleSize,
@@ -143,6 +152,7 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
               right: -handleOffset,
               top:   h / 2 - handleOffset,
               child: _ResizeHandle(
+                supportedDevices: widget.supportedDevices,
                 icon: Icons.drag_handle,
                 rotate: true,
                 onDelta: (d) {
@@ -159,6 +169,7 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
               left: -handleOffset,
               top:  h / 2 - handleOffset,
               child: _ResizeHandle(
+                supportedDevices: widget.supportedDevices,
                 icon: Icons.drag_handle,
                 rotate: true,
                 onDelta: (d) {
@@ -183,6 +194,7 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
               top:  -handleOffset,
               left: w / 2 - handleOffset,
               child: _ResizeHandle(
+                supportedDevices: widget.supportedDevices,
                 icon: Icons.drag_handle,
                 rotate: false,
                 onDelta: (d) {
@@ -205,6 +217,7 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
               bottom: -handleOffset,
               left:   w / 2 - handleOffset,
               child: _ResizeHandle(
+                supportedDevices: widget.supportedDevices,
                 icon: Icons.drag_handle,
                 rotate: false,
                 onDelta: (d) {
@@ -221,6 +234,7 @@ class _MovableResizableImageState extends State<MovableResizableImage> {
               right:  -handleOffset,
               bottom: -handleOffset,
               child: _ResizeHandle(
+                supportedDevices: widget.supportedDevices,
                 icon: Icons.open_in_full,
                 rotate: false,
                 onDelta: (d) {
@@ -246,18 +260,21 @@ class _ResizeHandle extends StatelessWidget {
   final bool rotate;
   final ValueChanged<Offset> onDelta;
   final VoidCallback onEnd;
+  final Set<PointerDeviceKind>? supportedDevices;
 
   const _ResizeHandle({
     required this.icon,
     required this.rotate,
     required this.onDelta,
     required this.onEnd,
+    this.supportedDevices,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
+      supportedDevices: supportedDevices,
       onPanUpdate: (details) => onDelta(details.delta),
       onPanEnd: (_) => onEnd(),
       child: Container(

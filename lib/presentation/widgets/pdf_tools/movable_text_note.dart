@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -16,6 +17,11 @@ class MovableTextNote extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback? onDelete; // حذف مباشر من أيقونة الزاوية
 
+  /// أنواع المؤشرات المسموح لها بسحب/فتح/حذف الملاحظة (رفض راحة اليد).
+  /// null = كل الأنواع (الرفض معطّل). عند التفعيل لا تدخل لمسة الإصبع
+  /// الـ recognizer أصلاً فتمرّ للـ PDF الذي تحتها (تمرير/تكبير).
+  final Set<PointerDeviceKind>? supportedDevices;
+
   const MovableTextNote({
     super.key,
     required this.note,
@@ -24,6 +30,7 @@ class MovableTextNote extends StatefulWidget {
     required this.onDragDelta,
     required this.onTap,
     this.onDelete,
+    this.supportedDevices,
   });
 
   @override
@@ -42,6 +49,7 @@ class _MovableTextNoteState extends State<MovableTextNote> {
       children: [
         GestureDetector(
           behavior: HitTestBehavior.opaque,
+          supportedDevices: widget.supportedDevices,
           // ── السحب المباشر: يعمل في وضع التعديل بدون الحاجة لتفعيل أداة النص ──
           onPanStart: widget.editable
               ? (_) => setState(() => _isDragging = true)
@@ -94,6 +102,7 @@ class _MovableTextNoteState extends State<MovableTextNote> {
             left: -10,
             top: -10,
             child: GestureDetector(
+              supportedDevices: widget.supportedDevices,
               onTap: widget.onDelete,
               child: Container(
                 width: 22,
