@@ -33,6 +33,8 @@ import '../../core/pdf_viewer/pdf_shape_controller.dart';
 import '../../core/pdf_viewer/pdf_text_note_controller.dart';
 import '../../core/pdf_viewer/pdf_image_annotation_controller.dart';
 import '../../core/pdf_viewer/palm_rejection_filter.dart';
+import '../../core/pdf_viewer/ink_input.dart';
+import '../../core/pdf_viewer/ink_painters.dart';
 
 import '../widgets/pdf_tools/pdf_annotation_toolbar.dart';
 import '../widgets/pdf_tools/movable_text_note.dart';
@@ -49,7 +51,8 @@ class PdfViewerScreen extends StatefulWidget {
   State<PdfViewerScreen> createState() => _PdfViewerScreenState();
 }
 
-class _PdfViewerScreenState extends State<PdfViewerScreen> {
+class _PdfViewerScreenState extends State<PdfViewerScreen>
+    with WidgetsBindingObserver {
   // ── Fix: first-open stuck loading ──
   // _pdfController is declared nullable and only initialized inside _preparePdf()
   // so it is never attached to a PdfViewer until the document is ready.
@@ -87,12 +90,43 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   // القلم/الممحاة (الرسم الحر) - يبقى كما كان
   Map<int, List<DrawingLine>> _pageDrawings = {};
-  DrawingLine? _currentLine;
   double _eraserSize = 0.04;
 
-  // ── Smooth drawing: ValueNotifier per page so only the canvas layer
-  //    repaints on every pan event instead of the whole widget tree.
-  final Map<int, ValueNotifier<DrawingLine?>> _strokeNotifiers = {};
+  // ── Ink pipeline (pointer-level) ───────────────────────────────────────
+  // حالة الحبر الحيّة لكل صفحة: عدّادات تُحرّك الرسم مباشرة (repaint) بلا
+  // أي build، والخط الجاري رسمه. راجع core/pdf_viewer/ink_painters.dart.
+  final Map<int, PageInkState> _inks = {};
+
+  // ── حفظ مؤجّل (Debounced): لا نكتب في التخزين عند كل خط، بل بعد توقّف
+  //    المستخدم قليلاً، وعند مغادرة الشاشة/إخفاء التطبيق.
+  final Set<int> _dirtyDrawingPages = {};
+  Timer? _drawingSaveTimer;
+  static const Duration _drawingSaveDelay = Duration(milliseconds: 900);
+
+  // Future واحد لكل صفحة (بدل Future جديد عند كل إعادة بناء للـ overlay).
+  final Map<int, Future<void>> _annotationFutures = {};
+  static final Future<void> _doneFuture = Future<void>.value();
+
+  // إظهار/إخفاء شريط الأدوات (ضغطتان على أيقونة القلم). إخفاؤه لا يُلغي
+  // وضع الرسم ولا الأداة النشطة.
+  bool _toolbarVisible = true;
+
+  // الأدوات التي تستخدم القلم وتستفيد من حارس راحة اليد.
+  static const Set<PdfTool> _penGuardTools = {
+    PdfTool.pen,
+    PdfTool.eraser,
+    PdfTool.freehandHighlighter,
+    PdfTool.shape,
+    PdfTool.text,
+    PdfTool.comment,
+  };
+
+  // أنواع المؤشرات المسموح لها عند تفعيل رفض راحة اليد.
+  static const Set<PointerDeviceKind> _penDevices = {
+    PointerDeviceKind.stylus,
+    PointerDeviceKind.invertedStylus,
+    PointerDeviceKind.mouse,
+  };
 
   // الملاحظات (Notes)
   Map<int, List<CommentModel>> _pageComments = {};
@@ -121,6 +155,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _sessionToken = _generateSecureToken();
     _store = PdfAnnotationStore(widget.pdfId);
     // ── Fix: "Null check operator used on a null value" في setState ──
@@ -168,12 +203,25 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   @override
   void dispose() {
-    if (_isOffline) _saveAnnotationsToHive();
+    WidgetsBinding.instance.removeObserver(this);
+    // الحفظ المؤجّل لا يجوز أن يضيع عند مغادرة الشاشة.
+    if (_isOffline) {
+      _saveAnnotationsToHive();
+    } else {
+      _flushDirtyDrawings();
+    }
+    _drawingSaveTimer?.cancel();
     _documentEventsSubscription?.cancel();
-    for (final n in _strokeNotifiers.values) {
-      n.dispose();
+    for (final ink in _inks.values) {
+      ink.dispose();
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // التطبيق ذاهب للخلفية (قد يُقتل): ثبّت أي رسم ما زال بانتظار الحفظ المؤجّل.
+    if (state != AppLifecycleState.resumed) _flushDirtyDrawings();
   }
 
   /// يربط الاستماع لأحداث الوثيقة (تغيّر حالة الصفحات) بمجرد توفر المستند،
@@ -269,6 +317,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   // ✅ حفظ الرسم والتعليقات (نفس منطق النسخة الأصلية، يستخدم الآن PdfAnnotationStore)
   Future<void> _saveAnnotationsToHive() async {
+    // نحفظ كل شيء الآن، فلا حاجة للحفظ المؤجّل المعلّق.
+    _drawingSaveTimer?.cancel();
+    _drawingSaveTimer = null;
+    _dirtyDrawingPages.clear();
     try {
       for (var entry in _pageDrawings.entries) {
         await _store.saveDrawings(entry.key, entry.value);
@@ -279,10 +331,55 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     } catch (_) {}
   }
 
+  /// يُعلِّم صفحة بأن رسمها تغيّر ويؤجّل الحفظ حتى يتوقف المستخدم عن الكتابة.
+  /// (سابقاً كان كل خط يُعيد ترميز **كل** خطوط الصفحة إلى JSON ويكتبها في
+  /// Hive على خيط الواجهة، فيحدث تقطّع عند نهاية كل خط).
+  void _markDrawingsDirty(int pageNumber) {
+    _dirtyDrawingPages.add(pageNumber);
+    _drawingSaveTimer?.cancel();
+    _drawingSaveTimer = Timer(_drawingSaveDelay, _flushDirtyDrawings);
+  }
+
+  Future<void> _flushDirtyDrawings() async {
+    _drawingSaveTimer?.cancel();
+    _drawingSaveTimer = null;
+    if (_dirtyDrawingPages.isEmpty) return;
+    final pages = _dirtyDrawingPages.toList();
+    _dirtyDrawingPages.clear();
+    for (final pageNumber in pages) {
+      final lines = _pageDrawings[pageNumber];
+      if (lines == null) continue;
+      try {
+        await _store.saveDrawings(pageNumber, lines);
+      } catch (_) {}
+    }
+  }
+
+  /// Future واحد مُخزَّن لكل صفحة. كان `pageOverlaysBuilder` ينشئ Future جديداً
+  /// عند كل إعادة بناء (كل إطار أثناء التكبير/التمرير) فيُعيد FutureBuilder
+  /// الاشتراك ويبني مرتين في كل مرة.
+  Future<void> _annotationsFutureFor(int pageNumber) {
+    if (!_isOffline) return _doneFuture;
+    return _annotationFutures.putIfAbsent(pageNumber, () {
+      final future = _loadAnnotationsForPage(pageNumber);
+      future.catchError((Object _) {
+        _annotationFutures.remove(pageNumber); // أعد المحاولة في البناء التالي
+      });
+      return future;
+    });
+  }
+
   // ✅ جلب كل أنواع التعليقات/الرسومات لصفحة معينة (يضيف الأنواع الجديدة على القديمة)
   Future<void> _loadAnnotationsForPage(int pageNumber) async {
     if (!_pageDrawings.containsKey(pageNumber)) {
-      _pageDrawings[pageNumber] = await _store.loadDrawings(pageNumber);
+      final loaded = await _store.loadDrawings(pageNumber);
+      // لو رسم المستخدم على الصفحة قبل اكتمال التحميل لا نكتب فوق خطوطه.
+      final existing = _pageDrawings[pageNumber];
+      _pageDrawings[pageNumber] =
+          existing == null ? loaded : <DrawingLine>[...loaded, ...existing];
+      // قائمة الرسم نفسها (الـ Map) لم تتغيّر هويتها، فلا يُعاد رسم الطبقة
+      // تلقائياً؛ نُبلغها صراحةً بأن الخطوط المحفوظة صارت جاهزة.
+      if (mounted) _inkFor(pageNumber).committed.value++;
     }
     if (!_pageComments.containsKey(pageNumber)) {
       _pageComments[pageNumber] = await _store.loadComments(pageNumber);
@@ -417,25 +514,33 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       appBar: _buildAppBar(),
       body: Stack(
         children: [
-          _isOffline && _encryptedFile != null && _originalFileSize != null
-              ? PdfViewer.custom(
-                  key: _viewerKey,
-                  fileSize: _originalFileSize!,
-                  read: _customRead,
-                  sourceName: _encryptedFile!.path,
-                  controller: controller,
-                  params: _buildPdfParams(),
-                )
-              : PdfViewer.uri(
-                  key: _viewerKey,
-                  Uri.parse(_onlineUrl!),
-                  headers: _onlineHeaders,
-                  controller: controller,
-                  params: _buildPdfParams(),
-                ),
+          // حارس راحة اليد: يلغي لمسات الأصابع/الكف على مستوى المؤشر أثناء
+          // الكتابة بالقلم، فلا تصل أبداً إلى عارض الـ PDF (لا تمرير/تكبير).
+          // يقع خارجه شريط الأدوات، فلا يتأثر بالحارس.
+          PalmGuardLayer(
+            filter: _palmFilter,
+            isActive: () =>
+                _isDrawingMode && _penGuardTools.contains(_activeTool),
+            child: _isOffline && _encryptedFile != null && _originalFileSize != null
+                ? PdfViewer.custom(
+                    key: _viewerKey,
+                    fileSize: _originalFileSize!,
+                    read: _customRead,
+                    sourceName: _encryptedFile!.path,
+                    controller: controller,
+                    params: _buildPdfParams(),
+                  )
+                : PdfViewer.uri(
+                    key: _viewerKey,
+                    Uri.parse(_onlineUrl!),
+                    headers: _onlineHeaders,
+                    controller: controller,
+                    params: _buildPdfParams(),
+                  ),
+          ),
           _buildWatermark(),
           if (_isDrawingMode)
-            Positioned(bottom: 40, left: 20, right: 20, child: _buildToolbar()),
+            Positioned(bottom: 12, left: 0, right: 0, child: _buildToolbarSlot()),
         ],
       ),
     );
@@ -531,23 +636,72 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   Widget _buildPenIcon() {
+    // وضع الرسم مفعّل لكن الشريط مخفي: نقطة صغيرة على الأيقونة تُذكّر بأن
+    // الضغط مرتين يُظهره.
+    final bool toolbarHidden = _isDrawingMode && !_toolbarVisible;
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      // ضغطة واحدة: تفعيل/تعطيل وضع الرسم (كما كان).
+      // ملاحظة: وجود onDoubleTap يجعل Flutter ينتظر ~300ms قبل تنفيذ الضغطة
+      // الواحدة ليتأكد أنها ليست بداية ضغطتين.
       onTap: () => setState(() {
         _isDrawingMode = !_isDrawingMode;
         if (!_isDrawingMode) {
           _activeTool = PdfTool.none;
           _highlightController.activeTool = TextMarkupTool.none;
+        } else {
+          _toolbarVisible = true;
         }
       }),
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-            color: _isDrawingMode ? AppColors.accentYellow : Colors.transparent,
-            shape: BoxShape.circle,
-            border: Border.all(color: AppColors.accentYellow.withOpacity(0.5))),
-        child: Icon(LucideIcons.penTool,
-            color: _isDrawingMode ? Colors.black : AppColors.accentYellow,
-            size: 16),
+      // ضغطتان: إخفاء/إظهار شريط الأدوات دون إلغاء وضع الرسم ولا الأداة النشطة.
+      onDoubleTap: () => setState(() {
+        if (!_isDrawingMode) {
+          _isDrawingMode = true;
+          _toolbarVisible = true;
+        } else {
+          _toolbarVisible = !_toolbarVisible;
+        }
+      }),
+      // منطقة لمس 40×40 بدل ~28 ليكون الضغط المزدوج موثوقاً.
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Center(
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                    color: _isDrawingMode
+                        ? AppColors.accentYellow
+                        : Colors.transparent,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: AppColors.accentYellow.withOpacity(0.5))),
+                child: Icon(LucideIcons.penTool,
+                    color:
+                        _isDrawingMode ? Colors.black : AppColors.accentYellow,
+                    size: 16),
+              ),
+              if (toolbarHidden)
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border:
+                          Border.all(color: AppColors.accentYellow, width: 1.5),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -827,15 +981,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         return [
           Positioned.fill(
             child: FutureBuilder(
-              future: _isOffline
-                  ? _loadAnnotationsForPage(page.pageNumber)
-                  : Future.value(),
+              future: _annotationsFutureFor(page.pageNumber),
               builder: (context, snapshot) {
-                final lines = _pageDrawings[page.pageNumber] ?? [];
-                // _currentLine is now tracked by _strokeNotifierFor; we no longer
-                // add it to allLines here so the outer FutureBuilder stays stable.
-                final allLines = [...lines];
-
                 final comments = _isOffline
                     ? (_pageComments[page.pageNumber] ?? [])
                     : <dynamic>[];
@@ -879,49 +1026,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           ),
                         )),
 
-                    // طبقة الرسم الحر (القلم/الممحاة/هايلايتر حر) + الأشكال (رسم جديد)
-                    // هذه الطبقة فوق الصور حتى تُرسم الأشكال والتعليقات فوق الصور.
-                    // ملاحظة: نستخدم HitTestBehavior.translucent بدلاً من opaque حتى
-                    // لا تمتص هذه الطبقة اللمسات الموجهة للملاحظات والصور فوقها.
-                    IgnorePointer(
-                      ignoring: !_isDrawingMode ||
-                          _activeTool == PdfTool.none ||
-                          _activeTool == PdfTool.highlighter ||
-                          _activeTool == PdfTool.underline,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTapUp: (details) =>
-                            _handleTapUp(details, context, pageRect, page),
-                        onPanStart: (details) =>
-                            _handlePanStart(details, context, pageRect, page),
-                        onPanUpdate: (details) =>
-                            _handlePanUpdate(details, context, pageRect, page),
-                        onPanEnd: (details) => _handlePanEnd(page, pageRect),
-                        // ── Smooth drawing: ValueListenableBuilder scopes repaints
-                        //    to this CustomPaint only — the outer FutureBuilder /
-                        //    Stack are NOT rebuilt on every touch event.
-                        child: ValueListenableBuilder<DrawingLine?>(
-                          valueListenable: _strokeNotifierFor(page.pageNumber),
-                          builder: (_, liveStroke, __) {
-                            final displayLines = liveStroke != null
-                                ? [...allLines, liveStroke]
-                                : allLines;
-                            return CustomPaint(
-                              isComplex: true,
-                              willChange: liveStroke != null,
-                              painter: _CombinedOverlayPainter(
-                                lines: displayLines,
-                                shapes: shapes,
-                                shapePreview: shapePreview,
-                                pageSize: pageRect.size,
-                                shapeController: _shapeController,
-                              ),
-                              size: Size.infinite,
-                            );
-                          },
-                        ),
-                      ),
-                    ),
+                    // ── طبقات العرض (مرئية فقط، لا تلتقط اللمس):
+                    //    خطوط مثبّتة | أشكال | الخط الحي. كل طبقة داخل RepaintBoundary
+                    //    وتُعاد رسمها وحدها؛ أثناء الكتابة لا يُعاد رسم إلا الخط الحي.
+                    _buildInkVisualLayers(page, pageRect, shapes, shapePreview),
+
+                    // ── طبقة الإدخال (قلم/ممحاة/هايلايتر حر + نقر + سحب الأشكال).
+                    //    translucent: لا تحجب عارض الـ PDF، فيبقى التمرير/التكبير
+                    //    بالإصبع ممكناً عندما لا يكون القلم قريباً.
+                    _buildInkInputLayer(page, pageRect),
 
                     // طبقة الأشكال القابلة للسحب (تعمل حتى بدون تفعيل أداة الأشكال)
                     if (_isDrawingMode)
@@ -1067,20 +1180,134 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   bool _palmAllows(PointerDeviceKind? kind) => _palmFilter.isAllowed(kind);
 
-  /// Returns (or lazily creates) the per-page ValueNotifier used to push
-  /// live stroke updates without rebuilding the whole widget tree.
-  ValueNotifier<DrawingLine?> _strokeNotifierFor(int pageNumber) {
-    return _strokeNotifiers.putIfAbsent(
-        pageNumber, () => ValueNotifier<DrawingLine?>(null));
+  // ───────────────────────── طبقات الحبر ─────────────────────────
+
+  bool _isInkTool(PdfTool t) =>
+      t == PdfTool.pen ||
+      t == PdfTool.eraser ||
+      t == PdfTool.freehandHighlighter;
+
+  PageInkState _inkFor(int pageNumber) =>
+      _inks.putIfAbsent(pageNumber, () => PageInkState());
+
+  Offset _rel(Offset local, Rect pageRect) =>
+      Offset(local.dx / pageRect.width, local.dy / pageRect.height);
+
+  Widget _buildInkVisualLayers(PdfPage page, Rect pageRect,
+      List<ShapeModel> shapes, ShapeModel? shapePreview) {
+    final ink = _inkFor(page.pageNumber);
+    return Positioned.fill(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // الخطوط المثبّتة: تُرسم مرة وتُحفظ؛ لا تُلمس أثناء الكتابة بالقلم.
+          RepaintBoundary(
+            child: CustomPaint(
+              isComplex: true,
+              willChange: false,
+              size: Size.infinite,
+              painter: CommittedInkPainter(
+                drawings: _pageDrawings,
+                pageNumber: page.pageNumber,
+                pageSize: pageRect.size,
+                ink: ink,
+              ),
+            ),
+          ),
+          RepaintBoundary(
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: ShapesLayerPainter(
+                shapes: shapes,
+                preview: shapePreview,
+                pageSize: pageRect.size,
+                controller: _shapeController,
+              ),
+            ),
+          ),
+          // الخط الحي: الطبقة الوحيدة التي تُعاد رسمها مع كل نقطة.
+          RepaintBoundary(
+            child: CustomPaint(
+              willChange: true,
+              size: Size.infinite,
+              painter: LiveInkPainter(ink: ink, pageSize: pageRect.size),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  void _handleTapUp(
-      TapUpDetails details, BuildContext context, Rect pageRect, PdfPage page) {
+  Widget _buildInkInputLayer(PdfPage page, Rect pageRect) {
+    final tool = _activeTool;
+    final bool inkTool = _isInkTool(tool);
+    final bool shapeTool = tool == PdfTool.shape;
+    final bool tapTool =
+        tool == PdfTool.comment || tool == PdfTool.text || shapeTool;
+
+    // لا طبقة إدخال إن لم تكن هناك أداة تحتاجها (فيمرّ كل اللمس للعارض).
+    if (!_isDrawingMode || !(inkTool || tapTool)) {
+      return const SizedBox.shrink();
+    }
+
+    // رفض راحة اليد على مستوى المُتعرِّف: اللمس لا يدخل ساحة الإيماءة أصلاً.
+    final Set<PointerDeviceKind>? devices =
+        _palmFilter.enabled ? _penDevices : null;
+
+    return Positioned.fill(
+      child: RawGestureDetector(
+        behavior: HitTestBehavior.translucent,
+        gestures: <Type, GestureRecognizerFactory>{
+          if (inkTool)
+            InkPointerRecognizer:
+                GestureRecognizerFactoryWithHandlers<InkPointerRecognizer>(
+              () => InkPointerRecognizer(debugOwner: this),
+              (InkPointerRecognizer r) {
+                r
+                  ..allowKind = _palmFilter.isAllowed
+                  ..onStart = (e) => _onInkStart(e, page, pageRect)
+                  ..onMove = (e) => _onInkMove(e, page, pageRect)
+                  ..onEnd = (_) => _onInkEnd(page)
+                  ..onCancel = () => _onInkEnd(page);
+              },
+            ),
+          if (tapTool)
+            TapGestureRecognizer:
+                GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+              () => TapGestureRecognizer(debugOwner: this),
+              (TapGestureRecognizer r) {
+                r
+                  ..supportedDevices = devices
+                  ..onTapUp = (d) => _handleTapUp(d, pageRect, page);
+              },
+            ),
+          if (shapeTool)
+            PanGestureRecognizer:
+                GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
+              () => PanGestureRecognizer(debugOwner: this),
+              (PanGestureRecognizer r) {
+                r
+                  // يبدأ الشكل من نقطة اللمس الفعلية لا من نقطة تجاوز الـ slop.
+                  ..dragStartBehavior = DragStartBehavior.down
+                  ..supportedDevices = devices
+                  ..onStart = (d) => _onShapePanStart(d, page, pageRect)
+                  ..onUpdate = (d) => _onShapePanUpdate(d, pageRect)
+                  ..onEnd = (_) => _onShapePanEnd(pageRect)
+                  ..onCancel = () => _onShapePanEnd(pageRect);
+              },
+            ),
+        },
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+
+  void _handleTapUp(TapUpDetails details, Rect pageRect, PdfPage page) {
     if (!_isDrawingMode) return;
     if (!_palmAllows(details.kind)) return;
 
-    final renderBox = context.findRenderObject() as RenderBox;
-    final localPos = renderBox.globalToLocal(details.globalPosition);
+    // localPosition نسبةً لطبقة الإدخال (= مستطيل الصفحة تماماً).
+    final localPos = details.localPosition;
     final relativePoint =
         Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
 
@@ -1337,110 +1564,88 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
-  void _handlePanStart(DragStartDetails details, BuildContext context,
-      Rect pageRect, PdfPage page) {
-    if (!_isDrawingMode) return;
-    if (!_palmAllows(details.kind)) return;
+  // ───────────────────────── الحبر الحر (على مستوى المؤشر) ─────────────────────────
 
-    final renderBox = context.findRenderObject() as RenderBox;
-    final localPos = renderBox.globalToLocal(details.globalPosition);
-    final relativePoint =
-        Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
-
-    if (_activeTool == PdfTool.pen ||
-        _activeTool == PdfTool.eraser ||
-        _activeTool == PdfTool.freehandHighlighter) {
-      _activePage = page.pageNumber;
-      DrawingLine newLine;
-      if (_activeTool == PdfTool.freehandHighlighter) {
-        // هايلايتر حر: خط عريض شفاف بنمط تمييز
-        newLine = DrawingLine(
-          points: [relativePoint],
-          color: _settings.highlighterColor,
-          strokeWidth: _settings.freehandHighlighterThickness,
-          isHighlighter: true,
-          isEraser: false,
-          opacity: _settings.highlighterOpacity,
-        );
-      } else {
-        newLine = DrawingLine(
-          points: [relativePoint],
-          color: _activeTool == PdfTool.eraser ? 0 : _settings.penColor,
-          strokeWidth: _activeTool == PdfTool.eraser
-              ? _eraserSize
-              : _settings.penThickness,
-          isHighlighter: false,
-          isEraser: _activeTool == PdfTool.eraser,
-          opacity: _activeTool == PdfTool.eraser ? 1.0 : _settings.penOpacity,
-        );
-      }
-      _currentLine = newLine;
-      // Push to notifier — no setState, so the whole tree is NOT rebuilt.
-      _strokeNotifierFor(page.pageNumber).value = newLine;
-    } else if (_activeTool == PdfTool.shape) {
-      _shapeController.startDrawing(page.pageNumber, relativePoint);
+  DrawingLine _newInkLine(Offset relativePoint) {
+    if (_activeTool == PdfTool.freehandHighlighter) {
+      // هايلايتر حر: خط عريض شفاف بنمط تمييز
+      return DrawingLine(
+        points: [relativePoint],
+        color: _settings.highlighterColor,
+        strokeWidth: _settings.freehandHighlighterThickness,
+        isHighlighter: true,
+        isEraser: false,
+        opacity: _settings.highlighterOpacity,
+      );
     }
+    final bool eraser = _activeTool == PdfTool.eraser;
+    return DrawingLine(
+      points: [relativePoint],
+      color: eraser ? 0 : _settings.penColor,
+      strokeWidth: eraser ? _eraserSize : _settings.penThickness,
+      isHighlighter: false,
+      isEraser: eraser,
+      opacity: eraser ? 1.0 : _settings.penOpacity,
+    );
   }
 
-  void _handlePanUpdate(DragUpdateDetails details, BuildContext context,
-      Rect pageRect, PdfPage page) {
-    if (!_isDrawingMode) return;
-    if (!_palmAllows(details.kind)) return;
-
-    final renderBox = context.findRenderObject() as RenderBox;
-    final localPos = renderBox.globalToLocal(details.globalPosition);
-    final relativePoint =
-        Offset(localPos.dx / pageRect.width, localPos.dy / pageRect.height);
-
-    if (_activeTool == PdfTool.pen ||
-        _activeTool == PdfTool.eraser ||
-        _activeTool == PdfTool.freehandHighlighter) {
-      if (_currentLine != null) {
-        // Minimum-distance filter — keeps enough points for smooth curves
-        // while avoiding redundant work from identical touch samples.
-        // 0.00001 ≈ 1 px on a 100 pt-wide page (tighter than the old 0.00003
-        // which dropped too many points and made curves look angular).
-        const double minDistSq = 0.00001;
-        final pts = _currentLine!.points;
-        if (pts.isNotEmpty) {
-          final last = pts.last;
-          final dx = relativePoint.dx - last.dx;
-          final dy = relativePoint.dy - last.dy;
-          if (dx * dx + dy * dy < minDistSq) return;
-        }
-        // Mutate the list directly (no copy) then kick the ValueNotifier.
-        // This does NOT call setState, so the widget tree is untouched —
-        // only the CustomPaint inside ValueListenableBuilder repaints.
-        _currentLine!.points.add(relativePoint);
-        // Trigger notifier with same object reference — listeners rebuild.
-        final notifier = _strokeNotifierFor(page.pageNumber);
-        notifier.value =
-            null; // force ValueListenableBuilder to detect a change
-        notifier.value = _currentLine;
-      }
-    } else if (_activeTool == PdfTool.shape) {
-      _shapeController.updateDrawing(relativePoint);
-    }
+  void _onInkStart(PointerEvent e, PdfPage page, Rect pageRect) {
+    if (!_isDrawingMode || !_isInkTool(_activeTool)) return;
+    if (pageRect.width <= 0 || pageRect.height <= 0) return;
+    _activePage = page.pageNumber;
+    final ink = _inkFor(page.pageNumber);
+    // لو بقي خط سابق عالقاً (حدث إلغاء ضائع) ثبّته قبل بدء الجديد.
+    if (ink.live != null) _commitInkStroke(page.pageNumber);
+    ink.begin(_newInkLine(_rel(e.localPosition, pageRect)), e.localPosition);
   }
 
-  void _handlePanEnd(PdfPage page, Rect pageRect) {
-    if (_activeTool == PdfTool.pen ||
-        _activeTool == PdfTool.eraser ||
-        _activeTool == PdfTool.freehandHighlighter) {
-      if (_currentLine != null) {
-        final committed = _currentLine!;
-        _currentLine = null;
-        // Clear the live-stroke notifier first (stops the preview).
-        _strokeNotifierFor(page.pageNumber).value = null;
-        // Now commit to persistent list and trigger a normal repaint.
-        setState(() {
-          _pageDrawings.putIfAbsent(page.pageNumber, () => []).add(committed);
-          _store.saveDrawings(page.pageNumber, _pageDrawings[page.pageNumber]!);
-        });
-      }
-    } else if (_activeTool == PdfTool.shape) {
-      _shapeController.endDrawing(pageSize: pageRect.size);
+  void _onInkMove(PointerEvent e, PdfPage page, Rect pageRect) {
+    final ink = _inks[page.pageNumber];
+    final live = ink?.live;
+    if (ink == null || live == null) return;
+    if (pageRect.width <= 0 || pageRect.height <= 0) return;
+    if (!ink.shouldAdd(e.localPosition)) return;
+    // نضيف النقطة مباشرة ثم نُعلم الرسّام: لا setState، لا نسخ قوائم، لا بناء.
+    live.points.add(_rel(e.localPosition, pageRect));
+    ink.notifyLive();
+  }
+
+  void _onInkEnd(PdfPage page) => _commitInkStroke(page.pageNumber);
+
+  /// يثبّت الخط الجاري في قائمة الصفحة. بلا setState: الطبقة السفلية تُعاد
+  /// رسمها عبر عدّاد، والحفظ مؤجّل.
+  void _commitInkStroke(int pageNumber) {
+    final ink = _inks[pageNumber];
+    if (ink == null) return;
+    final line = ink.end();
+    if (line == null) return;
+    // نقرة هايلايتر عابرة لا تترك مربعاً؛ أما نقرة القلم/الممحاة فنقطة مقصودة.
+    final bool strayDot = line.points.length == 1 && line.isHighlighter;
+    if (!strayDot) {
+      _pageDrawings.putIfAbsent(pageNumber, () => []).add(line);
+      _markDrawingsDirty(pageNumber);
     }
+    ink.repaintAll();
+  }
+
+  // ───────────────────────── الأشكال (سحب لرسم شكل جديد) ─────────────────────────
+
+  void _onShapePanStart(DragStartDetails d, PdfPage page, Rect pageRect) {
+    if (!_isDrawingMode || _activeTool != PdfTool.shape) return;
+    if (pageRect.width <= 0 || pageRect.height <= 0) return;
+    _shapeController.startDrawing(
+        page.pageNumber, _rel(d.localPosition, pageRect));
+  }
+
+  void _onShapePanUpdate(DragUpdateDetails d, Rect pageRect) {
+    if (!_isDrawingMode || _activeTool != PdfTool.shape) return;
+    if (pageRect.width <= 0 || pageRect.height <= 0) return;
+    _shapeController.updateDrawing(_rel(d.localPosition, pageRect));
+  }
+
+  void _onShapePanEnd(Rect pageRect) {
+    if (_activeTool != PdfTool.shape) return;
+    _shapeController.endDrawing(pageSize: pageRect.size);
   }
 
   // --- منطق الملاحظات (Comments) - محافظ على نفس السلوك الأصلي تماماً ---
@@ -1855,6 +2060,28 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   // --- شريط الأدوات الموحّد ---
 
+  /// موضع الشريط: متمركز بعرض أقصى معقول (بدل التمدد على كامل العرض) مع
+  /// إخفاء/إظهار بتلاشي. المخفي لا يشغل أي مساحة ولا يلتقط لمساً.
+  Widget _buildToolbarSlot() {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 160),
+      transitionBuilder: (child, animation) =>
+          FadeTransition(opacity: animation, child: child),
+      child: _toolbarVisible
+          ? Padding(
+              key: const ValueKey('pdf-toolbar'),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: _buildToolbar(),
+                ),
+              ),
+            )
+          : const SizedBox.shrink(key: ValueKey('pdf-toolbar-hidden')),
+    );
+  }
+
   Widget _buildToolbar() {
     return PdfAnnotationToolbar(
       activeTool: _activeTool,
@@ -1987,6 +2214,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       },
       onUndo: _handleUndo,
       onPickImage: () => _imageController.pickAndAddImage(_activePage),
+      onHide: () => setState(() => _toolbarVisible = false),
       palmRejectionEnabled: _settings.palmRejectionEnabled,
       onPalmRejectionChanged: (enabled) {
         setState(() {
@@ -2002,141 +2230,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     if (_activeTool == PdfTool.pen ||
         _activeTool == PdfTool.eraser ||
         _activeTool == PdfTool.freehandHighlighter) {
-      if (_pageDrawings[_activePage]?.isNotEmpty ?? false) {
-        setState(() => _pageDrawings[_activePage]!.removeLast());
-        _store.saveDrawings(_activePage, _pageDrawings[_activePage]!);
+      final lines = _pageDrawings[_activePage];
+      if (lines != null && lines.isNotEmpty) {
+        lines.removeLast();
+        _inkFor(_activePage).repaintAll(); // إعادة رسم الطبقة فقط
+        _markDrawingsDirty(_activePage);
       }
     }
-  }
-}
-
-/// رسّام موحّد للرسم الحر (القلم/الممحاة/هايلايتر) والأشكال (مع معاينة فورية أثناء السحب).
-///
-/// التحسينات المُطبَّقة:
-/// • Catmull-Rom spline للقلم والممحاة — نعومة حقيقية بدلاً من Bézier ثنائي.
-/// • Catmull-Rom أيضاً للهايلايتر الحر — يزيل الزوايا الحادة مع الحفاظ على مظهر التظليل.
-/// • shouldRepaint يقارن الطول فقط (خفيف جداً في الأداء).
-class _CombinedOverlayPainter extends CustomPainter {
-  final List<DrawingLine> lines;
-  final List<ShapeModel> shapes;
-  final ShapeModel? shapePreview;
-  final Size pageSize;
-  final PdfShapeController shapeController;
-
-  _CombinedOverlayPainter({
-    required this.lines,
-    required this.shapes,
-    required this.shapePreview,
-    required this.pageSize,
-    required this.shapeController,
-  });
-
-  // ── Catmull-Rom spline helper ────────────────────────────────────────────
-  // Converts a list of control points into a smooth Path using Catmull-Rom
-  // parameterization converted to cubic Bézier segments (Flutter's native form).
-  // `tension` ∈ [0, 1]: 0 = tight / angular, 0.5 = centripetal (best for drawing),
-  // 1 = slack.  We use 0.5 (centripetal) which avoids cusps on abrupt direction
-  // changes — ideal for hand-drawn strokes.
-  static Path _catmullRomPath(
-    List<Offset> pts,
-    double w,
-    double h, {
-    double tension = 0.5,
-  }) {
-    final path = Path();
-    if (pts.isEmpty) return path;
-
-    // Scale from normalised coordinates to canvas pixels once.
-    final scaled = pts.map((p) => Offset(p.dx * w, p.dy * h)).toList();
-
-    path.moveTo(scaled[0].dx, scaled[0].dy);
-    if (scaled.length == 1) return path;
-    if (scaled.length == 2) {
-      path.lineTo(scaled[1].dx, scaled[1].dy);
-      return path;
-    }
-
-    for (int i = 0; i < scaled.length - 1; i++) {
-      // Phantom points at the ends: mirror the neighbouring point.
-      final p0 = i == 0 ? scaled[0] : scaled[i - 1];
-      final p1 = scaled[i];
-      final p2 = scaled[i + 1];
-      final p3 = i + 2 < scaled.length ? scaled[i + 2] : scaled.last;
-
-      // Catmull-Rom → cubic Bézier conversion:
-      //   cp1 = p1 + (p2 - p0) * tension / 3
-      //   cp2 = p2 - (p3 - p1) * tension / 3
-      final cp1 = Offset(
-        p1.dx + (p2.dx - p0.dx) * tension / 3,
-        p1.dy + (p2.dy - p0.dy) * tension / 3,
-      );
-      final cp2 = Offset(
-        p2.dx - (p3.dx - p1.dx) * tension / 3,
-        p2.dy - (p3.dy - p1.dy) * tension / 3,
-      );
-      path.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, p2.dx, p2.dy);
-    }
-    return path;
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.saveLayer(Rect.fromLTWH(0, 0, size.width, size.height), Paint());
-    final w = pageSize.width;
-    final h = pageSize.height;
-
-    for (var line in lines) {
-      final paint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..strokeWidth = line.strokeWidth * w;
-
-      if (line.isEraser) {
-        paint.blendMode = BlendMode.clear;
-        paint.color = Colors.transparent;
-      } else if (line.isHighlighter) {
-        // هايلايتر حر: BlendMode.multiply للتداخل الطبيعي مع محتوى الصفحة
-        paint.blendMode = BlendMode.multiply;
-        paint.color = Color(line.color).withOpacity(line.opacity);
-        paint.strokeCap =
-            StrokeCap.square; // حواف مستقيمة لمظهر تظليل أكثر واقعية
-      } else {
-        paint.color = Color(line.color).withOpacity(line.opacity);
-      }
-
-      final pts = line.points;
-      if (pts.length > 1) {
-        // Both pen/eraser AND highlighter now use Catmull-Rom for maximum
-        // smoothness.  The highlighter keeps StrokeCap.square + multiply
-        // blendMode so it still looks like a real highlighter pen.
-        final path = _catmullRomPath(pts, w, h, tension: 0.5);
-        canvas.drawPath(path, paint);
-      } else if (pts.isNotEmpty) {
-        // Single tap — draw a dot.
-        final p = Offset(pts[0].dx * w, pts[0].dy * h);
-        canvas.drawPoints(PointMode.points, [p], paint);
-      }
-    }
-    canvas.restore();
-
-    shapeController.paintShapes(canvas, pageSize, shapes,
-        preview: shapePreview);
-  }
-
-  @override
-  bool shouldRepaint(covariant _CombinedOverlayPainter old) {
-    // Fast path: only deep-compare when counts differ or a shape changed.
-    // During active drawing lines.last grows, so the total length changes —
-    // that's our cue to repaint without comparing every point.
-    if (lines.length != old.lines.length) return true;
-    if (lines.isNotEmpty && old.lines.isNotEmpty) {
-      final cur = lines.last;
-      final prev = old.lines.last;
-      if (cur.points.length != prev.points.length) return true;
-    }
-    if (shapes.length != old.shapes.length) return true;
-    if (shapePreview != old.shapePreview) return true;
-    return false;
   }
 }
