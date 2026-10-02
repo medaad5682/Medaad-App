@@ -1262,13 +1262,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
             InkPointerRecognizer:
                 GestureRecognizerFactoryWithHandlers<InkPointerRecognizer>(
               () => InkPointerRecognizer(debugOwner: this),
+              // ملاحظة: نستخدم جمل إسناد منفصلة لا cascade (..) مع دوال سهمية؛ لأن
+              // جسم الدالة السهمية تعبير كامل فيلتهم الـ cascade التالي ويطبّقه على
+              // قيمة الدالة (void) بدلاً من المُتعرِّف.
               (InkPointerRecognizer r) {
-                r
-                  ..allowKind = _palmFilter.isAllowed
-                  ..onStart = (e) => _onInkStart(e, page, pageRect)
-                  ..onMove = (e) => _onInkMove(e, page, pageRect)
-                  ..onEnd = (_) => _onInkEnd(page)
-                  ..onCancel = () => _onInkEnd(page);
+                r.allowKind = _palmFilter.isAllowed;
+                r.onStart = (e) => _onInkStart(e, page, pageRect);
+                r.onMove = (e) => _onInkMove(e, page, pageRect);
+                r.onEnd = (_) => _onInkEnd(page);
+                r.onCancel = () => _onInkEnd(page);
               },
             ),
           if (tapTool)
@@ -1276,9 +1278,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                 GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
               () => TapGestureRecognizer(debugOwner: this),
               (TapGestureRecognizer r) {
-                r
-                  ..supportedDevices = devices
-                  ..onTapUp = (d) => _handleTapUp(d, pageRect, page);
+                r.supportedDevices = devices;
+                r.onTapUp = (d) => _handleTapUp(d, pageRect, page);
               },
             ),
           if (shapeTool)
@@ -1286,14 +1287,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                 GestureRecognizerFactoryWithHandlers<PanGestureRecognizer>(
               () => PanGestureRecognizer(debugOwner: this),
               (PanGestureRecognizer r) {
-                r
-                  // يبدأ الشكل من نقطة اللمس الفعلية لا من نقطة تجاوز الـ slop.
-                  ..dragStartBehavior = DragStartBehavior.down
-                  ..supportedDevices = devices
-                  ..onStart = (d) => _onShapePanStart(d, page, pageRect)
-                  ..onUpdate = (d) => _onShapePanUpdate(d, pageRect)
-                  ..onEnd = (_) => _onShapePanEnd(pageRect)
-                  ..onCancel = () => _onShapePanEnd(pageRect);
+                // يبدأ الشكل من نقطة اللمس الفعلية لا من نقطة تجاوز الـ slop.
+                r.dragStartBehavior = DragStartBehavior.down;
+                r.supportedDevices = devices;
+                r.onStart = (d) => _onShapePanStart(d, page, pageRect);
+                r.onUpdate = (d) => _onShapePanUpdate(d, pageRect);
+                r.onEnd = (_) => _onShapePanEnd(pageRect);
+                r.onCancel = () => _onShapePanEnd(pageRect);
               },
             ),
         },
