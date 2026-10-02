@@ -67,6 +67,9 @@ class PdfAnnotationToolbar extends StatelessWidget {
   final bool palmRejectionEnabled;
   final ValueChanged<bool> onPalmRejectionChanged;
 
+  /// إخفاء الشريط (يُظهَر مجدداً بضغطتين على أيقونة القلم في الشريط العلوي).
+  final VoidCallback? onHide;
+
   const PdfAnnotationToolbar({
     super.key,
     required this.activeTool,
@@ -107,6 +110,7 @@ class PdfAnnotationToolbar extends StatelessWidget {
     required this.onPickImage,
     required this.palmRejectionEnabled,
     required this.onPalmRejectionChanged,
+    this.onHide,
   });
 
   void _handleTap(PdfTool tool) {
@@ -117,17 +121,16 @@ class PdfAnnotationToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
       decoration: BoxDecoration(
         color: Colors.grey[900],
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10)],
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 8)],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildToolRow(),
-          const SizedBox(height: 4),
           _buildContextPanel(context),
         ],
       ),
@@ -141,36 +144,55 @@ class PdfAnnotationToolbar extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _toolIcon(Icons.edit, PdfTool.pen),
-          const SizedBox(width: 6),
           _toolIcon(Icons.border_color, PdfTool.highlighter),
-          const SizedBox(width: 6),
           // هايلايتر حر (رسم يدوي)
           _toolIcon(Icons.brush, PdfTool.freehandHighlighter),
-          const SizedBox(width: 6),
           _toolIcon(Icons.format_underlined, PdfTool.underline),
-          const SizedBox(width: 6),
           _toolIcon(Icons.text_fields, PdfTool.text),
-          const SizedBox(width: 6),
           _toolIcon(Icons.category_outlined, PdfTool.shape),
-          const SizedBox(width: 6),
           _toolIcon(Icons.image_outlined, PdfTool.image, onTapOverride: onPickImage),
-          const SizedBox(width: 6),
           // أيقونة الممحاة الحقيقية
           _toolIcon(LucideIcons.eraser, PdfTool.eraser),
-          const SizedBox(width: 6),
           _toolIcon(Icons.comment_outlined, PdfTool.comment),
-          const SizedBox(width: 10),
-          Container(width: 1, height: 24, color: Colors.grey),
-          const SizedBox(width: 10),
-          IconButton(
-            icon: const Icon(Icons.undo, color: Colors.white, size: 20),
-            onPressed: onUndo,
+          const SizedBox(width: 6),
+          Container(width: 1, height: 22, color: Colors.grey),
+          const SizedBox(width: 6),
+          _compactButton(
+            icon: Icons.undo,
+            color: Colors.white,
             tooltip: 'تراجع',
+            onPressed: onUndo,
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
           _palmRejectionButton(),
+          if (onHide != null) ...[
+            const SizedBox(width: 2),
+            _compactButton(
+              icon: Icons.keyboard_arrow_down_rounded,
+              color: Colors.grey,
+              tooltip: 'إخفاء الأدوات (اضغط مرتين على أيقونة القلم لإظهارها)',
+              onPressed: onHide!,
+            ),
+          ],
         ],
       ),
+    );
+  }
+
+  /// زر أيقونة مضغوط (36×36 بدل 48×48 الافتراضي).
+  Widget _compactButton({
+    required IconData icon,
+    required Color color,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return IconButton(
+      icon: Icon(icon, color: color, size: 20),
+      onPressed: onPressed,
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
     );
   }
 
@@ -181,7 +203,7 @@ class PdfAnnotationToolbar extends StatelessWidget {
       child: Tooltip(
         message: on ? 'رفض راحة اليد: مفعّل' : 'رفض راحة اليد: معطّل',
         child: Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
             color: on ? AppColors.accentYellow.withOpacity(0.2) : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
@@ -209,6 +231,9 @@ class PdfAnnotationToolbar extends StatelessWidget {
         child: IconButton(
           icon: Icon(icon, color: selected ? AppColors.accentYellow : Colors.grey, size: 20),
           onPressed: onTapOverride ?? () => _handleTap(tool),
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
         ),
       ),
     );
@@ -244,8 +269,9 @@ class PdfAnnotationToolbar extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         ColorPaletteRow(selectedColor: penColor, onColorSelected: onPenColorChanged),
-        const SizedBox(height: 6),
+        const SizedBox(height: 2),
         ThicknessOpacityControls(
+          compact: true,
           thickness: penThickness,
           onThicknessChanged: onPenThicknessChanged,
           opacity: penOpacity,
