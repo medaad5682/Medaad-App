@@ -107,9 +107,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   final Map<int, Future<void>> _annotationFutures = {};
   static final Future<void> _doneFuture = Future<void>.value();
 
-  // إظهار/إخفاء شريط الأدوات (ضغطتان على أيقونة القلم). إخفاؤه لا يُلغي
-  // وضع الرسم ولا الأداة النشطة.
-  bool _toolbarVisible = true;
+  // لوحة تحكم الأداة النشطة (ألوان/شفافية/سماكة...): مغلقة افتراضياً وتُفتح
+  // بضغطتين على أيقونة الأداة في الشريط. ضغطة واحدة تفعّل الأداة أو تعطّلها.
+  bool _controlsOpen = false;
 
   // الأدوات التي تستخدم القلم وتستفيد من حارس راحة اليد.
   static const Set<PdfTool> _penGuardTools = {
@@ -636,70 +636,33 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   }
 
   Widget _buildPenIcon() {
-    // وضع الرسم مفعّل لكن الشريط مخفي: نقطة صغيرة على الأيقونة تُذكّر بأن
-    // الضغط مرتين يُظهره.
-    final bool toolbarHidden = _isDrawingMode && !_toolbarVisible;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      // ضغطة واحدة: تفعيل/تعطيل وضع الرسم (كما كان).
-      // ملاحظة: وجود onDoubleTap يجعل Flutter ينتظر ~300ms قبل تنفيذ الضغطة
-      // الواحدة ليتأكد أنها ليست بداية ضغطتين.
       onTap: () => setState(() {
         _isDrawingMode = !_isDrawingMode;
+        _controlsOpen = false;
         if (!_isDrawingMode) {
           _activeTool = PdfTool.none;
           _highlightController.activeTool = TextMarkupTool.none;
-        } else {
-          _toolbarVisible = true;
         }
       }),
-      // ضغطتان: إخفاء/إظهار شريط الأدوات دون إلغاء وضع الرسم ولا الأداة النشطة.
-      onDoubleTap: () => setState(() {
-        if (!_isDrawingMode) {
-          _isDrawingMode = true;
-          _toolbarVisible = true;
-        } else {
-          _toolbarVisible = !_toolbarVisible;
-        }
-      }),
-      // منطقة لمس 40×40 بدل ~28 ليكون الضغط المزدوج موثوقاً.
+      // منطقة لمس 40×40 بدل ~28 ليسهل الضغط بالقلم والإصبع.
       child: SizedBox(
         width: 40,
         height: 40,
         child: Center(
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                    color: _isDrawingMode
-                        ? AppColors.accentYellow
-                        : Colors.transparent,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: AppColors.accentYellow.withOpacity(0.5))),
-                child: Icon(LucideIcons.penTool,
-                    color:
-                        _isDrawingMode ? Colors.black : AppColors.accentYellow,
-                    size: 16),
-              ),
-              if (toolbarHidden)
-                Positioned(
-                  top: -2,
-                  right: -2,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      border:
-                          Border.all(color: AppColors.accentYellow, width: 1.5),
-                    ),
-                  ),
-                ),
-            ],
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+                color: _isDrawingMode
+                    ? AppColors.accentYellow
+                    : Colors.transparent,
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color: AppColors.accentYellow.withOpacity(0.5))),
+            child: Icon(LucideIcons.penTool,
+                color: _isDrawingMode ? Colors.black : AppColors.accentYellow,
+                size: 16),
           ),
         ),
       ),
@@ -1256,7 +1219,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
 
     return Positioned.fill(
       child: RawGestureDetector(
-        behavior: HitTestBehavior.translucent,
+        // أدوات الأشكال/النص/التعليق: طبقة **صلبة** (opaque) تحجب عارض الـ PDF عن
+        // المؤشرات فوق الصفحة، تماماً كما كانت طبقة الرسم الأصلية (CustomPaint قابل
+        // للـ hit-test). وإلا نافس تمريرُ الصفحة سحبَ الشكل في ساحة الإيماءات
+        // (وخسر الرسم). أما أدوات الحبر الحر فشفافة لأن مُتعرِّفها يحسم المؤشر فوراً،
+        // فيبقى تمرير/تكبير الإصبع ممكناً حين لا يكون القلم قريباً.
+        behavior: tapTool ? HitTestBehavior.opaque : HitTestBehavior.translucent,
         gestures: <Type, GestureRecognizerFactory>{
           if (inkTool)
             InkPointerRecognizer:
@@ -2060,59 +2028,71 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
 
   // --- شريط الأدوات الموحّد ---
 
-  /// موضع الشريط: متمركز بعرض أقصى معقول (بدل التمدد على كامل العرض) مع
-  /// إخفاء/إظهار بتلاشي. المخفي لا يشغل أي مساحة ولا يلتقط لمساً.
+  /// اختيار/تعطيل أداة من الشريط. تغيير الأداة يُعيد لوحة التحكم إلى حالتها
+  /// الافتراضية (مغلقة).
+  void _selectTool(PdfTool tool) {
+    setState(() {
+      _controlsOpen = false;
+      _activeTool = tool;
+      // مزامنة الأداة النشطة مع محرك التمييز/التسطير الحقيقي (مطلوب لتفعيل
+      // معالجة التحديد بشكل صحيح في onTextSelectionChange).
+      _highlightController.activeTool = tool == PdfTool.highlighter
+          ? TextMarkupTool.highlight
+          : (tool == PdfTool.underline
+              ? TextMarkupTool.underline
+              : TextMarkupTool.none);
+      // ── Fix (highlight/underline): eagerly pre-warm the text cache for the
+      // current page (and neighbours) the moment the user activates either
+      // markup tool, so it is guaranteed to be ready before they finish
+      // selecting text and press the context-menu button.
+      if ((tool == PdfTool.highlighter || tool == PdfTool.underline) &&
+          _pdfController != null) {
+        final ctrl = _pdfController!;
+        final doc = ctrl.document;
+        if (doc != null) {
+          final total = doc.pages.length;
+          final cur = _activePage > 0 ? _activePage : 1;
+          for (int p = (cur - 1).clamp(1, total);
+              p <= (cur + 1).clamp(1, total);
+              p++) {
+            _textCache.ensureLoadedByPageNumber(p, ctrl);
+          }
+        }
+      }
+    });
+  }
+
+  /// ضغطتان على أيقونة أداة: فتح/إغلاق لوحة التحكم الخاصة بها. إن لم تكن الأداة
+  /// مفعّلة بعد تُفعَّل أولاً.
+  void _toggleToolControls(PdfTool tool) {
+    if (_activeTool != tool) {
+      _selectTool(tool);
+      setState(() => _controlsOpen = true);
+    } else {
+      setState(() => _controlsOpen = !_controlsOpen);
+    }
+  }
+
+
+  /// موضع الشريط: متمركز بعرض أقصى معقول (بدل التمدد على كامل العرض).
   Widget _buildToolbarSlot() {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 160),
-      transitionBuilder: (child, animation) =>
-          FadeTransition(opacity: animation, child: child),
-      child: _toolbarVisible
-          ? Padding(
-              key: const ValueKey('pdf-toolbar'),
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: _buildToolbar(),
-                ),
-              ),
-            )
-          : const SizedBox.shrink(key: ValueKey('pdf-toolbar-hidden')),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: _buildToolbar(),
+        ),
+      ),
     );
   }
 
   Widget _buildToolbar() {
     return PdfAnnotationToolbar(
       activeTool: _activeTool,
-      onToolTap: (tool) => setState(() {
-        _activeTool = tool;
-        // مزامنة الأداة النشطة مع محرك التمييز/التسطير الحقيقي (مطلوب لتفعيل
-        // معالجة التحديد بشكل صحيح في onTextSelectionChange).
-        _highlightController.activeTool = tool == PdfTool.highlighter
-            ? TextMarkupTool.highlight
-            : (tool == PdfTool.underline
-                ? TextMarkupTool.underline
-                : TextMarkupTool.none);
-        // ── Fix (highlight/underline): eagerly pre-warm the text cache for the
-        // current page (and neighbours) the moment the user activates either
-        // markup tool, so it is guaranteed to be ready before they finish
-        // selecting text and press the context-menu button.
-        if ((tool == PdfTool.highlighter || tool == PdfTool.underline) &&
-            _pdfController != null) {
-          final ctrl = _pdfController!;
-          final doc = ctrl.document;
-          if (doc != null) {
-            final total = doc.pages.length;
-            final cur = _activePage > 0 ? _activePage : 1;
-            for (int p = (cur - 1).clamp(1, total);
-                p <= (cur + 1).clamp(1, total);
-                p++) {
-              _textCache.ensureLoadedByPageNumber(p, ctrl);
-            }
-          }
-        }
-      }),
+      onToolTap: _selectTool,
+      controlsOpen: _controlsOpen,
+      onToggleControls: _toggleToolControls,
       penColor: Color(_settings.penColor),
       penThickness: _settings.penThickness,
       penOpacity: _settings.penOpacity,
@@ -2214,7 +2194,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       },
       onUndo: _handleUndo,
       onPickImage: () => _imageController.pickAndAddImage(_activePage),
-      onHide: () => setState(() => _toolbarVisible = false),
       palmRejectionEnabled: _settings.palmRejectionEnabled,
       onPalmRejectionChanged: (enabled) {
         setState(() {
