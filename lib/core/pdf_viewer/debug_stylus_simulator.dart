@@ -25,6 +25,11 @@ const List<String> kStylusSimSentences = <String>[
 /// Average pen speed while writing, in logical pixels per second.
 const double kStylusSimPenSpeed = 320.0;
 
+/// How long the pen hovers (in range, not touching) before it touches down in
+/// the "hover then stroke / sentence" buttons. During this time you put your
+/// palm / fingers on the screen to check they are ignored.
+const int kStylusSimHoverMs = 5000;
+
 /// Injects synthetic *stylus* pointer events into GestureBinding so palm
 /// rejection can be tested with no stylus and no mouse. Your real fingers still
 /// produce real touch events, so you play the "palm" yourself.
@@ -111,9 +116,13 @@ class _StylusSimulatorState extends State<StylusSimulator> {
 
   /// Plays [strokes] as one pen session: range-in, hover, strokes with
   /// hovering pen-up travel between them, linger, range-out.
+  ///
+  /// [approachMs] is how long the pen hovers before the first touch-down.
+  /// Long values (> 600 ms) make the pen wander above the page first, like a
+  /// hand that is deciding where to write.
   Future<void> _perform(List<_Stroke> strokes,
       {PointerDeviceKind kind = PointerDeviceKind.stylus,
-      bool approach = true}) async {
+      int approachMs = 320}) async {
     if (strokes.isEmpty) return;
     _kind = kind;
     final Offset first = strokes.first.pts.first;
@@ -121,7 +130,13 @@ class _StylusSimulatorState extends State<StylusSimulator> {
     _send(PointerAddedEvent(
         timeStamp: _now, kind: kind, device: _device, position: _pos));
     try {
-      if (approach) await _hover(first, 320);
+      if (approachMs > 600) {
+        await _hover(first + const Offset(-26, -16), (approachMs * 0.6).round(),
+            arc: 14);
+        await _hover(first, (approachMs * 0.4).round(), arc: 4);
+      } else if (approachMs > 0) {
+        await _hover(first, approachMs);
+      }
       for (final _Stroke s in strokes) {
         if (_abort || !mounted) break;
         await _hover(s.pts.first, s.pauseMs); // pen lifted, travelling
@@ -485,6 +500,21 @@ class _StylusSimulatorState extends State<StylusSimulator> {
                 () => _run('palm + sentence #$n',
                     () => _perform(_layoutText(kStylusSimSentences[_sentence])),
                     countdown: 4),
+              ),
+              _btn(
+                '9  Hover ${kStylusSimHoverMs ~/ 1000} s, then stylus stroke',
+                () => _run(
+                    'hover → stroke',
+                    () => _perform(<_Stroke>[_Stroke(_wave(), 0, 1200)],
+                        approachMs: kStylusSimHoverMs)),
+              ),
+              _btn(
+                '10  Hover ${kStylusSimHoverMs ~/ 1000} s, then sentence #$n',
+                () => _run('hover → sentence #$n', () async {
+                  await _perform(_layoutText(kStylusSimSentences[_sentence]),
+                      approachMs: kStylusSimHoverMs);
+                  _nextSentence();
+                }),
               ),
             ],
           ],
