@@ -35,6 +35,7 @@ import '../../core/pdf_viewer/pdf_image_annotation_controller.dart';
 import '../../core/pdf_viewer/palm_rejection_filter.dart';
 import '../../core/pdf_viewer/ink_input.dart';
 import '../../core/pdf_viewer/ink_painters.dart';
+import '../../core/pdf_viewer/debug_stylus_simulator.dart';
 
 import '../widgets/pdf_tools/pdf_annotation_toolbar.dart';
 import '../widgets/pdf_tools/movable_text_note.dart';
@@ -541,6 +542,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
           _buildWatermark(),
           if (_isDrawingMode)
             Positioned(bottom: 12, left: 0, right: 0, child: _buildToolbarSlot()),
+          // Stylus simulator (test only). One-line switch:
+          // kEnableStylusSimulator in debug_stylus_simulator.dart.
+          // The const flag removes it completely from the build when false.
+          if (kEnableStylusSimulator)
+            const Positioned(top: 8, left: 8, child: StylusSimulator()),
         ],
       ),
     );
