@@ -94,6 +94,15 @@ class PalmRejectionFilter {
 
   void trackTouch(int pointer) => _restingTouches.add(pointer);
 
+  /// ينهي تتبّع مؤشر **بالمعرّف** أياً كان نوعه. ضروري لأن حدث الإلغاء الذي
+  /// يولّده `GestureBinding.cancelPointer` نوعه touch دائماً حتى لو كان المؤشر
+  /// المُلغى قلماً؛ فلو اعتمدنا النوع لبقي معرّف القلم عالقاً في القائمة وطال
+  /// "قرب القلم" من 0.9 ثانية إلى 4 ثوانٍ لبقية الجلسة.
+  void endPointer(int pointer) {
+    _penPointers.remove(pointer);
+    _restingTouches.remove(pointer);
+  }
+
   void untrack(int pointer) => _restingTouches.remove(pointer);
 
   /// يعيد اللمسات الموضوعة حالياً على الشاشة ويفرّغ السجل (تُلغى بعد ملامسة القلم).
