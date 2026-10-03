@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -67,8 +68,13 @@ class PdfAnnotationToolbar extends StatelessWidget {
   final bool palmRejectionEnabled;
   final ValueChanged<bool> onPalmRejectionChanged;
 
-  /// إخفاء الشريط (يُظهَر مجدداً بضغطتين على أيقونة القلم في الشريط العلوي).
-  final VoidCallback? onHide;
+  /// هل لوحة تحكم الأداة النشطة (الألوان/الشفافية/السماكة...) مفتوحة؟
+  /// مغلقة افتراضياً: يظهر صف الأدوات فقط.
+  final bool controlsOpen;
+
+  /// ضغطتان على أيقونة أداة: فتح/إغلاق لوحة التحكم الخاصة بها
+  /// (ضغطة واحدة تفعّل الأداة أو تُعطّلها).
+  final ValueChanged<PdfTool> onToggleControls;
 
   const PdfAnnotationToolbar({
     super.key,
@@ -110,7 +116,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
     required this.onPickImage,
     required this.palmRejectionEnabled,
     required this.onPalmRejectionChanged,
-    this.onHide,
+    required this.controlsOpen,
+    required this.onToggleControls,
   });
 
   void _handleTap(PdfTool tool) {
@@ -165,15 +172,6 @@ class PdfAnnotationToolbar extends StatelessWidget {
           ),
           const SizedBox(width: 2),
           _palmRejectionButton(),
-          if (onHide != null) ...[
-            const SizedBox(width: 2),
-            _compactButton(
-              icon: Icons.keyboard_arrow_down_rounded,
-              color: Colors.grey,
-              tooltip: 'إخفاء الأدوات (اضغط مرتين على أيقونة القلم لإظهارها)',
-              onPressed: onHide!,
-            ),
-          ],
         ],
       ),
     );
@@ -219,22 +217,38 @@ class PdfAnnotationToolbar extends StatelessWidget {
     );
   }
 
+  /// الأدوات التي لها لوحة تحكم (ألوان/شفافية/سماكة/...).
+  static bool _hasPanel(PdfTool tool) {
+    switch (tool) {
+      case PdfTool.pen:
+      case PdfTool.highlighter:
+      case PdfTool.freehandHighlighter:
+      case PdfTool.underline:
+      case PdfTool.eraser:
+      case PdfTool.text:
+      case PdfTool.shape:
+        return true;
+      case PdfTool.comment:
+      case PdfTool.image:
+      case PdfTool.none:
+        return false;
+    }
+  }
+
   Widget _toolIcon(IconData icon, PdfTool tool, {VoidCallback? onTapOverride}) {
     final bool selected = activeTool == tool;
+    final bool hasPanel = onTapOverride == null && _hasPanel(tool);
     return Tooltip(
       message: tool.label,
-      child: Container(
-        decoration: BoxDecoration(
-          color: selected ? AppColors.accentYellow.withOpacity(0.2) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: IconButton(
-          icon: Icon(icon, color: selected ? AppColors.accentYellow : Colors.grey, size: 20),
-          onPressed: onTapOverride ?? () => _handleTap(tool),
-          padding: EdgeInsets.zero,
-          visualDensity: VisualDensity.compact,
-          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-        ),
+      child: _ToolButton(
+        icon: icon,
+        selected: selected,
+        hasPanel: hasPanel,
+        panelOpen: selected && controlsOpen,
+        // ضغطة واحدة: تفعيل/تعطيل الأداة.
+        onTap: onTapOverride ?? () => _handleTap(tool),
+        // ضغطتان: فتح/إغلاق لوحة التحكم (فقط للأدوات التي لها لوحة).
+        onDoubleTap: hasPanel ? () => onToggleControls(tool) : null,
       ),
     );
   }
@@ -242,6 +256,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
   /// اللوحة السياقية التي تظهر تحت شريط الأدوات حسب الأداة النشطة حالياً
   /// (لوحة ألوان، سماكة/شفافية، اختيار شكل...).
   Widget _buildContextPanel(BuildContext context) {
+    // مغلقة افتراضياً: لا تظهر إلا بعد ضغطتين على أيقونة الأداة.
+    if (!controlsOpen) return const SizedBox.shrink();
     switch (activeTool) {
       case PdfTool.pen:
         return _penPanel(context);
@@ -522,6 +538,126 @@ class PdfAnnotationToolbar extends StatelessWidget {
           border: Border.all(color: selected ? AppColors.accentYellow : Colors.grey, width: 1),
         ),
         child: Icon(icon, size: 18, color: selected ? AppColors.accentYellow : Colors.grey),
+      ),
+    );
+  }
+}
+
+/// زر أداة يدعم ضغطة واحدة (تفعيل/تعطيل) وضغطتين (لوحة التحكم).
+///
+/// لماذا لا نستخدم onDoubleTap الجاهز؟ وجوده يجعل Flutter يؤخر **كل** ضغطة
+/// واحدة ~300ms، فيتأخر اختيار الأداة. هنا:
+///  • أداة غير مفعّلة: تُفعَّل فوراً عند أول ضغطة (بلا تأخير)، وإن جاءت ضغطة
+///    ثانية خلال 300ms تُفتح لوحة التحكم.
+///  • أداة مفعّلة: ننتظر 300ms قبل التعطيل لنرى إن كانت بداية ضغطتين؛ فإن
+///    جاءت الثانية تبقى الأداة مفعّلة وتُفتح/تُغلق اللوحة.
+class _ToolButton extends StatefulWidget {
+  const _ToolButton({
+    required this.icon,
+    required this.selected,
+    required this.hasPanel,
+    required this.panelOpen,
+    required this.onTap,
+    this.onDoubleTap,
+  });
+
+  final IconData icon;
+  final bool selected;
+  final bool hasPanel;
+  final bool panelOpen;
+  final VoidCallback onTap;
+  final VoidCallback? onDoubleTap;
+
+  @override
+  State<_ToolButton> createState() => _ToolButtonState();
+}
+
+class _ToolButtonState extends State<_ToolButton> {
+  static const Duration _doubleTapWindow = Duration(milliseconds: 300);
+
+  DateTime? _lastPressAt;
+  Timer? _pendingSingle;
+
+  @override
+  void dispose() {
+    _pendingSingle?.cancel();
+    super.dispose();
+  }
+
+  void _handlePress() {
+    final onDouble = widget.onDoubleTap;
+    if (onDouble == null) {
+      widget.onTap(); // لا لوحة لهذه الأداة: ضغطة فورية دائماً
+      return;
+    }
+
+    final now = DateTime.now();
+    final last = _lastPressAt;
+    if (last != null && now.difference(last) <= _doubleTapWindow) {
+      // الضغطة الثانية: ضغطتان → لوحة التحكم.
+      _lastPressAt = null;
+      _pendingSingle?.cancel();
+      _pendingSingle = null;
+      onDouble();
+      return;
+    }
+
+    _lastPressAt = now;
+    if (widget.selected) {
+      // قد تكون بداية ضغطتين: أجّل التعطيل قليلاً.
+      _pendingSingle?.cancel();
+      _pendingSingle = Timer(_doubleTapWindow, () {
+        _pendingSingle = null;
+        _lastPressAt = null;
+        if (mounted) widget.onTap();
+      });
+    } else {
+      widget.onTap(); // تفعيل فوري
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool selected = widget.selected;
+    return Container(
+      decoration: BoxDecoration(
+        color: selected
+            ? AppColors.accentYellow.withOpacity(0.2)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          IconButton(
+            icon: Icon(
+              widget.icon,
+              color: selected ? AppColors.accentYellow : Colors.grey,
+              size: 20,
+            ),
+            onPressed: _handlePress,
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+          ),
+          // مؤشر صغير: أداة مفعّلة ولها لوحة (ممتلئ = مفتوحة، خافت = مغلقة).
+          if (selected && widget.hasPanel)
+            Positioned(
+              bottom: 3,
+              child: IgnorePointer(
+                child: Container(
+                  width: 12,
+                  height: 2.5,
+                  decoration: BoxDecoration(
+                    color: widget.panelOpen
+                        ? AppColors.accentYellow
+                        : Colors.grey.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
