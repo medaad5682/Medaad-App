@@ -20,9 +20,10 @@ typedef InkPointCallback = void Function(PointerEvent event);
 ///    أول نقطة، ولا يستطيع عارض الـ PDF (تمرير/تكبير) انتزاع هذا المؤشر.
 ///  • الإصبع (عندما يكون رفض راحة اليد معطّلاً): ننتظر حركة صغيرة (≈8px) حتى لا
 ///    نمنع التكبير بإصبعين؛ فإن نزل إصبع ثانٍ قبل ذلك نتراجع فوراً ونترك الإيماءة
-///    للعارض.
-///  • مؤشر واحد فقط لكل خط: أي مؤشر آخر يصل أثناء الخط يُسقَط (لا يحرّك الصفحة
-///    ولا يضيف نقاطاً).
+///    للعارض. أما **النقرة القصيرة بلا حركة** فتُرسَم نقطة (مثل القلم) عند رفع
+///    الإصبع، لأن الرفع نفسه هو الدليل على أنها لم تكن بداية تمرير أو تكبير.
+///  • مؤشر واحد فقط لكل خط: أي مؤشر آخر (إصبع أو قلم) يصل أثناء الخط يُسقَط (لا
+///    يحرّك الصفحة ولا يضيف نقاطاً).
 ///  • بدء/نهاية/إلغاء الخط تخص **نفس المؤشر** الذي بدأه، لا آخر مؤشر على الشاشة.
 class InkPointerRecognizer extends OneSequenceGestureRecognizer {
   InkPointerRecognizer({
@@ -33,6 +34,10 @@ class InkPointerRecognizer extends OneSequenceGestureRecognizer {
 
   /// المسافة (بالبكسل المنطقي) التي يجب أن يتحركها الإصبع قبل أن نعتبره رسماً.
   final double touchClaimSlop;
+
+  /// هل تُرسم نقطة عند نقرة إصبع قصيرة بلا حركة؟ (القلم/الفأرة يرسمان نقطة دائماً).
+  /// لا أثر لهذا الخيار عندما يكون رفض راحة اليد مفعّلاً لأن اللمس مرفوض أصلاً.
+  bool tapMakesDot = true;
 
   /// سياسة رفض راحة اليد: هل يُسمح لهذا النوع من المؤشرات بالرسم؟
   bool Function(PointerDeviceKind kind) allowKind = _allowAll;
@@ -53,6 +58,23 @@ class InkPointerRecognizer extends OneSequenceGestureRecognizer {
   final List<PointerMoveEvent> _pending = <PointerMoveEvent>[];
 
   @override
+  void addPointer(PointerDownEvent event) {
+    // قلم/فأرة يصل بينما إصبع ما زال "مرشّحاً" (لمس لم يتحرك بعد ليصبح رسماً، مثل
+    // يد مستريحة): القلم أولى. كنا نبقى "مشغولين" بالإصبع فلا نحسم القلم، فيتسرب
+    // إلى عارض الـ PDF ويحرّك الصفحة بدل أن يكتب. نتخلى عن مرشّح الإصبع ونُسقطه
+    // (حتى لا يحرّك الصفحة هو الآخر) ثم نأخذ القلم. أما لو كان الإصبع قد بدأ خطاً
+    // فعلاً فلا نقاطعه (راجع handleNonAllowedPointer).
+    final pending = _pointer;
+    if (pending != null &&
+        !_claimed &&
+        PalmRejectionFilter.isPrecise(event.kind)) {
+      resolvePointer(pending, GestureDisposition.rejected);
+      GestureBinding.instance.cancelPointer(pending);
+    }
+    super.addPointer(event);
+  }
+
+  @override
   bool isPointerAllowed(PointerDownEvent event) {
     if (_pointer != null) return false; // خط واحد في المرة
     if (!allowKind(event.kind)) return false; // رفض راحة اليد
@@ -64,10 +86,9 @@ class InkPointerRecognizer extends OneSequenceGestureRecognizer {
     final current = _pointer;
     if (current == null) return; // مؤشر مرفوض بسياسة الكف: ليس شأننا
     if (_claimed) {
-      // خط جارٍ: لا شيء آخر يحرّك الصفحة أو يعبث بالخط (باستثناء قلم آخر).
-      if (!PalmRejectionFilter.isPen(event.kind)) {
-        GestureBinding.instance.cancelPointer(event.pointer);
-      }
+      // خط جارٍ: أي مؤشر آخر يُسقَط تماماً فلا يحرّك الصفحة ولا يعبث بالخط.
+      // (كان القلم يُستثنى سابقاً فيتسرّب إلى عارض الـ PDF ويحرّك الصفحة.)
+      GestureBinding.instance.cancelPointer(event.pointer);
     } else {
       // إصبع ثانٍ نزل قبل أن نحسم: المستخدم يقرص للتكبير/يتنقل، لا يرسم.
       resolvePointer(current, GestureDisposition.rejected);
@@ -130,7 +151,17 @@ class InkPointerRecognizer extends OneSequenceGestureRecognizer {
         resolvePointer(event.pointer, GestureDisposition.accepted);
       }
     } else if (event is PointerUpEvent) {
-      if (!_claimed && _eager) _claim(); // نقرة قلم سريعة = نقطة
+      if (!_claimed) {
+        if (_eager) {
+          _claim(); // نقرة قلم سريعة = نقطة
+        } else if (tapMakesDot && onStart != null) {
+          // نقرة إصبع قصيرة (لم تتجاوز مسافة الـ slop): نقطة. نحسم الساحة لصالحنا
+          // الآن، قبل أن يُحسم الـ sweep لصالح أي Tap آخر. نُسقط الحركات الدقيقة
+          // المخزّنة كي تكون النتيجة نقطة نظيفة لا خطاً صغيراً.
+          _pending.clear();
+          resolvePointer(event.pointer, GestureDisposition.accepted);
+        }
+      }
       final claimed = _claimed;
       if (claimed) onEnd?.call(event);
       _end(resolveRejected: !claimed);
@@ -224,11 +255,9 @@ class PalmGuardLayer extends StatelessWidget {
   }
 
   void _onEnd(PointerEvent event) {
-    if (PalmRejectionFilter.isPen(event.kind)) {
-      filter.notePen(event);
-    } else {
-      filter.untrack(event.pointer);
-    }
+    // بالمعرّف لا بالنوع: حدث إلغاء مولَّد (cancelPointer) نوعه touch حتى لقلم.
+    filter.endPointer(event.pointer);
+    if (PalmRejectionFilter.isPen(event.kind)) filter.notePen(event);
   }
 
   @override
