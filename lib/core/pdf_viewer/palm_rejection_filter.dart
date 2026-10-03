@@ -41,6 +41,19 @@ class PalmRejectionFilter {
       kind == PointerDeviceKind.stylus ||
       kind == PointerDeviceKind.invertedStylus;
 
+  /// **وضع الاختبار**: عندما يكون true تُعامَل الفأرة كقلم في "حارس راحة اليد"
+  /// أيضاً: حركتها فوق الصفحة (hover) وضغطها ورفعها تُسجَّل كأحداث قلم، فتُلغى لمسات
+  /// الأصابع القريبة منها وتُلغى اللمسات المستقرّة عند ضغطها، ويسري "قرب القلم"
+  /// 0.9 ثانية بعد آخر حدث. هكذا يمكن اختبار سيناريوهات القلم/الكف بفأرة حقيقية
+  /// موصولة بجهاز أندرويد (الفأرة = قلم، الإصبع = كف).
+  /// ⚠️ اجعلها false قبل الإصدار للمستخدمين: فأرة موصولة مع لمس ستمنع لمس الأصابع
+  /// لحظات بعد كل حركة للفأرة أثناء الرسم.
+  static bool mouseActsAsPen = true;
+
+  /// قلم حقيقي، أو فأرة عندما يكون [mouseActsAsPen] مفعّلاً.
+  static bool isPenLike(PointerDeviceKind kind) =>
+      isPen(kind) || (mouseActsAsPen && kind == PointerDeviceKind.mouse);
+
   /// مؤشر دقيق: قلم أو فأرة (الفأرة للاختبار على الحاسوب).
   static bool isPrecise(PointerDeviceKind kind) =>
       isPen(kind) || kind == PointerDeviceKind.mouse;
