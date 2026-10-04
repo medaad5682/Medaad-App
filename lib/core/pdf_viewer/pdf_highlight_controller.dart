@@ -26,6 +26,10 @@ class PdfHighlightController {
   /// يُستدعى بعد أي تغيير (إضافة/حذف/تعديل) لإعادة بناء الواجهة.
   final VoidCallback onChanged;
 
+  /// يُستدعى بعد نجاح تطبيق تمييز/تسطير جديد، ومعه دالة تراجع تحذف كل ما أُضيف
+  /// في هذه العملية. تستخدمه الشاشة لتسجيل العملية في سجل التراجع العام.
+  void Function(VoidCallback undo)? onApplied;
+
   TextMarkupTool activeTool = TextMarkupTool.none;
   int highlightColor = 0xFFFFEB3B; // أصفر افتراضي للتمييز
   int underlineColor = 0xFFEF4444; // أحمر افتراضي للتسطير
@@ -127,6 +131,8 @@ class PdfHighlightController {
     }
 
     bool anyApplied = false;
+    final addedHighlights = <HighlightModel>[];
+    final addedUnderlines = <UnderlineModel>[];
     for (final range in ranges) {
       if (range.start >= range.end) {
         continue;
@@ -148,6 +154,7 @@ class PdfHighlightController {
           opacity: highlightOpacity,
         );
         list.add(model);
+        addedHighlights.add(model);
         await _persistHighlights(range.pageNumber);
         anyApplied = true;
       } else if (activeTool == TextMarkupTool.underline) {
@@ -160,6 +167,7 @@ class PdfHighlightController {
           color: underlineColor,
         );
         list.add(model);
+        addedUnderlines.add(model);
         await _persistUnderlines(range.pageNumber);
         anyApplied = true;
       }
@@ -173,6 +181,19 @@ class PdfHighlightController {
     clearPendingSelection();
     await controller.textSelectionDelegate.clearTextSelection();
     onChanged();
+
+    // سجّل العملية للتراجع العام (تحذف ما أُضيف الآن فقط).
+    final record = onApplied;
+    if (record != null) {
+      record(() {
+        for (final h in addedHighlights) {
+          deleteHighlight(h);
+        }
+        for (final u in addedUnderlines) {
+          deleteUnderline(u);
+        }
+      });
+    }
   }
 
   /// اكتشاف اللمس على تمييز/تسطير موجود عند نقطة بالـ PDF (نظام إحداثيات الصفحة).

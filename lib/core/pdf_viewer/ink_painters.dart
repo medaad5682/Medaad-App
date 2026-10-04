@@ -34,8 +34,17 @@ class PageInkState {
   /// المئوية للصفحة، فلا تتخشّن الخطوط عند التكبير.
   static const double _minDistSq = 0.5625; // 0.75px²
 
+  /// نفس العتبة للاستخدام الخارجي (الخط الممتد على عدة صفحات يُفلتر بإحداثيات
+  /// المستند × التكبير بدل إحداثيات صفحة واحدة).
+  static const double minDistanceSq = _minDistSq;
+
+  /// هل يُرسم هذا الخط (وهو حيّ) داخل الطبقة السفلية مع بقية الحبر بدل طبقة
+  /// الخط الحي؟ الممحاة والهايلايتر يحتاجان المزج مع الحبر؛ والقلم الشفاف يحتاج
+  /// أن يرى الخطوط الشفافة الأخرى كي لا يزداد قتامة عند التقاطع.
   static bool needsBlend(DrawingLine line) =>
-      line.isEraser || line.isHighlighter;
+      line.isEraser ||
+      line.isHighlighter ||
+      InkGeometry.isTranslucentPen(line);
 
   void begin(DrawingLine line, Offset local) {
     live = line;
@@ -152,9 +161,30 @@ class InkGeometry {
     return path;
   }
 
+  /// قلم بشفافية (أقل من 100%): ليس ممحاة ولا هايلايتر.
+  static bool isTranslucentPen(DrawingLine line) =>
+      !line.isEraser && !line.isHighlighter && line.opacity < 0.999;
+
+  /// أي خط شفاف (قلم شفاف أو هايلايتر حر). الخطوط الشفافة المتتالية من نفس
+  /// النوع تُرسم كمجموعة لا يغمّق فيها التقاطع.
+  static bool isTranslucentStroke(DrawingLine line) =>
+      !line.isEraser && line.opacity < 0.999;
+
+  /// هل يمكن رسم [a] و[b] في مجموعة واحدة؟ (شفافان ومن نفس النوع).
+  static bool sameTranslucentGroup(DrawingLine a, DrawingLine b) =>
+      isTranslucentStroke(a) &&
+      isTranslucentStroke(b) &&
+      a.isHighlighter == b.isHighlighter;
+
   /// يرسم خطاً واحداً. يفترض أن الـ canvas مُكبَّر مسبقاً بعرض الصفحة
   /// (`canvas.scale(width)`) فسماكة الخط (نسبة من العرض) تُستخدم كما هي.
-  static void paintLine(Canvas canvas, DrawingLine line, double aspect) {
+  ///
+  /// [replace]: للخطوط الشفافة داخل مجموعتها (saveLayer مستقلة). نستخدم
+  /// `BlendMode.src` فيحلّ الخط اللاحق محلّ السابق عند التقاطع بدل أن يتراكب
+  /// معه (src-over) أو يتضاعف (multiply)، فلا تزداد المنطقة المتقاطعة قتامة.
+  /// (الخط الواحد المتقاطع مع نفسه لا يتراكب أصلاً لأنه مسار واحد.)
+  static void paintLine(Canvas canvas, DrawingLine line, double aspect,
+      {bool replace = false}) {
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
@@ -165,12 +195,14 @@ class InkGeometry {
       paint.blendMode = BlendMode.clear;
       paint.color = Colors.transparent;
     } else if (line.isHighlighter) {
-      // هايلايتر حر: BlendMode.multiply للتداخل الطبيعي (داخل saveLayer الطبقة).
-      paint.blendMode = BlendMode.multiply;
+      // هايلايتر حر: multiply مع بقية الحبر (داخل saveLayer الطبقة)، أما داخل
+      // مجموعة هايلايتر متتالية فيحلّ الخط محلّ السابق (replace) فلا يغمّق.
+      paint.blendMode = replace ? BlendMode.src : BlendMode.multiply;
       paint.color = Color(line.color).withOpacity(line.opacity);
       paint.strokeCap = StrokeCap.square;
     } else {
       paint.color = Color(line.color).withOpacity(line.opacity);
+      if (replace) paint.blendMode = BlendMode.src;
     }
 
     final pts = line.points;
@@ -206,40 +238,77 @@ class CommittedInkPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final lines = drawings[pageNumber];
+    final List<DrawingLine> lines =
+        drawings[pageNumber] ?? const <DrawingLine>[];
     final live = ink.live;
-    final blendLive =
+    final DrawingLine? blendLive =
         (live != null && PageInkState.needsBlend(live)) ? live : null;
-    final hasLines = lines != null && lines.isNotEmpty;
+    final hasLines = lines.isNotEmpty;
     if (!hasLines && blendLive == null) return;
 
     final w = pageSize.width;
     if (w <= 0) return;
     final aspect = pageSize.height / w;
 
-    // saveLayer مطلوب فقط عند وجود خطوط تعتمد على المزج (ممحاة/هايلايتر)،
-    // فيبقى المزج داخل طبقة الحبر ولا يمسّ محتوى الـ PDF أسفلها.
-    var needsLayer = blendLive != null;
-    if (!needsLayer && hasLines) {
+    // saveLayer للصفحة مطلوب فقط عند وجود خطوط تعتمد على المزج مع بقية الحبر
+    // (ممحاة/هايلايتر)، فيبقى المزج داخل طبقة الحبر ولا يمسّ محتوى الـ PDF.
+    bool pageLayer(DrawingLine l) => l.isEraser || l.isHighlighter;
+    var needsLayer = blendLive != null && pageLayer(blendLive);
+    if (!needsLayer) {
       for (final l in lines) {
-        if (PageInkState.needsBlend(l)) {
+        if (pageLayer(l)) {
           needsLayer = true;
           break;
         }
       }
     }
 
+    // ── قصّ الرسم على حدود الصفحة: كل صفحة ترسم الجزء الذي يخصّها فقط، فلا
+    //    يظهر الخط الممتد بين صفحتين بشكل مختلف حسب وجود ممحاة/هايلايتر.
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
     if (needsLayer) canvas.saveLayer(Offset.zero & size, Paint());
     canvas.save();
     canvas.scale(w);
-    if (hasLines) {
-      for (final l in lines) {
+
+    final int committedCount = lines.length;
+    final int total = committedCount + (blendLive != null ? 1 : 0);
+    DrawingLine lineAt(int i) => i < committedCount ? lines[i] : blendLive!;
+
+    // حدود طبقة المجموعة بعد التكبير: الصفحة = [0..1] × [0..aspect].
+    final groupBounds = Rect.fromLTWH(0, 0, 1, aspect);
+    var i = 0;
+    while (i < total) {
+      final l = lineAt(i);
+      if (InkGeometry.isTranslucentStroke(l)) {
+        // مجموعة خطوط شفافة متتالية من نفس النوع (أقلام شفافة، أو هايلايتر حر):
+        // تُرسم في طبقة مستقلة بحيث يحلّ كل خط محلّ السابق عند التقاطع (لا يزداد
+        // غمقاً)، ثم تُركَّب على بقية الحبر (بالمضاعفة للهايلايتر كما كان).
+        var j = i + 1;
+        while (j < total && InkGeometry.sameTranslucentGroup(l, lineAt(j))) {
+          j++;
+        }
+        if (j - i == 1) {
+          InkGeometry.paintLine(canvas, l, aspect);
+        } else {
+          final groupPaint = Paint();
+          if (l.isHighlighter) groupPaint.blendMode = BlendMode.multiply;
+          canvas.saveLayer(groupBounds, groupPaint);
+          for (var k = i; k < j; k++) {
+            InkGeometry.paintLine(canvas, lineAt(k), aspect, replace: true);
+          }
+          canvas.restore();
+        }
+        i = j;
+      } else {
         InkGeometry.paintLine(canvas, l, aspect);
+        i++;
       }
     }
-    if (blendLive != null) InkGeometry.paintLine(canvas, blendLive, aspect);
-    canvas.restore();
-    if (needsLayer) canvas.restore();
+
+    canvas.restore(); // scale
+    if (needsLayer) canvas.restore(); // saveLayer
+    canvas.restore(); // clip
   }
 
   @override
@@ -270,6 +339,7 @@ class LiveInkPainter extends CustomPainter {
     final w = pageSize.width;
     if (w <= 0) return;
     canvas.save();
+    canvas.clipRect(Offset.zero & size);
     canvas.scale(w);
     InkGeometry.paintLine(canvas, live, pageSize.height / w);
     canvas.restore();
