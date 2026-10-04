@@ -6,6 +6,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.media.AudioRecordingConfiguration
 import android.os.Build
+import android.view.MotionEvent
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
@@ -20,6 +21,13 @@ class MainActivity: FlutterActivity() {
     private var audioManager: AudioManager? = null
     private var handler: Handler? = null
     private var recordingCheckRunnable: Runnable? = null
+
+    // ✅ وضع الرسم: عند تفعيله نطلب من النظام إيصال كل عيّنة لمس منفصلة.
+    // السبب: أندرويد يجمّع حركات اللمس بين كل frame والتالي في MotionEvent واحد
+    // (عيّنات "تاريخية")، وFlutter يقرأ آخر عيّنة فقط ويتجاهل الباقي؛ فمع الحركة
+    // السريعة بالإصبع تصل نقاط متباعدة ويظهر الخط كقطع مستقيمة. التفعيل مقصور على
+    // وضع الرسم كي لا نزيد عدد أحداث اللمس في بقية التطبيق.
+    @Volatile private var unbufferedInput = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,9 +78,31 @@ class MainActivity: FlutterActivity() {
                 "isDeviceRooted" -> {
                     result.success(isDeviceRooted())
                 }
+                // وضع الرسم في قارئ الـ PDF: إيصال كل عيّنات اللمس بلا تجميع
+                "setUnbufferedInput" -> {
+                    unbufferedInput = (call.arguments as? Boolean) ?: false
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    // ✅ طلب الإرسال غير المجمَّع (Unbuffered) لتيار اللمس الجاري. يُستدعى مع
+    // ACTION_DOWN (وACTION_MOVE احتياطاً، فالطلب مجرد علَم ويتجاهل النظام أي حدث
+    // آخر). متاح من API 21 ونحن minSdk 24.
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        if (unbufferedInput && ev != null) {
+            val action = ev.actionMasked
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                try {
+                    window.decorView.requestUnbufferedDispatch(ev)
+                } catch (e: Exception) {
+                    // لا شيء: أسوأ حالة نعود للسلوك الافتراضي.
+                }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     // ✅ دالة فحص التسجيل النشط
