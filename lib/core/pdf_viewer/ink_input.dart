@@ -1,3 +1,5 @@
+import 'dart:async' show scheduleMicrotask;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
@@ -212,6 +214,9 @@ class InkPointerRecognizer extends OneSequenceGestureRecognizer {
 ///  • وعند ظهور القلم (أول hover له، أو ملامسته للشاشة) تُلغى أيضاً اللمسات
 ///    الموجودة مسبقاً (كف استقرّ قبل القلم، أو إصبع يحرّك الصفحة/يكبّرها) كي لا
 ///    تستمر في تحريك الصفحة وهي ما زالت على الشاشة.
+///  • **وتُوقَف حركة الصفحة نفسها** ([onHaltPageMotion]): إلغاء المؤشر وحده لا
+///    يكفي، لأن عارض الـ PDF يعامل الإلغاء كرفع إصبع فيُطلق "قذفة" (fling) أو
+///    قصور تكبير بسرعة آخر لحظة فتواصل الصفحة الانزلاق بعد اختفاء الإصبع.
 ///
 /// الطبقة لا تشارك في ساحة الإيماءات ولا تستهلك أي حدث (translucent)، فلا
 /// تتعارض مع شريط الأدوات (الذي يقع خارجها) ولا مع بقية الإيماءات.
@@ -221,6 +226,7 @@ class PalmGuardLayer extends StatelessWidget {
     required this.filter,
     required this.isActive,
     required this.child,
+    this.onHaltPageMotion,
   });
 
   final PalmRejectionFilter filter;
@@ -229,28 +235,51 @@ class PalmGuardLayer extends StatelessWidget {
   final bool Function() isActive;
   final Widget child;
 
-  /// يلغي كل إصبع/كف بدأ **قبل** ظهور القلم (مستقرّاً أو يحرّك الصفحة أو يكبّرها).
-  /// يُستدعى عند أول hover للقلم وعند ملامسته، فتتوقف الحركة الجارية فوراً ولا
-  /// تستمر اللمسة السابقة في تمرير/تكبير الصفحة بينما القلم صار في النطاق.
-  /// اللمسات التي تصل بعد ظهور القلم تُلغى عند وصولها (في [_onDown]) ولا تدخل
-  /// السجل، فالسجل هنا لا يحوي إلا ما سبق القلم.
-  void _cancelTouchesStartedBeforePen() {
-    if (!filter.enabled || !isActive() || !filter.hasRestingTouches) return;
-    for (final pointer in filter.takeRestingTouches()) {
+  /// يُستدعى لإيقاف أي حركة جارية للصفحة (قذفة تمرير، قصور تكبير، ارتداد) عند
+  /// ظهور القلم. يجب أن يكون آمناً ومتكرِّر الاستدعاء (idempotent) وألا يفعل
+  /// شيئاً إن لم تكن هناك حركة.
+  final VoidCallback? onHaltPageMotion;
+
+  /// ظهور القلم: أول حدث منه (hover أو ملامسة) بعد غياب أطول من
+  /// [PalmRejectionFilter.penHold].
+  ///
+  /// 1) يلغي كل إصبع/كف بدأ **قبل** ظهور القلم (مستقرّاً أو يحرّك الصفحة أو
+  ///    يكبّرها).
+  /// 2) يوقف حركة الصفحة. ⚠️ الترتيب مهم: `GestureBinding.cancelPointer` **لا**
+  ///    يُرسل الإلغاء داخل الاستدعاء نفسه بل يضعه في الطابور ويُنفَّذ بعد عودتنا
+  ///    (قبل نهاية الـ microtask). والقذفة تنطلق لحظة وصول حدث الإلغاء إلى
+  ///    عارض الـ PDF، أي **بعد** أي إيقاف نطلبه هنا مباشرة. لذلك:
+  ///     • أُلغيت لمسات: نُجدوِل الإيقاف في microtask بعد `cancelPointer`، فيعمل
+  ///       بعد وصول الإلغاء مباشرةً وقبل أول إطار، فلا تتحرك الصفحة ولا بكسل.
+  ///     • لا لمسات (قذفة إصبع رُفع سابقاً ما زالت تنزلق): نوقفها الآن مباشرة.
+  ///    (لا حاجة للإيقاف الفوري مع وجود لمسة: العارض نفسه يوقف أي قذفة قديمة
+  ///    عند نزول الإصبع.)
+  void _onPenEvent(PointerEvent event) {
+    final appeared = !filter.penNearby; // قبل تسجيل هذا الحدث
+    filter.notePen(event);
+    if (!filter.enabled || !isActive()) return;
+
+    final touches = filter.takeRestingTouches();
+    for (final pointer in touches) {
       GestureBinding.instance.cancelPointer(pointer);
+    }
+    if (touches.isEmpty && !appeared) return; // القلم حاضر أصلاً ولا جديد
+
+    if (touches.isEmpty) {
+      onHaltPageMotion?.call();
+    } else {
+      scheduleMicrotask(() => onHaltPageMotion?.call());
     }
   }
 
   void _onHover(PointerHoverEvent event) {
     if (!PalmRejectionFilter.isPen(event.kind)) return;
-    filter.notePen(event);
-    _cancelTouchesStartedBeforePen();
+    _onPenEvent(event);
   }
 
   void _onDown(PointerDownEvent event) {
     if (PalmRejectionFilter.isPen(event.kind)) {
-      filter.notePen(event);
-      _cancelTouchesStartedBeforePen();
+      _onPenEvent(event);
       return;
     }
     if (PalmRejectionFilter.isPrecise(event.kind)) return; // فأرة
