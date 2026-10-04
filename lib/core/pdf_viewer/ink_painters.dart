@@ -370,7 +370,12 @@ class ShapesLayerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (shapes.isEmpty && preview == null) return;
+    // كل صفحة ترسم الجزء الذي يخصّها فقط: الشكل الممتد على صفحتين يُقصّ عند حدود
+    // كل صفحة (كالخط الحر)، فلا يختلف ظهوره بحسب أيّ صفحة بدأ منها.
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
     controller.paintShapes(canvas, pageSize, shapes, preview: preview);
+    canvas.restore();
   }
 
   // الأشكال تُعدَّل في مكانها (نقل/تعديل) فنعيد الرسم دائماً؛ عددها قليل.

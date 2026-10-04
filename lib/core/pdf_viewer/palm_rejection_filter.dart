@@ -118,7 +118,13 @@ class PalmRejectionFilter {
 
   void untrack(int pointer) => _restingTouches.remove(pointer);
 
-  /// يعيد اللمسات الموضوعة حالياً على الشاشة ويفرّغ السجل (تُلغى بعد ملامسة القلم).
+  /// هل توجد لمسات إصبع/كف جارية بدأت قبل أن يصبح القلم قريباً؟
+  /// (اللمسات التي تصل والقلم قريب تُلغى فور وصولها ولا تُتتبَّع أصلاً، فلا يبقى
+  /// في السجل إلا ما بدأ قبل ظهور القلم.)
+  bool get hasRestingTouches => _restingTouches.isNotEmpty;
+
+  /// يعيد اللمسات الموضوعة حالياً على الشاشة ويفرّغ السجل (تُلغى عند ظهور القلم:
+  /// أول hover له، أو ملامسته للشاشة).
   List<int> takeRestingTouches() {
     final list = _restingTouches.toList();
     _restingTouches.clear();

@@ -209,8 +209,9 @@ class InkPointerRecognizer extends OneSequenceGestureRecognizer {
 ///  • عندما يكون رفض راحة اليد مفعّلاً وأداة رسم نشطة ([isActive]) فإن أي لمسة
 ///    إصبع/كف تصل والقلم قريب تُلغى فوراً بـ `GestureBinding.cancelPointer`
 ///    فلا يراها عارض الـ PDF أبداً (لا تمرير ولا تكبير ولا سحب).
-///  • وعند ملامسة القلم للشاشة تُلغى أيضاً اللمسات الموجودة مسبقاً (كف استقرّ
-///    قبل القلم) كي لا تحرّك الصفحة وهي ما زالت على الشاشة.
+///  • وعند ظهور القلم (أول hover له، أو ملامسته للشاشة) تُلغى أيضاً اللمسات
+///    الموجودة مسبقاً (كف استقرّ قبل القلم، أو إصبع يحرّك الصفحة/يكبّرها) كي لا
+///    تستمر في تحريك الصفحة وهي ما زالت على الشاشة.
 ///
 /// الطبقة لا تشارك في ساحة الإيماءات ولا تستهلك أي حدث (translucent)، فلا
 /// تتعارض مع شريط الأدوات (الذي يقع خارجها) ولا مع بقية الإيماءات.
@@ -228,18 +229,28 @@ class PalmGuardLayer extends StatelessWidget {
   final bool Function() isActive;
   final Widget child;
 
+  /// يلغي كل إصبع/كف بدأ **قبل** ظهور القلم (مستقرّاً أو يحرّك الصفحة أو يكبّرها).
+  /// يُستدعى عند أول hover للقلم وعند ملامسته، فتتوقف الحركة الجارية فوراً ولا
+  /// تستمر اللمسة السابقة في تمرير/تكبير الصفحة بينما القلم صار في النطاق.
+  /// اللمسات التي تصل بعد ظهور القلم تُلغى عند وصولها (في [_onDown]) ولا تدخل
+  /// السجل، فالسجل هنا لا يحوي إلا ما سبق القلم.
+  void _cancelTouchesStartedBeforePen() {
+    if (!filter.enabled || !isActive() || !filter.hasRestingTouches) return;
+    for (final pointer in filter.takeRestingTouches()) {
+      GestureBinding.instance.cancelPointer(pointer);
+    }
+  }
+
   void _onHover(PointerHoverEvent event) {
-    if (PalmRejectionFilter.isPen(event.kind)) filter.notePen(event);
+    if (!PalmRejectionFilter.isPen(event.kind)) return;
+    filter.notePen(event);
+    _cancelTouchesStartedBeforePen();
   }
 
   void _onDown(PointerDownEvent event) {
     if (PalmRejectionFilter.isPen(event.kind)) {
       filter.notePen(event);
-      if (filter.enabled && isActive()) {
-        for (final pointer in filter.takeRestingTouches()) {
-          GestureBinding.instance.cancelPointer(pointer);
-        }
-      }
+      _cancelTouchesStartedBeforePen();
       return;
     }
     if (PalmRejectionFilter.isPrecise(event.kind)) return; // فأرة
