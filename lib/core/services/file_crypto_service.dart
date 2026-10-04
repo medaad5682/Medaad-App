@@ -94,6 +94,28 @@ class FileCryptoService {
     }
   }
 
+  /// Decrypts ONE on-disk block laid out as `[nonce][ciphertext][mac]` and
+  /// returns the plaintext, or `null` if it is truncated or fails Poly1305
+  /// authentication. Used by [SecureChunkReader]; the key never leaves this class.
+  static Future<Uint8List?> decryptBlock(Uint8List block) async {
+    await init();
+    if (block.length <= NONCE_LENGTH + MAC_LENGTH) return null;
+    try {
+      final plain = await _algorithm.decrypt(
+        SecretBox(
+          Uint8List.sublistView(block, NONCE_LENGTH, block.length - MAC_LENGTH),
+          nonce: Uint8List.sublistView(block, 0, NONCE_LENGTH),
+          mac: Mac(Uint8List.sublistView(block, block.length - MAC_LENGTH)),
+        ),
+        secretKey: _key!,
+      );
+      return plain is Uint8List ? plain : Uint8List.fromList(plain);
+    } catch (e) {
+      debugPrint('FileCryptoService: block failed to authenticate ($e)');
+      return null;
+    }
+  }
+
   static Future<Uint8List> readAndDecryptRange(File encryptedFile, int offset, int length) async {
     await init();
     final raf = await encryptedFile.open(mode: FileMode.read);
