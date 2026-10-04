@@ -31,6 +31,7 @@ import '../../core/pdf_viewer/pdf_page_text_cache.dart';
 import '../../core/pdf_viewer/pdf_highlight_controller.dart';
 import '../../core/pdf_viewer/pdf_shape_controller.dart';
 import '../../core/pdf_viewer/pdf_text_note_controller.dart';
+import '../../core/services/secure_chunk_reader.dart';
 import '../../core/pdf_viewer/pdf_image_annotation_controller.dart';
 import '../../core/pdf_viewer/palm_rejection_filter.dart';
 import '../../core/pdf_viewer/ink_input.dart';
@@ -68,6 +69,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
 
   // --- متغيرات فك التشفير (بدون أي تغيير عن النسخة الأصلية) ---
   File? _encryptedFile;
+  // One reader per open document: keeps the file handle open and caches
+  // decrypted blocks in RAM only (never on disk). Closed in dispose().
+  SecureChunkReader? _reader;
   int? _originalFileSize;
   String? _sessionToken;
 
@@ -246,6 +250,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     }
     _drawingSaveTimer?.cancel();
     _documentEventsSubscription?.cancel();
+    _reader?.close();
     for (final ink in _inks.values) {
       ink.dispose();
     }
@@ -287,16 +292,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   Future<int> _customRead(Uint8List buffer, int position, int size) async {
     try {
       if (_sessionToken == null) throw Exception("Unauthorized access context");
-      if (_encryptedFile == null) throw Exception("File not initialized");
+      final reader = _reader;
+      if (reader == null) throw Exception("File not initialized");
 
-      final decryptedData = await FileCryptoService.readAndDecryptRange(
-          _encryptedFile!, position, size);
-
-      if (decryptedData.isNotEmpty) {
-        buffer.setRange(0, decryptedData.length, decryptedData);
-        return decryptedData.length;
-      }
-      return 0;
+      return await reader.read(buffer, position, size);
     } catch (e) {
       debugPrint("Secure Read Error: $e");
       return 0;
@@ -498,9 +497,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
             // Create the controller INSIDE setState so it is never attached to
             // any widget until this exact rebuild — preventing a stale-controller
             // race on the first open after app launch.
+            _reader?.close();
+            final reader = SecureChunkReader(file);
             setState(() {
               _isOffline = true;
               _encryptedFile = file;
+              _reader = reader;
               _originalFileSize = originalSize;
               _pdfController = PdfViewerController();
               _viewerKey = UniqueKey();
