@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/app_state.dart';
 import '../../../core/pdf_viewer/pdf_tool.dart';
 import '../../../core/models/shape_model.dart';
 import 'color_palette_row.dart';
@@ -130,9 +131,18 @@ class PdfAnnotationToolbar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
       decoration: BoxDecoration(
-        color: Colors.grey[900],
+        // سطح الشريط يتبع الوضع: داكن كما كان في الليلي، وفاتح بحدّ واضح في
+        // النهاري (كان داكناً دائماً فتضيع حدود وألوان الأدوات في اللايت مود).
+        color: AppColors.toolbarSurface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 8)],
+        border: AppState.isDark
+            ? null
+            : Border.all(color: AppColors.toolBorder, width: 1),
+        boxShadow: [
+          BoxShadow(
+              color: AppState.isDark ? Colors.black54 : Colors.black26,
+              blurRadius: 8)
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -162,11 +172,11 @@ class PdfAnnotationToolbar extends StatelessWidget {
           _toolIcon(LucideIcons.eraser, PdfTool.eraser),
           _toolIcon(Icons.comment_outlined, PdfTool.comment),
           const SizedBox(width: 6),
-          Container(width: 1, height: 22, color: Colors.grey),
+          Container(width: 1, height: 22, color: AppColors.toolIconInactive),
           const SizedBox(width: 6),
           _compactButton(
             icon: Icons.undo,
-            color: Colors.white,
+            color: AppColors.textPrimary,
             tooltip: 'تراجع',
             onPressed: onUndo,
           ),
@@ -205,12 +215,12 @@ class PdfAnnotationToolbar extends StatelessWidget {
           decoration: BoxDecoration(
             color: on ? AppColors.accentYellow.withOpacity(0.2) : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: on ? AppColors.accentYellow : Colors.grey, width: 1),
+            border: Border.all(color: on ? AppColors.accentYellow : AppColors.toolIconInactive, width: 1),
           ),
           child: Icon(
             Icons.front_hand_outlined,
             size: 18,
-            color: on ? AppColors.accentYellow : Colors.grey,
+            color: on ? AppColors.accentYellow : AppColors.toolIconInactive,
           ),
         ),
       ),
@@ -313,8 +323,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
                 value: highlighterOpacity,
                 min: 0.1,
                 max: 0.8,
-                activeColor: highlighterColor,
-                inactiveColor: highlighterColor.withOpacity(0.25),
+                activeColor: AppColors.visibleOnToolSurface(highlighterColor),
+                inactiveColor: AppColors.toolTrackInactive,
                 onChanged: onHighlighterOpacityChanged,
               ),
             ),
@@ -337,17 +347,42 @@ class PdfAnnotationToolbar extends StatelessWidget {
   }
 
   Widget _eraserPanel(BuildContext context) {
+    // نطاق الحجم (يطابق min/max للـ Slider) لحساب معاينة دائرية لحجم الممحاة.
+    const double minSize = 0.01;
+    const double maxSize = 0.12;
+    final double t = ((eraserSize - minSize) / (maxSize - minSize)).clamp(0.0, 1.0);
+    final double previewDiameter = 8 + t * 16;
     return Row(
       children: [
         Icon(Icons.line_weight, size: 16, color: AppColors.textSecondary),
         const SizedBox(width: 8),
         Expanded(
           child: Slider(
-            value: eraserSize,
-            min: 0.01,
-            max: 0.12,
-            activeColor: Colors.white,
+            value: eraserSize.clamp(minSize, maxSize),
+            min: minSize,
+            max: maxSize,
+            // ألوان صريحة: الجزء المعبّأ بلون التمييز والباقي رمادي واضح، فيظهر
+            // الفرق عند السحب (كان كله أبيض فلا يُرى أي فرق).
+            activeColor: AppColors.accentYellow,
+            inactiveColor: AppColors.toolTrackInactive,
+            thumbColor: AppColors.accentYellow,
             onChanged: onEraserSizeChanged,
+          ),
+        ),
+        // معاينة مباشرة لحجم الممحاة الحالي
+        SizedBox(
+          width: 28,
+          height: 28,
+          child: Center(
+            child: Container(
+              width: previewDiameter,
+              height: previewDiameter,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.accentYellow.withOpacity(0.25),
+                border: Border.all(color: AppColors.toolBorder, width: 1.2),
+              ),
+            ),
           ),
         ),
       ],
@@ -372,8 +407,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
                 min: 0.010,
                 max: 0.060,
                 divisions: 10,
-                activeColor: textColor,
-                inactiveColor: textColor.withOpacity(0.25),
+                activeColor: AppColors.visibleOnToolSurface(textColor),
+                inactiveColor: AppColors.toolTrackInactive,
                 onChanged: onTextFontSizeChanged,
               ),
             ),
@@ -431,8 +466,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
                 value: highlighterOpacity,
                 min: 0.1,
                 max: 0.8,
-                activeColor: highlighterColor,
-                inactiveColor: highlighterColor.withOpacity(0.25),
+                activeColor: AppColors.visibleOnToolSurface(highlighterColor),
+                inactiveColor: AppColors.toolTrackInactive,
                 onChanged: onHighlighterOpacityChanged,
               ),
             ),
@@ -456,8 +491,8 @@ class PdfAnnotationToolbar extends StatelessWidget {
                 value: freehandHighlighterThickness,
                 min: 0.008,
                 max: 0.06,
-                activeColor: highlighterColor,
-                inactiveColor: highlighterColor.withOpacity(0.25),
+                activeColor: AppColors.visibleOnToolSurface(highlighterColor),
+                inactiveColor: AppColors.toolTrackInactive,
                 onChanged: onFreehandHighlighterThicknessChanged,
               ),
             ),
@@ -535,9 +570,9 @@ class PdfAnnotationToolbar extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? AppColors.accentYellow.withOpacity(0.2) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: selected ? AppColors.accentYellow : Colors.grey, width: 1),
+          border: Border.all(color: selected ? AppColors.accentYellow : AppColors.toolIconInactive, width: 1),
         ),
-        child: Icon(icon, size: 18, color: selected ? AppColors.accentYellow : Colors.grey),
+        child: Icon(icon, size: 18, color: selected ? AppColors.accentYellow : AppColors.toolIconInactive),
       ),
     );
   }
@@ -632,7 +667,7 @@ class _ToolButtonState extends State<_ToolButton> {
           IconButton(
             icon: Icon(
               widget.icon,
-              color: selected ? AppColors.accentYellow : Colors.grey,
+              color: selected ? AppColors.accentYellow : AppColors.toolIconInactive,
               size: 20,
             ),
             onPressed: _handlePress,
@@ -651,7 +686,7 @@ class _ToolButtonState extends State<_ToolButton> {
                   decoration: BoxDecoration(
                     color: widget.panelOpen
                         ? AppColors.accentYellow
-                        : Colors.grey.withOpacity(0.5),
+                        : AppColors.toolIconInactive.withOpacity(0.5),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),

@@ -65,7 +65,7 @@ class ColorPaletteRow extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(
-            color: isTransparentSelected ? AppColors.accentYellow : Colors.white24,
+            color: isTransparentSelected ? AppColors.accentYellow : AppColors.toolBorder,
             width: isTransparentSelected ? 2.5 : 1,
           ),
         ),
@@ -86,8 +86,8 @@ class ColorPaletteRow extends StatelessWidget {
           color: color,
           shape: BoxShape.circle,
           border: Border.all(
-            color: selected ? AppColors.accentYellow : Colors.white24,
-            width: selected ? 2.5 : 1,
+            color: selected ? AppColors.accentYellow : AppColors.toolBorder,
+            width: selected ? 2.5 : 1.2,
           ),
           boxShadow: selected
               ? [BoxShadow(color: AppColors.accentYellow.withOpacity(0.5), blurRadius: 6)]
@@ -113,7 +113,7 @@ class ColorPaletteRow extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(
-            color: isCustom ? AppColors.accentYellow : Colors.white24,
+            color: isCustom ? AppColors.accentYellow : AppColors.toolBorder,
             width: isCustom ? 2.5 : 1,
           ),
           gradient: const SweepGradient(colors: [
@@ -185,7 +185,7 @@ class _CustomColorDialogState extends State<_CustomColorDialog> {
               decoration: BoxDecoration(
                 color: current,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white24),
+                border: Border.all(color: AppColors.toolBorder),
               ),
             ),
             const SizedBox(height: 16),
