@@ -43,6 +43,38 @@ class AppColors {
       ? Colors.white.withOpacity(0.05)
       : _lightTextSecondary.withOpacity(0.45);
 
+  // ========================================================
+  // 🛠️ ألوان أدوات قارئ الـ PDF (واضحة في الوضعين)
+  // ========================================================
+
+  /// حدود دوائر الألوان/المعاينات داخل لوحة الأدوات.
+  /// في الفاتح: حد داكن واضح (الأبيض/الفاتح كان يختفي فوق الخلفية الفاتحة).
+  static Color get toolBorder => AppState.isDark
+      ? Colors.white24
+      : _lightTextSecondary.withOpacity(0.65);
+
+  /// الجزء غير المعبّأ من شريط التحكم (Slider) داخل الأدوات.
+  static Color get toolTrackInactive => AppState.isDark
+      ? Colors.white24
+      : _lightTextSecondary.withOpacity(0.35);
+
+  /// سطح شريط الأدوات العائم.
+  static Color get toolbarSurface =>
+      AppState.isDark ? const Color(0xFF212121) : _lightBgSecondary;
+
+  /// أيقونة أداة غير مفعّلة.
+  static Color get toolIconInactive =>
+      AppState.isDark ? Colors.grey : _lightTextSecondary;
+
+  /// يضمن أن [c] يظهر فوق سطح الأدوات: إن كان لونه قريباً جداً من السطح
+  /// (أبيض فوق فاتح / أسود فوق داكن) نستبدله بلون التمييز.
+  /// يُستخدم لألوان أشرطة التحكم ومعاينة السماكة فقط (لا يغيّر لون الرسم).
+  static Color visibleOnToolSurface(Color c) {
+    final surface = toolbarSurface;
+    final diff = (c.computeLuminance() - surface.computeLuminance()).abs();
+    return diff < 0.18 ? accentYellow : c.withOpacity(1.0);
+  }
+
   // ألوان ثابتة لا تتغير (إلا إذا أردت تغييرها أيضاً)
   static const Color accentOrange = Color(0xFFb45309);
   static const Color accentBlue = Color(0xFF3B82F6);
