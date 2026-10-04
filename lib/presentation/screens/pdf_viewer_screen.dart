@@ -588,6 +588,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
             filter: _palmFilter,
             isActive: () =>
                 _isDrawingMode && _penGuardTools.contains(_activeTool),
+            onHaltPageMotion: _haltPdfMotion,
             child: _isOffline && _encryptedFile != null && _originalFileSize != null
                 ? PdfViewer.custom(
                     key: _viewerKey,
@@ -1230,6 +1231,45 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   // --- معالجة الإيماءات الموحّدة (تحترم رفض راحة اليد) ---
 
   bool _palmAllows(PointerDeviceKind? kind) => _palmFilter.isAllowed(kind);
+
+  /// يوقف فوراً أي حركة جارية للصفحة عند ظهور القلم: قذفة التمرير (fling) بعد
+  /// سحب الإصبع، وقصور/ارتداد التكبير بعد القرص. إلغاء مؤشر الإصبع وحده لا
+  /// يكفي لأن عارض الـ PDF يبدأ القذفة بسرعة آخر لحظة عند انتهاء الإيماءة (رفعاً
+  /// كان أم إلغاءً). آمن للاستدعاء المتكرر ولا يفعل شيئاً إن لم تكن هناك حركة.
+  void _haltPdfMotion() {
+    if (!mounted) return;
+    final c = _pdfController;
+    if (c == null || !c.isReady) return;
+    try {
+      c.stopInteractiveViewerAnimation();
+      _settlePdfIntoBounds(c);
+    } catch (_) {
+      // العارض لم يكتمل تخطيطه بعد (لا حجم/تخطيط): لا حركة لإيقافها.
+    }
+  }
+
+  /// بعد الإيقاف قد تبقى الصفحة خارج حدودها (ارتداد overscroll عند حافة
+  /// المستند، أو قرص توقّف أثناء تجاوز حدّ التكبير). نُعيدها بحركة قصيرة جداً
+  /// إلى أقرب وضع صالح كي لا تبقى عالقة خارج الحدود. لا شيء يتحرك إن كانت
+  /// الصفحة داخل حدودها أصلاً.
+  void _settlePdfIntoBounds(PdfViewerController c) {
+    const settle = Duration(milliseconds: 120);
+
+    final zoom = c.currentZoom;
+    final safeZoom = math.min(math.max(zoom, c.minScale), c.maxScale);
+    if ((zoom - safeZoom).abs() > 0.002) {
+      c.setZoom(c.centerPosition, safeZoom, duration: settle).ignore();
+      return;
+    }
+
+    final now = c.value;
+    final safe = c.makeMatrixInSafeRange(now, forceClamp: true);
+    final a = now.getTranslation();
+    final b = safe.getTranslation();
+    if ((a.x - b.x).abs() > 0.5 || (a.y - b.y).abs() > 0.5) {
+      c.goTo(safe, duration: settle).ignore();
+    }
+  }
 
   // ───────────────────────── طبقات الحبر ─────────────────────────
 
