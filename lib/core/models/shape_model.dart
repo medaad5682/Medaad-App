@@ -13,6 +13,13 @@ class ShapeModel {
   int? fillColor; // null = بلا تعبئة (شفاف)
   double borderWidth;
 
+  /// الشكل الذي يمتد على أكثر من صفحة يُقسَّم إلى أجزاء، لكل صفحة جزؤها بإحداثيات
+  /// نسبية لتلك الصفحة (قد تتجاوز 0..1 ويقصّها رسم الصفحة عند حدودها). كل أجزاء
+  /// الشكل الواحد تشترك في [groupId] وتحمل [groupPages] (أرقام صفحات الأجزاء).
+  /// null للأشكال القديمة (جزء وحيد): معرّفها [id] هو معرّف المجموعة.
+  String? groupId;
+  List<int>? groupPages;
+
   ShapeModel({
     required this.id,
     required this.type,
@@ -23,6 +30,8 @@ class ShapeModel {
     required this.borderColor,
     this.fillColor,
     this.borderWidth = 0.004,
+    this.groupId,
+    this.groupPages,
   });
 
   Map<String, dynamic> toJson() {
@@ -36,6 +45,8 @@ class ShapeModel {
       'bc': borderColor,
       'fc': fillColor,
       'bw': borderWidth,
+      if (groupId != null) 'gid': groupId,
+      if (groupPages != null) 'gp': groupPages,
     };
   }
 
@@ -50,6 +61,8 @@ class ShapeModel {
       borderColor: json['bc'] as int,
       fillColor: json['fc'] as int?,
       borderWidth: (json['bw'] as num?)?.toDouble() ?? 0.004,
+      groupId: json['gid'] as String?,
+      groupPages: (json['gp'] as List?)?.map((e) => (e as num).toInt()).toList(),
     );
   }
 }
