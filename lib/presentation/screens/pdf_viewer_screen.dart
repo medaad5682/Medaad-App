@@ -212,6 +212,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
         setState(() {});
       },
     );
+    // تخطيط الصفحات بفضاء المستند: يقسّم الشكل الممتد بين صفحتين على صفحاته.
+    _shapeController.layoutProvider = _pageLayouts;
     _textNoteController = PdfTextNoteController(
       store: _store,
       onChanged: () {
@@ -1103,6 +1105,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                                       ),
                                     )
                                 : null,
+                            // نهاية السحب: يُعاد تقسيم الشكل على الصفحات التي صار
+                            // يلامسها (أو يخرج من التي لم يعد يلامسها).
+                            onPanEnd: _activeTool == PdfTool.shape ||
+                                    _activeTool == PdfTool.none
+                                ? (_) => _shapeController.finishMove(
+                                    shape, page.pageNumber)
+                                : null,
+                            onPanCancel: _activeTool == PdfTool.shape ||
+                                    _activeTool == PdfTool.none
+                                ? () => _shapeController.finishMove(
+                                    shape, page.pageNumber)
+                                : null,
                             // النقر لفتح نافذة التعديل
                             onTap: () => _tryEditExistingShape(
                               Offset(
@@ -1337,7 +1351,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                 r.dragStartBehavior = DragStartBehavior.down;
                 r.supportedDevices = devices;
                 r.onStart = (d) => _onShapePanStart(d, page, pageRect);
-                r.onUpdate = (d) => _onShapePanUpdate(d, pageRect);
+                r.onUpdate = (d) => _onShapePanUpdate(d, page, pageRect);
                 r.onEnd = (_) => _onShapePanEnd(page, pageRect);
                 r.onCancel = () => _onShapePanEnd(page, pageRect);
               },
@@ -1860,25 +1874,31 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   void _onShapePanStart(DragStartDetails d, PdfPage page, Rect pageRect) {
     if (!_isDrawingMode || _activeTool != PdfTool.shape) return;
     if (pageRect.width <= 0 || pageRect.height <= 0) return;
+    // نقطة البداية بفضاء المستند: الشكل الممتد بين صفحتين يُقسَّم على صفحاته
+    // (جزء لكل صفحة، يقصّه رسمها عند حدودها) كالخط الحر تماماً.
     _shapeController.startDrawing(
-        page.pageNumber, _rel(d.localPosition, pageRect));
+      page.pageNumber,
+      _rel(d.localPosition, pageRect),
+      docPoint: _docPoint(page, pageRect, d.localPosition),
+    );
   }
 
-  void _onShapePanUpdate(DragUpdateDetails d, Rect pageRect) {
+  void _onShapePanUpdate(DragUpdateDetails d, PdfPage page, Rect pageRect) {
     if (!_isDrawingMode || _activeTool != PdfTool.shape) return;
     if (pageRect.width <= 0 || pageRect.height <= 0) return;
-    _shapeController.updateDrawing(_rel(d.localPosition, pageRect));
+    _shapeController.updateDrawing(
+      _rel(d.localPosition, pageRect),
+      docPoint: _docPoint(page, pageRect, d.localPosition),
+    );
   }
 
   Future<void> _onShapePanEnd(PdfPage page, Rect pageRect) async {
     if (_activeTool != PdfTool.shape) return;
-    final pageNumber = page.pageNumber;
-    final drawn = _shapeController.drawingShapeForPage(pageNumber);
-    await _shapeController.endDrawing(pageSize: pageRect.size);
-    // الشكل أُضيف فعلاً (لم يُهمَل لصغره): سجّله في سجل التراجع العام.
-    if (drawn != null &&
-        _shapeController.shapesForPage(pageNumber).any((s) => identical(s, drawn))) {
-      _pushUndo(() => _shapeController.deleteShape(drawn, pageNumber));
+    final groupId = await _shapeController.endDrawing(pageSize: pageRect.size);
+    // الشكل أُضيف فعلاً (لم يُهمَل لصغره): سجّله في سجل التراجع العام. التراجع
+    // يحذف الشكل بكل أجزائه من كل الصفحات معاً.
+    if (groupId != null) {
+      _pushUndo(() => _shapeController.deleteGroupById(groupId));
     }
   }
 
