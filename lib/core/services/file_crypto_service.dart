@@ -101,12 +101,13 @@ class FileCryptoService {
     await init();
     if (block.length <= NONCE_LENGTH + MAC_LENGTH) return null;
     try {
+      // Plain sublist() copies, exactly like readAndDecryptRange does.
+      final nonce = block.sublist(0, NONCE_LENGTH);
+      final cipherText = block.sublist(NONCE_LENGTH, block.length - MAC_LENGTH);
+      final macBytes = block.sublist(block.length - MAC_LENGTH);
+
       final plain = await _algorithm.decrypt(
-        SecretBox(
-          Uint8List.sublistView(block, NONCE_LENGTH, block.length - MAC_LENGTH),
-          nonce: Uint8List.sublistView(block, 0, NONCE_LENGTH),
-          mac: Mac(Uint8List.sublistView(block, block.length - MAC_LENGTH)),
-        ),
+        SecretBox(cipherText, nonce: nonce, mac: Mac(macBytes)),
         secretKey: _key!,
       );
       return plain is Uint8List ? plain : Uint8List.fromList(plain);
