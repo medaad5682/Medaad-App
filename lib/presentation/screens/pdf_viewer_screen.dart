@@ -98,6 +98,35 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   // أي build، والخط الجاري رسمه. راجع core/pdf_viewer/ink_painters.dart.
   final Map<int, PageInkState> _inks = {};
 
+  // قناة أندرويد الموجودة مسبقاً (MainActivity). نضيف عليها أمر واحد فقط لإيصال
+  // كل عيّنات اللمس أثناء وضع الرسم (راجع MainActivity.dispatchTouchEvent).
+  static const MethodChannel _inputChannel =
+      MethodChannel('medaad.app.com/audio_protection');
+
+  /// أندرويد فقط. فشله غير مؤثر (نعود للسلوك الافتراضي).
+  void _setUnbufferedInput(bool enabled) {
+    if (!Platform.isAndroid) return;
+    // ignore: discarded_futures
+    _inputChannel
+        .invokeMethod<void>('setUnbufferedInput', enabled)
+        .catchError((Object _) {});
+  }
+
+  // الخطوط الجارية الآن (مفتاحها رقم الصفحة التي بدأ فيها الخط). الخط الواحد قد
+  // يمتد على عدة صفحات فيُقسَّم إلى أجزاء، لكل صفحة جزؤها الذي تقصّه وترسمه.
+  final Map<int, _InkSession> _inkSessions = {};
+
+  // ── سجل التراجع العام ───────────────────────────────────────────────────
+  // كل عملية (خط/ممحاة/شكل/نص/تمييز/صورة/ملاحظة) تُسجَّل بترتيب تنفيذها عبر
+  // كل الصفحات؛ وزر "تراجع" يلغي آخر عملية فعلها المستخدم أياً كانت صفحتها.
+  final List<VoidCallback> _undoStack = [];
+  static const int _maxUndoSteps = 300;
+
+  // تحميل خطوط الصفحات المحفوظة: Future واحد لكل صفحة + مجموعة المكتمل منها.
+  // لا نكتب أبداً فوق المحفوظ قبل اكتمال تحميله (خط قد يعبر إلى صفحة لم تُحمَّل).
+  final Map<int, Future<void>> _drawingLoadFutures = {};
+  final Set<int> _drawingsLoaded = {};
+
   // ── حفظ مؤجّل (Debounced): لا نكتب في التخزين عند كل خط، بل بعد توقّف
   //    المستخدم قليلاً، وعند مغادرة الشاشة/إخفاء التطبيق.
   final Set<int> _dirtyDrawingPages = {};
@@ -175,6 +204,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
         setState(() {});
       },
     );
+    _highlightController.onApplied = _pushUndo;
     _shapeController = PdfShapeController(
       store: _store,
       onChanged: () {
@@ -205,6 +235,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_isDrawingMode) _setUnbufferedInput(false);
     // الحفظ المؤجّل لا يجوز أن يضيع عند مغادرة الشاشة.
     if (_isOffline) {
       _saveAnnotationsToHive();
@@ -323,8 +354,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     _drawingSaveTimer = null;
     _dirtyDrawingPages.clear();
     try {
-      for (var entry in _pageDrawings.entries) {
-        await _store.saveDrawings(entry.key, entry.value);
+      for (final pageNumber in _pageDrawings.keys.toList()) {
+        final lines = _pageDrawings[pageNumber];
+        if (lines == null) continue;
+        // لا نكتب فوق المحفوظ قبل دمجه (صفحة عبرها خط ولم يكتمل تحميلها).
+        if (!_drawingsLoaded.contains(pageNumber)) {
+          try {
+            await _ensureDrawingsLoaded(pageNumber);
+          } catch (_) {
+            continue;
+          }
+        }
+        await _store.saveDrawings(pageNumber, _pageDrawings[pageNumber] ?? lines);
       }
       for (var entry in _pageComments.entries) {
         await _store.saveComments(entry.key, entry.value);
@@ -348,12 +389,44 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     final pages = _dirtyDrawingPages.toList();
     _dirtyDrawingPages.clear();
     for (final pageNumber in pages) {
-      final lines = _pageDrawings[pageNumber];
-      if (lines == null) continue;
+      if (_pageDrawings[pageNumber] == null) continue;
       try {
+        // صفحة عبرها خط للتو: انتظر دمج المحفوظ أولاً كي لا نستبدله.
+        if (!_drawingsLoaded.contains(pageNumber)) {
+          await _ensureDrawingsLoaded(pageNumber);
+        }
+        final lines = _pageDrawings[pageNumber];
+        if (lines == null) continue;
         await _store.saveDrawings(pageNumber, lines);
       } catch (_) {}
     }
+  }
+
+  /// يحمّل خطوط صفحة من التخزين ويدمجها مع ما رُسم عليها قبل اكتمال التحميل.
+  /// آمن للاستدعاء المتكرر (Future واحد لكل صفحة).
+  Future<void> _ensureDrawingsLoaded(int pageNumber) async {
+    final existingFuture = _drawingLoadFutures[pageNumber];
+    if (existingFuture != null) return existingFuture;
+    final future = _loadDrawingsInto(pageNumber);
+    _drawingLoadFutures[pageNumber] = future;
+    try {
+      await future;
+    } catch (_) {
+      _drawingLoadFutures.remove(pageNumber); // أعد المحاولة لاحقاً
+      rethrow;
+    }
+  }
+
+  Future<void> _loadDrawingsInto(int pageNumber) async {
+    final loaded = await _store.loadDrawings(pageNumber);
+    // لو رسم المستخدم على الصفحة قبل اكتمال التحميل لا نكتب فوق خطوطه.
+    final existing = _pageDrawings[pageNumber];
+    _pageDrawings[pageNumber] =
+        existing == null ? loaded : <DrawingLine>[...loaded, ...existing];
+    _drawingsLoaded.add(pageNumber);
+    // قائمة الرسم نفسها (الـ Map) لم تتغيّر هويتها، فلا يُعاد رسم الطبقة
+    // تلقائياً؛ نُبلغها صراحةً بأن الخطوط المحفوظة صارت جاهزة.
+    if (mounted) _inkFor(pageNumber).committed.value++;
   }
 
   /// Future واحد مُخزَّن لكل صفحة. كان `pageOverlaysBuilder` ينشئ Future جديداً
@@ -372,16 +445,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
 
   // ✅ جلب كل أنواع التعليقات/الرسومات لصفحة معينة (يضيف الأنواع الجديدة على القديمة)
   Future<void> _loadAnnotationsForPage(int pageNumber) async {
-    if (!_pageDrawings.containsKey(pageNumber)) {
-      final loaded = await _store.loadDrawings(pageNumber);
-      // لو رسم المستخدم على الصفحة قبل اكتمال التحميل لا نكتب فوق خطوطه.
-      final existing = _pageDrawings[pageNumber];
-      _pageDrawings[pageNumber] =
-          existing == null ? loaded : <DrawingLine>[...loaded, ...existing];
-      // قائمة الرسم نفسها (الـ Map) لم تتغيّر هويتها، فلا يُعاد رسم الطبقة
-      // تلقائياً؛ نُبلغها صراحةً بأن الخطوط المحفوظة صارت جاهزة.
-      if (mounted) _inkFor(pageNumber).committed.value++;
-    }
+    await _ensureDrawingsLoaded(pageNumber);
     if (!_pageComments.containsKey(pageNumber)) {
       _pageComments[pageNumber] = await _store.loadComments(pageNumber);
     }
@@ -644,14 +708,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   Widget _buildPenIcon() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => setState(() {
-        _isDrawingMode = !_isDrawingMode;
-        _controlsOpen = false;
-        if (!_isDrawingMode) {
-          _activeTool = PdfTool.none;
-          _highlightController.activeTool = TextMarkupTool.none;
-        }
-      }),
+      onTap: () {
+        setState(() {
+          _isDrawingMode = !_isDrawingMode;
+          _controlsOpen = false;
+          if (!_isDrawingMode) {
+            _activeTool = PdfTool.none;
+            _highlightController.activeTool = TextMarkupTool.none;
+          }
+        });
+        // كل عيّنات اللمس أثناء الرسم فقط (خطوط أنعم عند الحركة السريعة).
+        _setUnbufferedInput(_isDrawingMode);
+      },
       // منطقة لمس 40×40 بدل ~28 ليسهل الضغط بالقلم والإصبع.
       child: SizedBox(
         width: 40,
@@ -1214,14 +1282,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     final bool tapTool =
         tool == PdfTool.comment || tool == PdfTool.text || shapeTool;
 
-    // لا طبقة إدخال إن لم تكن هناك أداة تحتاجها (فيمرّ كل اللمس للعارض).
-    if (!_isDrawingMode || !(inkTool || tapTool)) {
-      return const SizedBox.shrink();
-    }
+    // خارج وضع الرسم لا طبقة إدخال (فيمرّ كل اللمس للعارض).
+    if (!_isDrawingMode) return const SizedBox.shrink();
 
     // رفض راحة اليد على مستوى المُتعرِّف: اللمس لا يدخل ساحة الإيماءة أصلاً.
     final Set<PointerDeviceKind>? devices =
         _palmFilter.enabled ? _penDevices : null;
+
+    // ظهر القلم الذكي (الاستيكة) يعمل ممحاةً دائماً: مع أدوات الحبر يخدم نفس
+    // المُتعرِّف كل المؤشرات، ومع أي أداة أخرى (أو بلا أداة) يقتصر على ظهر القلم
+    // فقط (invertedStylus) فلا يتدخل في بقية اللمس ويمرّ للعارض كالمعتاد.
+    final Set<PointerDeviceKind>? inkDevices =
+        inkTool ? null : const <PointerDeviceKind>{PointerDeviceKind.invertedStylus};
 
     return Positioned.fill(
       child: RawGestureDetector(
@@ -1232,21 +1304,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
         // فيبقى تمرير/تكبير الإصبع ممكناً حين لا يكون القلم قريباً.
         behavior: tapTool ? HitTestBehavior.opaque : HitTestBehavior.translucent,
         gestures: <Type, GestureRecognizerFactory>{
-          if (inkTool)
-            InkPointerRecognizer:
-                GestureRecognizerFactoryWithHandlers<InkPointerRecognizer>(
-              () => InkPointerRecognizer(debugOwner: this),
-              // ملاحظة: نستخدم جمل إسناد منفصلة لا cascade (..) مع دوال سهمية؛ لأن
-              // جسم الدالة السهمية تعبير كامل فيلتهم الـ cascade التالي ويطبّقه على
-              // قيمة الدالة (void) بدلاً من المُتعرِّف.
-              (InkPointerRecognizer r) {
-                r.allowKind = _palmFilter.isAllowed;
-                r.onStart = (e) => _onInkStart(e, page, pageRect);
-                r.onMove = (e) => _onInkMove(e, page, pageRect);
-                r.onEnd = (_) => _onInkEnd(page);
-                r.onCancel = () => _onInkEnd(page);
-              },
-            ),
+          InkPointerRecognizer:
+              GestureRecognizerFactoryWithHandlers<InkPointerRecognizer>(
+            () => InkPointerRecognizer(debugOwner: this),
+            // ملاحظة: نستخدم جمل إسناد منفصلة لا cascade (..) مع دوال سهمية؛ لأن
+            // جسم الدالة السهمية تعبير كامل فيلتهم الـ cascade التالي ويطبّقه على
+            // قيمة الدالة (void) بدلاً من المُتعرِّف.
+            (InkPointerRecognizer r) {
+              r.supportedDevices = inkDevices;
+              r.allowKind = _palmFilter.isAllowed;
+              r.onStart = (e) => _onInkStart(e, page, pageRect);
+              r.onMove = (e) => _onInkMove(e, page, pageRect);
+              r.onEnd = (_) => _onInkEnd(page);
+              r.onCancel = () => _onInkEnd(page);
+            },
+          ),
           if (tapTool)
             TapGestureRecognizer:
                 GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
@@ -1266,8 +1338,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                 r.supportedDevices = devices;
                 r.onStart = (d) => _onShapePanStart(d, page, pageRect);
                 r.onUpdate = (d) => _onShapePanUpdate(d, pageRect);
-                r.onEnd = (_) => _onShapePanEnd(pageRect);
-                r.onCancel = () => _onShapePanEnd(pageRect);
+                r.onEnd = (_) => _onShapePanEnd(page, pageRect);
+                r.onCancel = () => _onShapePanEnd(page, pageRect);
               },
             ),
         },
@@ -1474,8 +1546,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                       value: shape.borderWidth.clamp(0.001, 0.02),
                       min: 0.001,
                       max: 0.02,
-                      activeColor: Color(shape.borderColor),
-                      inactiveColor: Color(shape.borderColor).withOpacity(0.3),
+                      activeColor:
+                          AppColors.visibleOnToolSurface(Color(shape.borderColor)),
+                      inactiveColor: AppColors.toolTrackInactive,
                       onChanged: (v) {
                         _shapeController.updateBorderWidth(
                             shape, pageNumber, v);
@@ -1540,11 +1613,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
 
   // ───────────────────────── الحبر الحر (على مستوى المؤشر) ─────────────────────────
 
-  DrawingLine _newInkLine(Offset relativePoint) {
-    if (_activeTool == PdfTool.freehandHighlighter) {
+  /// خط فارغ بإعدادات الأداة الحالية (قلم / هايلايتر حر / ممحاة).
+  DrawingLine _makeInkLine({required bool eraser}) {
+    if (!eraser && _activeTool == PdfTool.freehandHighlighter) {
       // هايلايتر حر: خط عريض شفاف بنمط تمييز
       return DrawingLine(
-        points: [relativePoint],
+        points: <Offset>[],
         color: _settings.highlighterColor,
         strokeWidth: _settings.freehandHighlighterThickness,
         isHighlighter: true,
@@ -1552,9 +1626,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
         opacity: _settings.highlighterOpacity,
       );
     }
-    final bool eraser = _activeTool == PdfTool.eraser;
     return DrawingLine(
-      points: [relativePoint],
+      points: <Offset>[],
       color: eraser ? 0 : _settings.penColor,
       strokeWidth: eraser ? _eraserSize : _settings.penThickness,
       isHighlighter: false,
@@ -1563,43 +1636,223 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     );
   }
 
+  // ── إحداثيات المستند (document space) ──
+  // الخط الذي يعبر من صفحة إلى أخرى يُحسب بإحداثيات المستند ثم يُقسَّم: كل صفحة
+  // تحتفظ بالجزء الذي يقع عليها (بإحداثياتها النسبية) وتقصّه عند حدودها.
+
+  List<Rect>? _pageLayouts() {
+    final c = _pdfController;
+    if (c == null || !c.isReady) return null;
+    try {
+      return c.layout.pageLayouts;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Offset? _docPoint(PdfPage page, Rect pageRect, Offset local) {
+    final layouts = _pageLayouts();
+    final index = page.pageNumber - 1;
+    if (layouts == null || index < 0 || index >= layouts.length) return null;
+    if (pageRect.width <= 0) return null;
+    final r = layouts[index];
+    final k = r.width / pageRect.width; // وحدات المستند لكل بكسل شاشة
+    return Offset(r.left + local.dx * k, r.top + local.dy * k);
+  }
+
   void _onInkStart(PointerEvent e, PdfPage page, Rect pageRect) {
-    if (!_isDrawingMode || !_isInkTool(_activeTool)) return;
+    if (!_isDrawingMode) return;
+    // ظهر القلم الذكي (الاستيكة الخلفية) يمسح دائماً أياً كانت الأداة المفعّلة.
+    final bool backEraser = e.kind == PointerDeviceKind.invertedStylus;
+    if (!backEraser && !_isInkTool(_activeTool)) return;
     if (pageRect.width <= 0 || pageRect.height <= 0) return;
-    _activePage = page.pageNumber;
-    final ink = _inkFor(page.pageNumber);
-    // لو بقي خط سابق عالقاً (حدث إلغاء ضائع) ثبّته قبل بدء الجديد.
-    if (ink.live != null) _commitInkStroke(page.pageNumber);
-    ink.begin(_newInkLine(_rel(e.localPosition, pageRect)), e.localPosition);
+
+    final int pageNumber = page.pageNumber;
+    _activePage = pageNumber;
+
+    // لو بقي خط سابق عالقاً على هذه الصفحة (حدث إلغاء ضائع) ثبّته قبل الجديد.
+    final stale = _inkSessions.remove(pageNumber);
+    if (stale != null) _finishInkSession(stale);
+
+    final bool eraser = backEraser || _activeTool == PdfTool.eraser;
+    final template = _makeInkLine(eraser: eraser);
+    final session = _InkSession(
+      startPage: pageNumber,
+      template: template,
+      eraser: eraser,
+    );
+    _inkSessions[pageNumber] = session;
+
+    final doc = _docPoint(page, pageRect, e.localPosition);
+    session.lastDoc = doc;
+    final layouts = _pageLayouts();
+    final startIndex = pageNumber - 1;
+    if (layouts != null && startIndex >= 0 && startIndex < layouts.length) {
+      session.startDocWidth = layouts[startIndex].width;
+    }
+    final line = template.copyWith(
+      points: <Offset>[_rel(e.localPosition, pageRect)],
+    );
+    _beginPortion(session, pageNumber, line, doc ?? Offset.zero,
+        local: e.localPosition);
   }
 
   void _onInkMove(PointerEvent e, PdfPage page, Rect pageRect) {
-    final ink = _inks[page.pageNumber];
-    final live = ink?.live;
-    if (ink == null || live == null) return;
+    final session = _inkSessions[page.pageNumber];
+    if (session == null || session.live.isEmpty) return;
     if (pageRect.width <= 0 || pageRect.height <= 0) return;
-    if (!ink.shouldAdd(e.localPosition)) return;
-    // نضيف النقطة مباشرة ثم نُعلم الرسّام: لا setState، لا نسخ قوائم، لا بناء.
-    live.points.add(_rel(e.localPosition, pageRect));
-    ink.notifyLive();
+
+    final layouts = _pageLayouts();
+    final doc = _docPoint(page, pageRect, e.localPosition);
+    if (layouts == null || doc == null) {
+      // احتياطي (تعذّر قراءة تخطيط الصفحات): السلوك القديم، الصفحة الأصلية فقط.
+      final portion = session.live[page.pageNumber];
+      if (portion == null) return;
+      final ink = _inkFor(page.pageNumber);
+      if (!ink.shouldAdd(e.localPosition)) return;
+      portion.line.points.add(_rel(e.localPosition, pageRect));
+      ink.notifyLive();
+      return;
+    }
+
+    // أدنى مسافة بين نقطتين (بالبكسل المنطقي) كما في PageInkState.
+    final startIndex = page.pageNumber - 1;
+    final double pxPerDoc = (startIndex >= 0 && startIndex < layouts.length)
+        ? pageRect.width / layouts[startIndex].width
+        : 1.0;
+    final prev = session.lastDoc;
+    if (prev != null &&
+        (doc - prev).distanceSquared * pxPerDoc * pxPerDoc <
+            PageInkState.minDistanceSq) {
+      return;
+    }
+
+    // الصفحات التي يلامس القطعة (prev → doc) حدودها (مع نصف سماكة الخط)، كي
+    // يمتد جزء الصفحة حتى حافتها وتقصّه هي. عادةً صفحة واحدة، وعند العبور صفحتان.
+    final double halfStroke = session.template.strokeWidth / 2;
+    final Rect segment =
+        prev == null ? Rect.fromPoints(doc, doc) : Rect.fromPoints(prev, doc);
+    for (var index = 0; index < layouts.length; index++) {
+      final r = layouts[index];
+      final margin = halfStroke * r.width + 1.0;
+      if (segment.right < r.left - margin ||
+          segment.left > r.right + margin ||
+          segment.bottom < r.top - margin ||
+          segment.top > r.bottom + margin) {
+        continue;
+      }
+      final int pageNumber = index + 1;
+      Offset toRel(Offset d) =>
+          Offset((d.dx - r.left) / r.width, (d.dy - r.top) / r.height);
+
+      var portion = session.live[pageNumber];
+      // الخط خرج من هذه الصفحة ثم عاد إليها: ثبّت الجزء القديم وابدأ جزءاً جديداً
+      // (بدل وصلهما بخط مستقيم عبر المنطقة التي لم يمرّ بها القلم).
+      if (portion != null && prev != null && portion.lastDoc != prev) {
+        _commitPortion(session, pageNumber);
+        portion = null;
+      }
+      if (portion == null) {
+        final points = <Offset>[if (prev != null) toRel(prev), toRel(doc)];
+        // السماكة نسبة من عرض الصفحة؛ نحافظ على نفس السماكة الفعلية عبر الصفحات
+        // حتى لو اختلف عرضها قليلاً.
+        final double widthFactor = session.startDocWidth > 0
+            ? session.startDocWidth / r.width
+            : 1.0;
+        final line = session.template.copyWith(
+          points: points,
+          strokeWidth: session.template.strokeWidth * widthFactor,
+        );
+        _beginPortion(session, pageNumber, line, doc);
+      } else {
+        portion.line.points.add(toRel(doc));
+        portion.lastDoc = doc;
+        _inkFor(pageNumber).notifyLive();
+      }
+    }
+    session.lastDoc = doc;
   }
 
-  void _onInkEnd(PdfPage page) => _commitInkStroke(page.pageNumber);
+  void _onInkEnd(PdfPage page) {
+    final session = _inkSessions.remove(page.pageNumber);
+    if (session != null) _finishInkSession(session);
+  }
 
-  /// يثبّت الخط الجاري في قائمة الصفحة. بلا setState: الطبقة السفلية تُعاد
-  /// رسمها عبر عدّاد، والحفظ مؤجّل.
-  void _commitInkStroke(int pageNumber) {
-    final ink = _inks[pageNumber];
-    if (ink == null) return;
-    final line = ink.end();
-    if (line == null) return;
-    // نقرة هايلايتر عابرة لا تترك مربعاً؛ أما نقرة القلم/الممحاة فنقطة مقصودة.
-    final bool strayDot = line.points.length == 1 && line.isHighlighter;
-    if (!strayDot) {
-      _pageDrawings.putIfAbsent(pageNumber, () => []).add(line);
+  /// يبدأ جزءاً حياً من الخط على صفحة (يظهر فوراً في طبقتها).
+  void _beginPortion(
+      _InkSession session, int pageNumber, DrawingLine line, Offset lastDoc,
+      {Offset local = Offset.zero}) {
+    final ink = _inkFor(pageNumber);
+    // خط حي عالق من مصدر آخر على هذه الصفحة: ثبّته أولاً حتى لا يضيع.
+    final stale = ink.end();
+    if (stale != null && stale.points.isNotEmpty) {
+      _pageDrawings.putIfAbsent(pageNumber, () => []).add(stale);
       _markDrawingsDirty(pageNumber);
     }
-    ink.repaintAll();
+    session.live[pageNumber] = _InkPortion(pageNumber, line, lastDoc);
+    // الصفحة قد لا تكون محمّلة بعد (خط عبر إليها): حمّل المحفوظ ليُدمج قبل الحفظ.
+    // ignore: discarded_futures
+    _ensureDrawingsLoaded(pageNumber).catchError((Object _) {});
+    ink.begin(line, local);
+  }
+
+  /// يثبّت جزء الصفحة الحي في قائمتها. بلا setState: الطبقة السفلية تُعاد
+  /// رسمها عبر عدّاد، والحفظ مؤجّل.
+  void _commitPortion(_InkSession session, int pageNumber) {
+    final portion = session.live.remove(pageNumber);
+    if (portion == null) return;
+    final ink = _inks[pageNumber];
+    if (ink != null && identical(ink.live, portion.line)) ink.end();
+    final line = portion.line;
+    // نقرة هايلايتر عابرة لا تترك مربعاً؛ أما نقرة القلم/الممحاة فنقطة مقصودة.
+    final bool strayDot = line.points.length == 1 && line.isHighlighter;
+    if (line.points.isNotEmpty && !strayDot) {
+      _pageDrawings.putIfAbsent(pageNumber, () => []).add(line);
+      session.finished.add(portion);
+      _markDrawingsDirty(pageNumber);
+    }
+    ink?.repaintAll();
+  }
+
+  /// ينهي الخط: يثبّت كل أجزائه، ثم يسجّله في سجل التراجع العام كعملية واحدة
+  /// (التراجع يزيل كل أجزائه من كل الصفحات معاً).
+  void _finishInkSession(_InkSession session) {
+    for (final pageNumber in session.live.keys.toList()) {
+      _commitPortion(session, pageNumber);
+    }
+    if (session.finished.isEmpty) return;
+    final portions = List<_InkPortion>.of(session.finished);
+    _pushUndo(() {
+      for (final portion in portions) {
+        _pageDrawings[portion.pageNumber]?.remove(portion.line);
+        _inkFor(portion.pageNumber).repaintAll();
+        _markDrawingsDirty(portion.pageNumber);
+      }
+    });
+  }
+
+  // ── سجل التراجع العام ──
+
+  void _pushUndo(VoidCallback undo) {
+    _undoStack.add(undo);
+    if (_undoStack.length > _maxUndoSteps) _undoStack.removeAt(0);
+  }
+
+  /// إدراج صورة مع تسجيلها في سجل التراجع العام.
+  Future<void> _pickImageWithUndo() async {
+    final pageNumber = _activePage > 0 ? _activePage : 1;
+    final model = await _imageController.pickAndAddImage(pageNumber);
+    if (model != null) {
+      _pushUndo(() => _imageController.deleteImage(pageNumber, model));
+    }
+  }
+
+  /// يتراجع عن آخر عملية فعلها المستخدم بترتيب التنفيذ الكلي (لا بترتيب كل
+  /// صفحة على حدة)، أياً كانت الصفحة أو الأداة المفعّلة الآن.
+  void _handleUndo() {
+    if (_undoStack.isEmpty) return;
+    final undo = _undoStack.removeLast();
+    undo();
   }
 
   // ───────────────────────── الأشكال (سحب لرسم شكل جديد) ─────────────────────────
@@ -1617,9 +1870,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     _shapeController.updateDrawing(_rel(d.localPosition, pageRect));
   }
 
-  void _onShapePanEnd(Rect pageRect) {
+  Future<void> _onShapePanEnd(PdfPage page, Rect pageRect) async {
     if (_activeTool != PdfTool.shape) return;
-    _shapeController.endDrawing(pageSize: pageRect.size);
+    final pageNumber = page.pageNumber;
+    final drawn = _shapeController.drawingShapeForPage(pageNumber);
+    await _shapeController.endDrawing(pageSize: pageRect.size);
+    // الشكل أُضيف فعلاً (لم يُهمَل لصغره): سجّله في سجل التراجع العام.
+    if (drawn != null &&
+        _shapeController.shapesForPage(pageNumber).any((s) => identical(s, drawn))) {
+      _pushUndo(() => _shapeController.deleteShape(drawn, pageNumber));
+    }
   }
 
   // --- منطق الملاحظات (Comments) - محافظ على نفس السلوك الأصلي تماماً ---
@@ -1809,6 +2069,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                               _pageComments
                                   .putIfAbsent(pageNumber, () => [])
                                   .add(comment);
+                              // ملاحظة جديدة: سجّلها للتراجع العام.
+                              _pushUndo(() {
+                                if (!mounted) return;
+                                setState(() {
+                                  _pageComments[pageNumber]?.remove(comment);
+                                  _store.saveComments(pageNumber,
+                                      _pageComments[pageNumber] ?? []);
+                                });
+                              });
                             }
                             _store.saveComments(
                                 pageNumber, _pageComments[pageNumber] ?? []);
@@ -1836,6 +2105,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   }
 
   // --- منطق أداة النص (Text Tool) ---
+
+  /// خلفية معاينة النص: داكنة للنص الفاتح وفاتحة للنص الداكن، فيظهر أي لون
+  /// بوضوح في الوضعين الليلي والنهاري.
+  Color _previewBackgroundFor(Color textColor) {
+    final lum = textColor.computeLuminance();
+    if (lum > 0.6) return const Color(0xFF2A2B2F);
+    if (lum < 0.25) return Colors.white;
+    return AppColors.backgroundPrimary;
+  }
 
   void _editTextNote(int pageNumber, dynamic note, {bool isNew = false}) {
     final controller = TextEditingController(text: note.text as String);
@@ -1869,10 +2147,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                   decoration: BoxDecoration(
-                    color: AppColors.backgroundPrimary,
+                    // خلفية تضمن ظهور النص مهما كان لونه، وحدّ ثابت واضح في
+                    // الوضعين (كان بلون النص نفسه فيختفي الأبيض في اللايت مود).
+                    color: _previewBackgroundFor(Color(previewColor)),
                     borderRadius: BorderRadius.circular(8),
-                    border:
-                        Border.all(color: Color(previewColor).withOpacity(0.5)),
+                    border: Border.all(color: AppColors.toolBorder, width: 1.2),
                   ),
                   child: Text(
                     controller.text.isNotEmpty
@@ -1934,8 +2213,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                         min: 0.010,
                         max: 0.060,
                         divisions: 10,
-                        activeColor: Color(previewColor),
-                        inactiveColor: Color(previewColor).withOpacity(0.3),
+                        activeColor:
+                            AppColors.visibleOnToolSurface(Color(previewColor)),
+                        inactiveColor: AppColors.toolTrackInactive,
                         onChanged: (v) {
                           setSheetState(() => previewFontSize = v);
                           _textNoteController.updateFontSize(
@@ -2011,6 +2291,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                         onPressed: () {
                           note.text = controller.text;
                           _textNoteController.commitNote(pageNumber, note);
+                          // نص جديد حُفظ فعلاً: سجّله للتراجع العام.
+                          if (isNew && note.text.toString().trim().isNotEmpty) {
+                            _pushUndo(() =>
+                                _textNoteController.deleteNote(pageNumber, note));
+                          }
                           Navigator.pop(ctx);
                         },
                         icon: Icon(Icons.check, color: AppColors.accentYellow),
@@ -2199,7 +2484,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
         _persistToolSettings();
       },
       onUndo: _handleUndo,
-      onPickImage: () => _imageController.pickAndAddImage(_activePage),
+      onPickImage: _pickImageWithUndo,
       palmRejectionEnabled: _settings.palmRejectionEnabled,
       onPalmRejectionChanged: (enabled) {
         setState(() {
@@ -2211,16 +2496,42 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     );
   }
 
-  void _handleUndo() {
-    if (_activeTool == PdfTool.pen ||
-        _activeTool == PdfTool.eraser ||
-        _activeTool == PdfTool.freehandHighlighter) {
-      final lines = _pageDrawings[_activePage];
-      if (lines != null && lines.isNotEmpty) {
-        lines.removeLast();
-        _inkFor(_activePage).repaintAll(); // إعادة رسم الطبقة فقط
-        _markDrawingsDirty(_activePage);
-      }
-    }
-  }
+}
+
+/// جزء من خط يخصّ صفحة واحدة (إحداثياته نسبية لتلك الصفحة).
+class _InkPortion {
+  _InkPortion(this.pageNumber, this.line, this.lastDoc);
+
+  final int pageNumber;
+  final DrawingLine line;
+
+  /// آخر نقطة أُضيفت لهذا الجزء بإحداثيات المستند (لكشف الخروج والعودة).
+  Offset lastDoc;
+}
+
+/// خط واحد جارٍ رسمه، قد يمتد على عدة صفحات فيتكوّن من أجزاء.
+class _InkSession {
+  _InkSession({
+    required this.startPage,
+    required this.template,
+    required this.eraser,
+  });
+
+  final int startPage;
+
+  /// خصائص الخط (اللون/السماكة/الشفافية/النوع) تُنسخ لكل جزء جديد.
+  final DrawingLine template;
+  final bool eraser;
+
+  /// الأجزاء الحيّة الآن (رقم الصفحة → الجزء).
+  final Map<int, _InkPortion> live = {};
+
+  /// الأجزاء التي ثُبّتت في قوائم الصفحات (للتراجع كعملية واحدة).
+  final List<_InkPortion> finished = [];
+
+  /// آخر نقطة مقبولة بإحداثيات المستند.
+  Offset? lastDoc;
+
+  /// عرض الصفحة التي بدأ فيها الخط (بوحدات المستند).
+  double startDocWidth = 0;
 }
