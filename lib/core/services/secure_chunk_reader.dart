@@ -107,8 +107,20 @@ class SecureChunkReader {
       return hit;
     }
     // Share one decrypt between concurrent callers asking for the same block.
-    return _inFlight[index] ??=
-        _load(index).whenComplete(() => _inFlight.remove(index));
+    final pending = _inFlight[index];
+    if (pending != null) return pending;
+
+    final future = _load(index);
+    _inFlight[index] = future;
+    // IMPORTANT: block body, returns nothing. `() => _inFlight.remove(index)`
+    // would return the removed Future; whenComplete waits for a returned Future,
+    // and the one stored here is the future being waited on -> it would wait on
+    // itself forever and every read would hang. (_load never throws, so the
+    // future derived here can't surface an unhandled error.)
+    unawaited(future.whenComplete(() {
+      _inFlight.remove(index);
+    }));
+    return future;
   }
 
   Future<Uint8List?> _load(int index) async {
