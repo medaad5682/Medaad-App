@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'; // ✅ إضافة استيراد Material لـ MaterialPageRoute
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 // ✅ استيراد مكتبات فايربيز
@@ -216,11 +217,66 @@ class NotificationService {
       iOS: iOSPlatformChannelSpecifics,
     );
 
-    await flutterLocalNotificationsPlugin.show(
+    await _safeShow(
       message.notification.hashCode, // توليد ID فريد بناء على الرسالة
       message.notification?.title,
       message.notification?.body,
       platformChannelSpecifics,
+    );
+  }
+
+  // ==========================================
+  // ✅ [FIX] عرض آمن للإشعارات (لا يرمي أبداً)
+  // ==========================================
+  //
+  // على إصدارات iOS الأحدث، استدعاء show() بينما المستخدم لم يمنح (أو رفض)
+  // إذن الإشعارات يرمي الآن:
+  //   PlatformException(Error 2003, Repository could not save notification.
+  //                     Source is not authorized., UNErrorDomain, null)
+  // بدل أن يتجاهل الطلب بصمت كما في الإصدارات القديمة. وأغلب مواضع
+  // الاستدعاء (إشعارات التحميل وإشعار FCM أثناء فتح التطبيق) تستدعيها بدون
+  // await داخل مستمعات/مؤقّتات — فكان try/catch المحيط بها لا يلتقط شيئاً،
+  // ويفلت الاستثناء إلى runZonedGuarded فيُسجَّل في Crashlytics كـ
+  // "Fatal Exception" رغم أنه لا يمثل انهياراً حقيقياً.
+  //
+  // الإشعار هنا "أفضل جهد" (best-effort): فشله لا يجب أن يوقف التحميل ولا أن
+  // يُحتسب انهياراً. لذلك نلتقط كل شيء هنا، ونتجاهل حالة "غير مصرّح" لأنها
+  // حالة طبيعية (قرار المستخدم)، ونسجّل أي خطأ آخر كغير قاتل.
+
+  /// خطأ "الإشعارات غير مصرّح بها" القادم من iOS (UNErrorDomain).
+  static bool _isNotAuthorizedError(PlatformException e) {
+    if (e.details?.toString() != 'UNErrorDomain') return false;
+    // 2003: "Source is not authorized" (iOS الأحدث).
+    // 1:    UNError.notificationsNotAllowed (القيمة الموثّقة لنفس الحالة).
+    return e.code == 'Error 2003' || e.code == 'Error 1';
+  }
+
+  Future<void> _safeShow(
+    int id,
+    String? title,
+    String? body,
+    NotificationDetails details,
+  ) async {
+    try {
+      await flutterLocalNotificationsPlugin.show(id, title, body, details);
+    } on PlatformException catch (e, s) {
+      if (_isNotAuthorizedError(e)) {
+        debugPrint('ℹ️ Notification skipped (notifications not authorized): $e');
+        return;
+      }
+      _recordShowError(e, s);
+    } catch (e, s) {
+      _recordShowError(e, s);
+    }
+  }
+
+  void _recordShowError(Object e, StackTrace s) {
+    debugPrint('⚠️ Failed to show local notification: $e');
+    FirebaseCrashlytics.instance.recordError(
+      e,
+      s,
+      reason: 'Failed to show local notification',
+      fatal: false,
     );
   }
 
@@ -279,7 +335,7 @@ class NotificationService {
       ),
     );
 
-    await flutterLocalNotificationsPlugin.show(
+    await _safeShow(
       id,
       title,
       body,
@@ -317,7 +373,7 @@ class NotificationService {
       ),
     );
 
-    await flutterLocalNotificationsPlugin.show(
+    await _safeShow(
       id,
       isSuccess ? 'Download Complete' : 'Download Failed',
       isSuccess
