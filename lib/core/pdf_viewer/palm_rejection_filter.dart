@@ -48,7 +48,7 @@ class PalmRejectionFilter {
   /// موصولة بجهاز أندرويد (الفأرة = قلم، الإصبع = كف).
   /// ⚠️ اجعلها false قبل الإصدار للمستخدمين: فأرة موصولة مع لمس ستمنع لمس الأصابع
   /// لحظات بعد كل حركة للفأرة أثناء الرسم.
-  static bool mouseActsAsPen = true;
+  static bool mouseActsAsPen = false;
 
   /// قلم حقيقي، أو فأرة عندما يكون [mouseActsAsPen] مفعّلاً.
   static bool isPenLike(PointerDeviceKind kind) =>
