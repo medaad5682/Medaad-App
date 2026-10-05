@@ -601,7 +601,10 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                   !_isFreeMode) &&
               !_isTeacher)
             if (currentPrice > 0 ||
-                _isFreeMode) // شرط إضافي: إما هناك سعر (عادي) أو وضع مجاني
+                _isFreeMode ||
+                _isFullCourse ||
+                _selectedSubjectIds
+                    .isNotEmpty) // شرط إضافي: سعر (عادي) أو وضع مجاني أو عنصر مُختار (حتى لو سعره 0)
               Positioned(
                 bottom: 0,
                 left: 0,
