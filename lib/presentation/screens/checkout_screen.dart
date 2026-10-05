@@ -56,10 +56,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   static final RegExp _autoCodePattern = RegExp(r'^[A-Z0-9]+-[A-Z0-9]{6}$');
   String? _lastAutoCheckedCode; // يمنع إعادة فحص نفس الكود المرفوض
 
-  // 🆕 الإجمالي النهائي بعد الخصم، والطلب المجاني (لا يحتاج دفع/إيصال)
-  double get _finalAmount => _discountedAmount ?? widget.amount;
-  bool get _isFreeOrder => _finalAmount <= 0;
-
   final String _baseUrl = ApiConstants.baseUrl;
 
   @override
@@ -70,8 +66,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _checkAndFetchPaymentInfo() async {
-    if (widget.amount <= 0) return; // 🆕 طلب مجاني: لا حاجة لطرق الدفع
-
     final cash = _currentPaymentInfo['cash_numbers'] as List?;
     final instaNum = _currentPaymentInfo['instapay_numbers'] as List?;
     final instaLink = _currentPaymentInfo['instapay_links'] as List?;
@@ -306,7 +300,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _submitOrder() async {
-    if (!_isFreeOrder && _receiptImage == null) {
+    if (_receiptImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
             content: Text(AppLocalizations.of(context)!.pleaseUploadReceiptImage),
@@ -318,18 +312,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() => _isUploading = true);
 
     try {
+      String fileName = _receiptImage!.path.split('/').last;
+
       // ✅ تجهيز البيانات لإرسالها
       Map<String, dynamic> formMap = {
+        'receiptFile': await MultipartFile.fromFile(_receiptImage!.path,
+            filename: fileName),
         'user_note': _noteController.text,
         'selectedItems': jsonEncode(widget.selectedItems),
       };
-
-      // 🆕 الإيصال مطلوب فقط عندما يكون الإجمالي النهائي أكبر من صفر
-      if (!_isFreeOrder && _receiptImage != null) {
-        formMap['receiptFile'] = await MultipartFile.fromFile(
-            _receiptImage!.path,
-            filename: _receiptImage!.path.split('/').last);
-      }
 
       // ✅ إضافة الكود للطلب إذا كان موجوداً
       if (_appliedCode != null) {
@@ -521,8 +512,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           const SizedBox(height: 32),
 
                           // 🆕 إدخال كود الخصم (Discount Code Input)
-                          // يُخفى إذا كان السعر الأساسي 0 (لا يوجد ما يُخصم)
-                          if (widget.amount > 0) ...[
                           Text(AppLocalizations.of(context)!.discountCodeLabel,
                               style: TextStyle(
                                   fontSize: 12,
@@ -628,10 +617,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             ],
                           ),
                           const SizedBox(height: 32),
-                          ],
 
-                          // 🆕 طرق الدفع + رفع الإيصال: تُخفى عندما يكون الإجمالي النهائي 0
-                          if (!_isFreeOrder) ...[
                           // 1. Cash Numbers Section
                           if (cashNumbers.isNotEmpty) ...[
                             Text(AppLocalizations.of(context)!.cashWalletsLabel,
@@ -769,7 +755,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           ),
 
                           const SizedBox(height: 32),
-                          ],
 
                           // Notes
                           Text(AppLocalizations.of(context)!.notesOptionalLabel,
@@ -830,13 +815,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           child: CircularProgressIndicator(
                               color: AppColors.backgroundPrimary,
                               strokeWidth: 2))
-                      : Text(
-                          _isFreeOrder
-                              ? AppLocalizations.of(context)!
-                                  .confirm
-                                  .toUpperCase()
-                              : AppLocalizations.of(context)!
-                                  .confirmPaymentButton,
+                      : Text(AppLocalizations.of(context)!.confirmPaymentButton,
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
