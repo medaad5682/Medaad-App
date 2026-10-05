@@ -50,6 +50,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String? _appliedCode;
   bool _isCheckingDiscount = false;
 
+  // 🆕 التحقق التلقائي: يُفعَّل بمجرد اكتمال الكود بصيغته: بادئة (أحرف/أرقام
+  // أياً كانت) + شرطة + 6 أحرف/أرقام (مثال: MED-KB4O8N). البادئة قد تتغير.
+  // لتغيير الصيغة عدّل هذا النمط فقط. زر "تطبيق" يبقى متاحاً للأكواد الأخرى.
+  static final RegExp _autoCodePattern = RegExp(r'^[A-Z0-9]+-[A-Z0-9]{6}$');
+  String? _lastAutoCheckedCode; // يمنع إعادة فحص نفس الكود المرفوض
+
+  // 🆕 الإجمالي النهائي بعد الخصم، والطلب المجاني (لا يحتاج دفع/إيصال)
+  double get _finalAmount => _discountedAmount ?? widget.amount;
+  bool get _isFreeOrder => _finalAmount <= 0;
+
   final String _baseUrl = ApiConstants.baseUrl;
 
   @override
@@ -60,6 +70,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _checkAndFetchPaymentInfo() async {
+    if (widget.amount <= 0) return; // 🆕 طلب مجاني: لا حاجة لطرق الدفع
+
     final cash = _currentPaymentInfo['cash_numbers'] as List?;
     final instaNum = _currentPaymentInfo['instapay_numbers'] as List?;
     final instaLink = _currentPaymentInfo['instapay_links'] as List?;
@@ -132,8 +144,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // =================================================================
   // 🟢 دوال التحقق من كود الخصم (Coupons Logic)
   // =================================================================
+  // 🆕 يُستدعى عند كل تغيير في الحقل: يتحقق تلقائياً فور اكتمال صيغة الكود
+  void _onDiscountChanged(String value) {
+    if (_appliedCode != null || _isCheckingDiscount) return;
+    final code = value.trim().toUpperCase();
+    if (!_autoCodePattern.hasMatch(code)) {
+      _lastAutoCheckedCode = null; // الكود تغيّر/لم يكتمل: اسمح بفحص جديد
+      return;
+    }
+    if (code == _lastAutoCheckedCode) return; // نفس الكود تم فحصه للتو
+    _lastAutoCheckedCode = code;
+    _applyDiscountCode();
+  }
+
   Future<void> _applyDiscountCode() async {
-    if (_discountController.text.trim().isEmpty) return;
+    final code = _discountController.text.trim().toUpperCase();
+    if (code.isEmpty || _isCheckingDiscount) return;
 
     setState(() => _isCheckingDiscount = true);
     FocusScope.of(context).unfocus(); // إخفاء لوحة المفاتيح
@@ -148,12 +174,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final response = await ApiClient.instance.post(
         '$_baseUrl/api/student/validate-discount',
         data: {
-          'code': _discountController.text.trim(),
+          'code': code,
           'teacher_id': tId,
           'selectedItems': widget.selectedItems, // ✅ إضافة السلة ليفحصها الباك إند
         },
       );
       
+      if (!mounted) return;
+
       if (response.statusCode == 200 && response.data['success']) {
         final discountData = response.data['discount'];
 
@@ -176,7 +204,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
         setState(() {
           _discountedAmount = newTotal;
-          _appliedCode = _discountController.text.trim().toUpperCase();
+          _appliedCode = code;
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -184,8 +212,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               content: Text(AppLocalizations.of(context)!.discountCodeAppliedSuccess),
               backgroundColor: AppColors.success),
         );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(AppLocalizations.of(context)!.discountCodeInvalid),
+              backgroundColor: AppColors.error),
+        );
       }
     } on DioException catch (e) {
+      if (!mounted) return;
       String msg = AppLocalizations.of(context)!.discountCodeInvalid;
       if (e.response != null &&
           e.response?.data != null &&
@@ -196,6 +231,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         SnackBar(content: Text(msg), backgroundColor: AppColors.error),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
             content: Text(AppLocalizations.of(context)!.connectionError),
@@ -211,6 +247,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() {
       _discountedAmount = null;
       _appliedCode = null;
+      _lastAutoCheckedCode = null;
       _discountController.clear();
     });
   }
@@ -269,7 +306,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _submitOrder() async {
-    if (_receiptImage == null) {
+    if (!_isFreeOrder && _receiptImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
             content: Text(AppLocalizations.of(context)!.pleaseUploadReceiptImage),
@@ -281,15 +318,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() => _isUploading = true);
 
     try {
-      String fileName = _receiptImage!.path.split('/').last;
-
       // ✅ تجهيز البيانات لإرسالها
       Map<String, dynamic> formMap = {
-        'receiptFile': await MultipartFile.fromFile(_receiptImage!.path,
-            filename: fileName),
         'user_note': _noteController.text,
         'selectedItems': jsonEncode(widget.selectedItems),
       };
+
+      // 🆕 الإيصال مطلوب فقط عندما يكون الإجمالي النهائي أكبر من صفر
+      if (!_isFreeOrder && _receiptImage != null) {
+        formMap['receiptFile'] = await MultipartFile.fromFile(
+            _receiptImage!.path,
+            filename: _receiptImage!.path.split('/').last);
+      }
 
       // ✅ إضافة الكود للطلب إذا كان موجوداً
       if (_appliedCode != null) {
@@ -481,6 +521,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           const SizedBox(height: 32),
 
                           // 🆕 إدخال كود الخصم (Discount Code Input)
+                          // يُخفى إذا كان السعر الأساسي 0 (لا يوجد ما يُخصم)
+                          if (widget.amount > 0) ...[
                           Text(AppLocalizations.of(context)!.discountCodeLabel,
                               style: TextStyle(
                                   fontSize: 12,
@@ -503,8 +545,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   ),
                                   child: TextField(
                                     controller: _discountController,
-                                    enabled: _appliedCode ==
-                                        null, // إقفال الحقل إذا تم تطبيق كود بالفعل
+                                    onChanged: _onDiscountChanged, // 🆕 تحقق تلقائي
+                                    textCapitalization:
+                                        TextCapitalization.characters,
+                                    inputFormatters: [
+                                      // أحرف كبيرة فقط (ASCII) بدون تغيير الطول
+                                      TextInputFormatter.withFunction(
+                                          (oldValue, newValue) => newValue
+                                              .copyWith(
+                                                  text: newValue.text
+                                                      .replaceAllMapped(
+                                                          RegExp(r'[a-z]'),
+                                                          (m) => m[0]!
+                                                              .toUpperCase()))),
+                                    ],
+                                    enabled: _appliedCode == null &&
+                                        !_isCheckingDiscount, // إقفال الحقل أثناء الفحص أو بعد تطبيق كود
                                     style: TextStyle(
                                         color: AppColors.textPrimary,
                                         fontWeight: FontWeight.bold),
@@ -572,7 +628,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             ],
                           ),
                           const SizedBox(height: 32),
+                          ],
 
+                          // 🆕 طرق الدفع + رفع الإيصال: تُخفى عندما يكون الإجمالي النهائي 0
+                          if (!_isFreeOrder) ...[
                           // 1. Cash Numbers Section
                           if (cashNumbers.isNotEmpty) ...[
                             Text(AppLocalizations.of(context)!.cashWalletsLabel,
@@ -710,6 +769,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           ),
 
                           const SizedBox(height: 32),
+                          ],
 
                           // Notes
                           Text(AppLocalizations.of(context)!.notesOptionalLabel,
@@ -770,7 +830,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           child: CircularProgressIndicator(
                               color: AppColors.backgroundPrimary,
                               strokeWidth: 2))
-                      : Text(AppLocalizations.of(context)!.confirmPaymentButton,
+                      : Text(
+                          _isFreeOrder
+                              ? AppLocalizations.of(context)!
+                                  .confirm
+                                  .toUpperCase()
+                              : AppLocalizations.of(context)!
+                                  .confirmPaymentButton,
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
