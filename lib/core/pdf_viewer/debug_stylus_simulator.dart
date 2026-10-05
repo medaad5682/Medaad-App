@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 //
 //  ⚠️  Set to false before building a release for real users.
 // ════════════════════════════════════════════════════════════════════════════
-const bool kEnableStylusSimulator = true;
+const bool kEnableStylusSimulator = false;
 
 /// Sentences written by buttons 6-8, in block capitals. Edit freely.
 /// Supported characters: A-Z 0-9 space . , ! ? - ' : ( )
