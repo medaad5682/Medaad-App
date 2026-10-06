@@ -1172,7 +1172,7 @@ packages:
       sha256: e0ca318004c3f32144db8e74fa612abb80ebe79004677293af74ed9af119f47f
       url: "https://pub.dev"
     source: hosted
-    version: "2.4.4"
+    version: "2.6.5"
   pdfrx_engine:
     dependency: transitive
     description:
