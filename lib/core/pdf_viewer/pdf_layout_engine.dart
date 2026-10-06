@@ -20,10 +20,6 @@ class PdfLayoutEngine {
   /// النموذجي للمستند. 1.15 تعني: أوسع بأكثر من 15%.
   static const double _outlierFactor = 1.15;
 
-  /// عرض المستند (بما فيه الهوامش) من آخر تخطيط. التكبير الذي يجعل الصفحة
-  /// بعرض الشاشة تماماً = عرض الشاشة ÷ هذه القيمة.
-  static double lastDocumentWidth = 0;
-
   static PdfPageLayoutFunction? get layout => (pages, params) {
         if (pages.isEmpty) {
           return PdfPageLayout(pageLayouts: const [], documentSize: Size.zero);
@@ -67,9 +63,6 @@ class PdfLayoutEngine {
             r.height,
           );
         }
-
-        // نحفظ عرض المستند (بوحدات التخطيط) لحساب \"ملاءمة عرض الصفحة\".
-        lastDocumentWidth = documentWidth;
 
         return PdfPageLayout(
           pageLayouts: rects,
