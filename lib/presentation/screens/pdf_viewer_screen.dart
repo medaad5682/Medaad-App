@@ -47,6 +47,11 @@ import '../widgets/pdf_tools/movable_text_note.dart';
 import '../widgets/pdf_tools/movable_resizable_image.dart';
 import '../widgets/pdf_tools/color_palette_row.dart';
 
+/// أصغر مستوى تكبير مسموح (1.0 = 72dpi) على الهواتف والأجهزة اللوحية. منخفض
+/// بما يكفي ليتيح التصغير أكثر من عرض الصفحة، ومرتفع بما يكفي كي لا تصبح
+/// الصفحة نقطة.
+const double _kPdfMinScale = 0.25;
+
 class PdfViewerScreen extends StatefulWidget {
   final String pdfId;
   final String title;
@@ -616,11 +621,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     final String message;
     if (total != null && total > 0) {
       tick = math.min(100, received * 100 ~/ total);
-      message = "جار تحميل الملف... $tick%";
+      message = "جار تجهيز الملف... $tick%";
     } else {
       tick = received ~/ (512 * 1024);
       message =
-          "جار تحميل الملف... ${(received / (1024 * 1024)).toStringAsFixed(1)} MB";
+          "جار تجهيز الملف... ${(received / (1024 * 1024)).toStringAsFixed(1)} MB";
     }
     if (tick == _lastProgressTick) return;
     _lastProgressTick = tick;
@@ -1076,6 +1081,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       // لأنه مبني على هندسة تخطيط سليمة، وهو ما يسمح برؤية الصفحة
       // كاملة (التصغير الكامل) بشكل طبيعي لكل صفحة.
       maxScale: 8.0,
+      // ── الهواتف والأجهزة اللوحية: السماح بالتصغير أكثر من عرض الصفحة.
+      // الافتتاح الأول يبقى كما هو (عرض الصفحة)، لكن بدل أن يعيد pdfrx
+      // الصفحة إلى حدّ "ملاءمة الصفحة" عند رفع الأصابع، نعطّل استخدام
+      // alternativeFitScale كحدّ أدنى ونعتمد [_kPdfMinScale] بدلاً منه.
+      // أثناء التكبير يبقى التحريك الأفقي مقيّداً بعرض الصفحة (السلوك
+      // الافتراضي)، وعند التصغير أكثر من العرض تبقى الصفحة متوسّطة.
+      useAlternativeFitScaleAsMinScale: false,
+      minScale: _kPdfMinScale,
       // ✅ تحديد النص: يُفعَّل دائماً في وضع الهايلايتر/التسطير مع إتاحة الوقت
       // للمستخدم لضبط نقطتَي البداية والنهاية قبل تطبيق التمييز.
       textSelectionParams: PdfTextSelectionParams(
