@@ -10,11 +10,14 @@ import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart' show CancelToken;
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/file_crypto_service.dart';
+import '../../core/services/api_client.dart';
+import '../../core/services/online_pdf_fetcher.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/pdf_annotation_store.dart';
 import '../../core/constants/api_constants.dart';
@@ -26,6 +29,7 @@ import '../../core/models/highlight_model.dart';
 import '../../core/models/pdf_tool_settings.dart';
 
 import '../../core/pdf_viewer/pdf_tool.dart';
+import '../../core/pdf_viewer/pdf_load_failure.dart';
 import '../../core/pdf_viewer/pdf_layout_engine.dart';
 import '../../core/pdf_viewer/pdf_page_text_cache.dart';
 import '../../core/pdf_viewer/pdf_highlight_controller.dart';
@@ -76,13 +80,32 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   String? _sessionToken;
 
   // --- متغيرات العرض الأونلاين ---
-  String? _onlineUrl;
-  Map<String, String>? _onlineHeaders;
+  // Online mode: the PDF is downloaded into this buffer (via the pinned Dio
+  // client) and handed to PDFium through an in-memory read callback, exactly
+  // like offline mode does with SecureChunkReader. It is NEVER written to disk
+  // (PdfViewer.uri would have made pdfrx cache a plaintext copy in temp).
+  // Not zeroed on dispose on purpose: pdfrx releases the document
+  // asynchronously and PDFium reading a wiped buffer mid-parse is what the
+  // RebuildCrossRef crash note in _preparePdf is about. It is simply dropped
+  // with this State once the document is gone.
+  Uint8List? _onlineBytes;
+  // Cancels the in-flight download when the user leaves the screen.
+  CancelToken? _pdfDownloadCancel;
+  // Last progress value shown, so setState runs once per percent, not per chunk.
+  int _lastProgressTick = -1;
 
   bool _loading = true;
   String _loadingMessage = "جار التحقق من الملف...";
-  String? _error;
+  // Why the document could not be opened (null = no error). Holds a sanitised,
+  // user-safe message; the raw exception goes to Crashlytics only.
+  PdfLoadFailure? _error;
   bool _isOffline = false;
+
+  // ── Error reporting ────────────────────────────────────────────────────
+  // pdfrx calls errorBannerBuilder from build() on EVERY rebuild while it is
+  // in the error state. This remembers the exception already sent to
+  // Crashlytics so one failure produces exactly one report.
+  Object? _lastReportedViewerError;
   String _watermarkText = '';
 
   // --- إعدادات الأدوات والقراءة (محفوظة بين الجلسات) ---
@@ -251,6 +274,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     _drawingSaveTimer?.cancel();
     _documentEventsSubscription?.cancel();
     _reader?.close();
+    // Left the screen while the PDF was still downloading: stop the transfer
+    // (no-op if it already finished).
+    _pdfDownloadCancel?.cancel('screen closed');
     for (final ink in _inks.values) {
       ink.dispose();
     }
@@ -459,6 +485,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   Future<void> _preparePdf() async {
     setState(() {
       _loading = true;
+      _error = null; // lets "Retry" re-enter this method from the error page
       _loadingMessage = "جار تهيئة الحماية...";
     });
 
@@ -518,32 +545,41 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
         _loadingMessage = "جار التحميل المباشر...";
       });
 
-      var box = await StorageService.openBox('auth_box');
-      final String? token = box.get('jwt_token');
-      final String? deviceId = box.get('device_id');
-
-      // ✅ 1. محاولة جلب توكن Firebase App Check
-      String? appCheckToken;
-      try {
-        appCheckToken = await FirebaseAppCheck.instance.getToken(false).timeout(const Duration(seconds: 5));
-      } catch (e) {
-        debugPrint("App Check Error in PDF: $e");
+      // Fail fast, with OUR error page, when the device has no network at all.
+      // Without this the request would first sit through the App Check token
+      // retries in ApiClient's interceptor (up to ~10 s) before failing.
+      if (!await _hasNetworkConnection()) {
+        final failure = PdfLoadFailure.noInternet();
+        _recordPdfFailure(
+          const SocketException('No network connectivity (pre-flight check)'),
+          StackTrace.current,
+          failure,
+        );
+        if (mounted) {
+          setState(() {
+            _error = failure;
+            _loading = false;
+          });
+        }
+        return;
       }
 
-      // ✅ 2. بناء الترويسات الأساسية
-      _onlineHeaders = {
-        'Authorization': 'Bearer $token',
-        'x-device-id': deviceId ?? '',
-        'x-app-secret': 'My_Sup3r_S3cr3t_K3y_For_Android_App_Only',
-      };
+      // ── Online: download into memory through the PINNED Dio client ──────
+      // ApiClient.instance trusts only the pinned roots, and its interceptor
+      // adds x-app-secret, the App Check token, the JWT and x-device-id, so no
+      // header is built here any more. Nothing is written to disk: the bytes
+      // go to PDFium through an in-memory read callback (see build()).
+      _pdfDownloadCancel?.cancel('superseded by a new attempt');
+      final cancelToken = _pdfDownloadCancel = CancelToken();
+      _lastProgressTick = -1;
 
-      // ✅ 3. إضافة توكن الحماية في حال نجاح جلبه
-      if (appCheckToken != null) {
-        _onlineHeaders!['X-Firebase-AppCheck'] = appCheckToken;
-      }
-
-      _onlineUrl =
-          '${ApiConstants.apiUrl}/secure/get-pdf?pdfId=${widget.pdfId}';
+      final Uint8List bytes = await OnlinePdfFetcher.fetch(
+        dio: ApiClient.instance,
+        url: '${ApiConstants.apiUrl}/secure/get-pdf',
+        queryParameters: {'pdfId': widget.pdfId},
+        cancelToken: cancelToken,
+        onProgress: _onDownloadProgress,
+      );
 
       if (mounted) {
         // ── Fix: force fresh PdfViewer to avoid first-open stuck loading ──
@@ -551,21 +587,128 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
         // any widget until this exact rebuild — preventing a stale-controller
         // race on the first open after app launch.
         setState(() {
+          _onlineBytes = bytes;
           _pdfController = PdfViewerController();
           _viewerKey = UniqueKey();
           _loading = false;
         });
       }
     } catch (e, stack) {
-      FirebaseCrashlytics.instance
-          .recordError(e, stack, reason: "PDF Secure Load Failed");
-      if (mounted) {
-        setState(() {
-          _error = "فشل فتح الملف المحمي.";
-          _loading = false;
-        });
-      }
+      // The user left mid-download: the cancel (or the transport error it
+      // provokes) is expected, not a failure worth showing or reporting.
+      if (!mounted) return;
+
+      final failure = PdfLoadFailure.from(e, isOffline: false);
+      _recordPdfFailure(e, stack, failure);
+      setState(() {
+        _error = failure; // sanitised text; the raw exception went to Crashlytics
+        _loading = false;
+      });
     }
+  }
+
+  /// Download progress -> loading message. setState runs once per percent (or
+  /// per 0.5 MB when the server sent no length), not once per network chunk.
+  void _onDownloadProgress(int received, int? total) {
+    if (!mounted || !_loading) return;
+
+    final int tick;
+    final String message;
+    if (total != null && total > 0) {
+      tick = math.min(100, received * 100 ~/ total);
+      message = "جار تحميل الملف... $tick%";
+    } else {
+      tick = received ~/ (512 * 1024);
+      message =
+          "جار تحميل الملف... ${(received / (1024 * 1024)).toStringAsFixed(1)} MB";
+    }
+    if (tick == _lastProgressTick) return;
+    _lastProgressTick = tick;
+    setState(() => _loadingMessage = message);
+  }
+
+  /// PDFium read callback for the in-memory online document (counterpart of
+  /// [_customRead], which serves the encrypted offline file). Returns the
+  /// number of bytes copied into [buffer]; 0 signals "nothing to read".
+  Future<int> _readOnlineBytes(Uint8List buffer, int position, int size) async {
+    try {
+      if (_sessionToken == null) throw Exception("Unauthorized access context");
+      final bytes = _onlineBytes;
+      if (bytes == null) throw Exception("Document not loaded");
+
+      if (position < 0 || position >= bytes.length) return 0;
+      final int end = math.min(position + size, bytes.length);
+      final int count = end - position;
+      buffer.setRange(0, count, bytes, position);
+      return count;
+    } catch (e) {
+      debugPrint("Online Read Error: $e");
+      return 0;
+    }
+  }
+
+  /// Best-effort connectivity check via connectivity_plus. Fails OPEN: if the
+  /// check itself errors or times out we assume the network is fine and let
+  /// the real request decide, rather than blocking on an unreliable signal.
+  /// (Same approach as native_video_player_screen.dart.)
+  Future<bool> _hasNetworkConnection() async {
+    try {
+      final results = await Connectivity()
+          .checkConnectivity()
+          .timeout(const Duration(seconds: 3));
+      return results.isNotEmpty && !results.contains(ConnectivityResult.none);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Sends a load failure to Crashlytics as a NON-fatal error, tagged so it can
+  /// be filtered (pdf_id / pdf_mode / pdf_failure_kind). The raw exception is
+  /// reported as-is for debugging; only the on-screen text is sanitised.
+  /// Never throws: reporting must not break the error page.
+  void _recordPdfFailure(
+      Object error, StackTrace? stackTrace, PdfLoadFailure failure) {
+    try {
+      final crashlytics = FirebaseCrashlytics.instance;
+      unawaited(crashlytics.setCustomKey('pdf_id', widget.pdfId));
+      unawaited(
+          crashlytics.setCustomKey('pdf_mode', _isOffline ? 'offline' : 'online'));
+      unawaited(crashlytics.setCustomKey('pdf_failure_kind', failure.kind.name));
+      unawaited(crashlytics.recordError(
+        error,
+        stackTrace,
+        reason: 'PDF viewer load failed (${failure.kind.name})',
+        fatal: false,
+      ));
+    } catch (e) {
+      debugPrint('Crashlytics report failed: $e');
+    }
+  }
+
+  /// Replaces pdfrx's built-in error banner (which prints the exception text,
+  /// including the request URL, plus a full stack trace). Called by pdfrx from
+  /// build(), so reporting is de-duplicated by exception identity.
+  Widget _viewerErrorBannerBuilder(
+    BuildContext context,
+    Object error,
+    StackTrace? stackTrace,
+    PdfDocumentRef documentRef,
+  ) {
+    final failure = PdfLoadFailure.from(error, isOffline: _isOffline);
+    if (!identical(_lastReportedViewerError, error)) {
+      _lastReportedViewerError = error;
+      _recordPdfFailure(error, stackTrace, failure);
+    }
+    return _buildErrorContent(failure);
+  }
+
+  /// "Retry" on the error page: runs the whole preparation again (re-checks
+  /// for a local download, connectivity and App Check, then builds a fresh
+  /// viewer with a new key so pdfrx performs a brand-new load).
+  Future<void> _retry() async {
+    if (!mounted) return;
+    _lastReportedViewerError = null;
+    await _preparePdf();
   }
 
   @override
@@ -600,10 +743,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
                     controller: controller,
                     params: _buildPdfParams(),
                   )
-                : PdfViewer.uri(
+                // Online: same in-memory mechanism as offline, different source.
+                // (PdfViewer.uri is deliberately NOT used: it makes pdfrx write
+                // the downloaded PDF to a plaintext cache file on disk.)
+                : PdfViewer.custom(
                     key: _viewerKey,
-                    Uri.parse(_onlineUrl!),
-                    headers: _onlineHeaders,
+                    fileSize: _onlineBytes!.length,
+                    read: _readOnlineBytes,
+                    // An identifier, never a URL or a path: this name can end
+                    // up in logs. Unique per PDF; the document is released when
+                    // the viewer goes away, so retries never reuse a stale one.
+                    sourceName: 'online-pdf:${widget.pdfId}',
                     controller: controller,
                     params: _buildPdfParams(),
                   ),
@@ -642,14 +792,84 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     );
   }
 
+  /// Full-screen error (failure detected BEFORE the viewer was built, e.g. no
+  /// network). Failures that happen inside the viewer use the same content via
+  /// [_viewerErrorBannerBuilder], so both look identical.
   Widget _buildErrorView() {
     return Scaffold(
-        backgroundColor: AppColors.backgroundPrimary,
-        appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            leading: const BackButton(color: Colors.white)),
-        body: Center(
-            child: Text(_error!, style: const TextStyle(color: Colors.white))));
+      backgroundColor: AppColors.backgroundPrimary,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        leading: BackButton(color: AppColors.accentYellow),
+      ),
+      body: _buildErrorContent(_error!),
+    );
+  }
+
+  /// The error page body: icon, a short user-safe message and a Retry button.
+  /// Shows nothing from the underlying exception (no URL, host, path or stack).
+  Widget _buildErrorContent(PdfLoadFailure failure) {
+    // Exhaustive: adding a new PdfLoadFailureKind without choosing an icon here
+    // becomes a compile error instead of a silent gap.
+    final IconData icon = switch (failure.kind) {
+      PdfLoadFailureKind.noInternet ||
+      PdfLoadFailureKind.timeout =>
+        LucideIcons.wifiOff,
+      PdfLoadFailureKind.notFound ||
+      PdfLoadFailureKind.corrupted ||
+      PdfLoadFailureKind.tooLarge =>
+        LucideIcons.fileX,
+      PdfLoadFailureKind.insecureConnection ||
+      PdfLoadFailureKind.unauthorized ||
+      PdfLoadFailureKind.server ||
+      PdfLoadFailureKind.unknown =>
+        LucideIcons.alertCircle,
+    };
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: AppColors.error.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 34, color: AppColors.error),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              failure.message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 15,
+                height: 1.6,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _retry,
+              icon: const Icon(LucideIcons.refreshCw, size: 18),
+              label: const Text('إعادة المحاولة'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accentYellow,
+                foregroundColor: AppColors.backgroundPrimary,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   PreferredSizeWidget _buildAppBar() {
@@ -840,6 +1060,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   PdfViewerParams _buildPdfParams() {
     return PdfViewerParams(
       backgroundColor: AppColors.backgroundPrimary,
+      // Replace pdfrx's native error page (raw exception + URL + stack trace)
+      // with ours. A tear-off, not an inline closure: instance-method tear-offs
+      // are equal across rebuilds, so PdfViewerParams stays == between frames.
+      errorBannerBuilder: _viewerErrorBannerBuilder,
       layoutPages: PdfLayoutEngine.layout,
       pageAnchor: PdfLayoutEngine.anchorStart,
       pageAnchorEnd: PdfLayoutEngine.anchorEnd,

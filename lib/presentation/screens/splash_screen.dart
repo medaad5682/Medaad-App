@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
+import '../../core/services/pdf_cache_cleaner.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/video_screenshot_service.dart';
 import '../../core/services/api_client.dart';
@@ -84,6 +85,15 @@ class _SplashScreenState extends State<SplashScreen>
 
   /// دالة لحذف الملفات المؤقتة (تنظيف المخلفات)
   Future<void> _cleanupTempFiles() async {
+    // Previous app versions opened online PDFs with PdfViewer.uri, which left
+    // pdfrx's disk cache (a PLAINTEXT copy of every PDF viewed online) under
+    // <temp>/pdfrx.cache/<xx>/<yy>/<hash>.pdf. The loop below only deletes
+    // top-level files named view_* / temp_* / downloading_*, so it never saw
+    // that nested folder. Online mode no longer writes there, but devices that
+    // ran the old version still hold those files: the first launch after the
+    // update purges them. (wipe() never throws.)
+    await PdfCacheCleaner.wipe();
+
     try {
       final tempDir = await getTemporaryDirectory();
       final dir = Directory(tempDir.path);
