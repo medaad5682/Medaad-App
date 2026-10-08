@@ -530,7 +530,7 @@ void main() async {
     // Security
     SecurityManager.instance.initListeners();
     // Start periodic check
-    SecurityManager.instance.startPeriodicCheck();
+    //SecurityManager.instance.startPeriodicCheck();
 
     // ✅ [FIX] Theme/Locale full init (AppState().initTheme()/initLocale())
     // removed from here — see explanation below at runApp(). Both read
