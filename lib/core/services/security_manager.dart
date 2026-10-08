@@ -58,7 +58,6 @@ class SecurityManager {
     try {
       final bool nativeRooted = await _nativeChannel.invokeMethod('isDeviceRooted') ?? false;
       if (nativeRooted) {
-        _cachedIsHardwareReal = false;
         return false;
       }
     } catch (_) {}
@@ -68,11 +67,9 @@ class SecurityManager {
       final battery = Battery();
       final level = await battery.batteryLevel;
       if (level <= 0) {
-        _cachedIsHardwareReal = false;
         return false; // emulator typically returns 0 or -1
       }
     } catch (_) {
-      _cachedIsHardwareReal = false;
       return false; // inability to read battery = emulator
     }
 
@@ -93,7 +90,6 @@ class SecurityManager {
     } catch (_) {}
 
     if (!sensorPresent) {
-      _cachedIsHardwareReal = false;
       return false;
     }
 
@@ -102,9 +98,16 @@ class SecurityManager {
     return true;
   }
 
-  Future<bool> checkSecurity() async {
-    if (securityBreachReason.value != null) return false;
+  // ✅ منع تداخل الفحوصات: أي استدعاء أثناء فحص جارٍ ينتظر نفس النتيجة
+  Future<bool>? _inFlightCheck;
 
+  Future<bool> checkSecurity() {
+    if (securityBreachReason.value != null) return Future.value(false);
+    return _inFlightCheck ??=
+        _runCheck().whenComplete(() => _inFlightCheck = null);
+  }
+
+  Future<bool> _runCheck() async {
     try {
       bool isJailBroken = await SafeDevice.isJailBroken;
       bool isDevMode = await SafeDevice.isDevelopmentModeEnable;
@@ -133,10 +136,26 @@ class SecurityManager {
     return true;
   }
 
+  // ✅ [PERF FIX] كان الفحص يعمل كل ثانيتين، و SafeDevice.isJailBroken ينفّذ
+  // (Runtime.exec + RootBeer + مئات File.exists) على الـ main thread في أندرويد،
+  // فيتأخر الـ vsync وإطارات الفيديو كل ثانيتين. الآن: كل 5 دقائق + عند كل
+  // عودة من الخلفية (انظر didChangeAppLifecycleState في app.dart).
+  static const Duration _periodicInterval = Duration(minutes: 5);
+  Timer? _periodicTimer;
+
   void startPeriodicCheck() {
-    Timer.periodic(const Duration(seconds: 2), (timer) async {
-      await checkSecurity();
+    _periodicTimer?.cancel(); // لا نُنشئ أكثر من مؤقّت واحد
+    _periodicTimer = Timer.periodic(_periodicInterval, (_) {
+      // لا داعي للفحص في الخلفية؛ سيُفحص عند العودة (resumed)
+      final state = WidgetsBinding.instance.lifecycleState;
+      if (state != null && state != AppLifecycleState.resumed) return;
+      checkSecurity();
     });
+  }
+
+  void stopPeriodicCheck() {
+    _periodicTimer?.cancel();
+    _periodicTimer = null;
   }
 
   void _triggerBreach(String reason) {
