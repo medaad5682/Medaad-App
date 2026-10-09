@@ -80,8 +80,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           My_Sup3r_S3cr3t_K3y_For_Android_App_Only: ${{ secrets.My_Sup3r_S3cr3t_K3y_For_Android_App_Only }}
         run: |
-          # بناء AAB مع تحديد الإصدار 2.2.0 ورقم البناء 35
-          flutter build appbundle --release --build-name=2.2.0 --build-number=35 --dart-define=My_Sup3r_S3cr3t_K3y_For_Android_App_Only="$My_Sup3r_S3cr3t_K3y_For_Android_App_Only" 
+          # بناء AAB مع تحديد الإصدار 2.2.1 ورقم البناء 36
+          flutter build appbundle --release --build-name=2.2.1 --build-number=36 --dart-define=My_Sup3r_S3cr3t_K3y_For_Android_App_Only="$My_Sup3r_S3cr3t_K3y_For_Android_App_Only" 
 
       - name: Upload AAB Artifact
         uses: actions/upload-artifact@v4
