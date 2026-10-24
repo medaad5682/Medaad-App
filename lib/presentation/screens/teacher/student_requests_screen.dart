@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-// ✅ إضافة استيراد Firebase App Check
-import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/teacher_service.dart';
 import '../../../core/services/storage_service.dart';
+import '../../../core/services/attestation_service.dart';
 import '../../../core/constants/api_constants.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
 
@@ -33,7 +32,8 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
   // بيانات المصادقة للصور
   String? _token;
   String? _deviceId;
-  String? _appCheckToken; // ✅ متغير جديد لتخزين توكن الحماية
+  // 🆕 هيدر الإثبات: X-Firebase-AppCheck (جوجل) أو X-App-Attestation (هواوي)
+  Map<String, String> _attestationHeaders = const <String, String>{};
   final String _appSecret = 'My_Sup3r_S3cr3t_K3y_For_Android_App_Only';
 
   final String _baseUrl = ApiConstants.baseUrl;
@@ -101,11 +101,8 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
       _deviceId = box.get('device_id');
 
       // ✅ جلب توكن App Check لاستخدامه في تحميل الصور
-      try {
-        _appCheckToken = await FirebaseAppCheck.instance.getToken().timeout(const Duration(seconds: 5));
-      } catch (e) {
-        debugPrint("App Check Error: $e");
-      }
+      // getHeaders() لا ترمي أبداً (تعود بخريطة فارغة عند الفشل)
+      _attestationHeaders = await AttestationService.instance.getHeaders();
 
       debugPrint("Auth Loaded: DeviceID=$_deviceId");
 
@@ -307,8 +304,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                     'x-device-id': _deviceId!,
                     'x-app-secret': _appSecret,
                     // ✅ إضافة توكن الحماية هنا
-                    if (_appCheckToken != null)
-                      'X-Firebase-AppCheck': _appCheckToken!,
+                    ..._attestationHeaders,
                   },
                   placeholder: (context, url) => Center(
                       child: CircularProgressIndicator(
@@ -480,8 +476,7 @@ class _StudentRequestsScreenState extends State<StudentRequestsScreen>
                                 'x-device-id': _deviceId ?? '',
                                 'x-app-secret': _appSecret,
                                 // ✅ إضافة توكن الحماية هنا
-                                if (_appCheckToken != null)
-                                  'X-Firebase-AppCheck': _appCheckToken!,
+                                ..._attestationHeaders,
                               },
                               fit: BoxFit.cover,
                               placeholder: (c, u) => Center(
