@@ -9,8 +9,6 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-// ✅ إضافة استيراد Firebase App Check
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:cryptography/cryptography.dart';
@@ -18,6 +16,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:crypto/crypto.dart' as hash_crypto;
 
 import 'notification_service.dart';
+import 'attestation_service.dart'; // 🆕 App Check (جوجل) / SysIntegrity (هواوي)
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../constants/api_constants.dart';
@@ -407,21 +406,16 @@ class DownloadManager with WidgetsBindingObserver {
       final token = box.get('jwt_token');
       const String appSecret = 'My_Sup3r_S3cr3t_K3y_For_Android_App_Only';
 
-      // ✅ جلب توكن الـ App Check
-      String? appCheckToken;
-      try {
-        appCheckToken = await FirebaseAppCheck.instance.getToken().timeout(const Duration(seconds: 5));
-      } catch (e) {
-        debugPrint("App Check Error: $e");
-      }
+      // ✅ جلب هيدر الإثبات (X-Firebase-AppCheck أو X-App-Attestation لهواوي). لا يرمي أبداً.
+      final Map<String, String> attestationHeaders =
+          await AttestationService.instance.getHeaders();
 
       final Map<String, dynamic> requestHeaders = {
         'Authorization': 'Bearer $token',
         'x-device-id': deviceId,
         'x-app-secret': appSecret,
-        if (appCheckToken != null)
-          'X-Firebase-AppCheck':
-              appCheckToken, // ✅ التوكن هنا سيتم استخدامه في جميع الـ Requests القادمة (get-video-id والتحميل داخل Isolates)
+        // ✅ الهيدر هنا سيتم استخدامه في جميع الـ Requests القادمة (get-video-id والتحميل داخل Isolates)
+        ...attestationHeaders,
       };
 
       if (token == null) throw Exception("User auth missing");

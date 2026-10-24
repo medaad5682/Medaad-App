@@ -2,10 +2,8 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart'; // ✅ مكتبة محول Dio المطلوبة للـ Pinning
-import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // ✅ إضافة Crashlytics
+import 'attestation_service.dart'; // 🆕 App Check (جوجل) / SysIntegrity (هواوي)
 import 'storage_service.dart';
-import 'package:flutter/foundation.dart'; // ✅ هذا هو الحل للخطأ
 
 // ✅ 1. الشهادات الجذرية (Self-signed Roots) طويلة الأمد
 // تغطي جميع الدومينات:
@@ -66,60 +64,54 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 const List<String> _trustedRootCerts = [gtsRootR4, isrgRootX1];
 
 class ApiClient {
+  static const String _appSecret = 'My_Sup3r_S3cr3t_K3y_For_Android_App_Only';
+
+  // ✅ 2. حماية الـ TLS Certificate Pinning (منع هجمات MITM) — محوّل مشترك
+  //    بين العميل الرئيسي و ApiClient.bare.
+  static IOHttpClientAdapter _pinnedAdapter() => IOHttpClientAdapter(
+        createHttpClient: () {
+          // دمج كل الشهادات الجذرية في بايتات واحدة (PEM متعدد)
+          final List<int> certBytes =
+              utf8.encode(_trustedRootCerts.join('\n'));
+
+          // إنشاء السياق الأمني وإلغاء ثقة النظام (منع الشهادات المزيفة)
+          final SecurityContext securityContext =
+              SecurityContext(withTrustedRoots: false);
+
+          // إجبار التطبيق على الثقة بهذه الجذور المحددة فقط
+          securityContext.setTrustedCertificatesBytes(certBytes);
+
+          return HttpClient(context: securityContext);
+        },
+      );
+
+  // 🆕 عميل بنفس الـ Pinning ومع x-app-secret فقط، **بدون** إثبات ولا JWT.
+  // تستخدمه AttestationService لطلبات /api/attest/hms/* (لو مرّت من
+  // ApiClient.instance لاستدعت نفسها في حلقة).
+  static final Dio bare = Dio()
+    ..httpClientAdapter = _pinnedAdapter()
+    ..interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          options.headers['x-app-secret'] = _appSecret;
+          return handler.next(options);
+        },
+      ),
+    );
+
   static final Dio _dio = Dio()
-    // ✅ 2. تطبيق حماية الـ TLS Certificate Pinning (منع هجمات MITM)
-    ..httpClientAdapter = IOHttpClientAdapter(
-      createHttpClient: () {
-        // دمج كل الشهادات الجذرية في بايتات واحدة (PEM متعدد)
-        final List<int> certBytes =
-            utf8.encode(_trustedRootCerts.join('\n'));
-
-        // إنشاء السياق الأمني وإلغاء ثقة النظام (منع الشهادات المزيفة)
-        final SecurityContext securityContext =
-            SecurityContext(withTrustedRoots: false);
-
-        // إجبار التطبيق على الثقة بهذه الجذور المحددة فقط
-        securityContext.setTrustedCertificatesBytes(certBytes);
-
-        return HttpClient(context: securityContext);
-      },
-    )
+    ..httpClientAdapter = _pinnedAdapter()
     // ✅ 3. إضافة الانترسبتورز الخاصة بك (لم تتغير)
     ..interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
           // 1. مفتاح التطبيق (يُرسل مع كل الطلبات)
-          options.headers['x-app-secret'] = 'My_Sup3r_S3cr3t_K3y_For_Android_App_Only';
+          options.headers['x-app-secret'] = _appSecret;
 
-          // 2. توكن Firebase App Check
-          try {
-            final appCheckToken = await FirebaseAppCheck.instance
-                .getToken(false)
-                .timeout(const Duration(seconds: 5));
-            if (appCheckToken != null) {
-              options.headers['X-Firebase-AppCheck'] = appCheckToken;
-            }
-          } catch (e, stack) {
-            // ✅ محاولة ثانية مع force refresh
-            try {
-              final retryToken = await FirebaseAppCheck.instance
-                  .getToken(true)
-                  .timeout(const Duration(seconds: 5));
-              if (retryToken != null) {
-                options.headers['X-Firebase-AppCheck'] = retryToken;
-              }
-            } catch (_) {
-              // تجاهل - الطلب سيُرسل بدون App Check header
-            }
-            // ✅ إرسال تفاصيل الخطأ إلى Firebase Crashlytics
-            await FirebaseCrashlytics.instance.recordError(
-              e,
-              stack,
-              reason: 'Failed to retrieve App Check token in ApiClient',
-              fatal: false, // نضعه false لأننا لا نريد إغلاق التطبيق
-            );
-            debugPrint("🚨 App Check Error logged to Crashlytics: $e");
-          }
+          // 2. إثبات أن الطلب من تطبيقنا الأصلي:
+          //    X-Firebase-AppCheck (جوجل) أو X-App-Attestation (هواوي HMS فقط).
+          //    لا ترمي أبداً؛ عند الفشل يُرسل الطلب بدون هيدر (والقائمة البيضاء كما هي).
+          options.headers.addAll(await AttestationService.instance.getHeaders());
 
           // 3. توكن المستخدم (JWT) ومعرف الجهاز
           try {
