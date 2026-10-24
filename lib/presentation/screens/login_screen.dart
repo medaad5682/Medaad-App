@@ -11,6 +11,7 @@ import 'package:android_id/android_id.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/services/push/push_service.dart';
 import 'main_wrapper.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
@@ -179,15 +180,17 @@ class _LoginScreenState extends State<LoginScreen> {
       var box = await StorageService.openBox('auth_box');
       await _getAndSaveDeviceId(box);
       
-      // ✅ جلب توكن فايربيز لإرساله وتسجيله في الباك إند
-      String? fcmToken = box.get('fcm_token');
+      // ✅ هيدرز تسجيل الإشعارات (FCM أو HMS): x-push-provider + x-push-token
+      // (ومعهما x-fcm-token عند FCM للتوافق مع السيرفر القديم)
+      final Map<String, String> pushHeaders =
+          await PushService.instance.registrationHeadersFor(box);
 
-      // الاعتماد على ApiClient مع تمرير x-fcm-token و x-user-id للضيف
+      // الاعتماد على ApiClient مع تمرير هيدرز الإشعارات و x-user-id للضيف
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(headers: {
           'x-user-id': '0', // ✅ تمت إضافته لتوحيد منطق الزائر
-          if (fcmToken != null) 'x-fcm-token': fcmToken,
+          ...pushHeaders,
         }),
       );
 
@@ -240,14 +243,15 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       var box = await StorageService.openBox('auth_box');
       
-      // ✅ جلب توكن فايربيز للإشعارات
-      String? fcmToken = box.get('fcm_token');
+      // ✅ هيدرز تسجيل الإشعارات (FCM أو HMS): x-push-provider + x-push-token
+      final Map<String, String> pushHeaders =
+          await PushService.instance.registrationHeadersFor(box);
 
-      // الاعتماد على ApiClient مع إضافة x-fcm-token فقط كاستثناء ذكي
+      // الاعتماد على ApiClient مع إضافة هيدرز الإشعارات فقط كاستثناء ذكي
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(headers: {
-          if (fcmToken != null) 'x-fcm-token': fcmToken,
+          ...pushHeaders,
         }),
       );
 

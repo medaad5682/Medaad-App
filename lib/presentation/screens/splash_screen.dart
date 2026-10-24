@@ -19,6 +19,8 @@ import '../../core/services/video_screenshot_service.dart';
 import '../../core/services/api_client.dart';
 // ✅ 1. استيراد خدمة الإشعارات
 import '../../core/services/notification_service.dart';
+// 🆕 هيدرز تسجيل الإشعارات (FCM / HMS)
+import '../../core/services/push/push_service.dart';
 // ✅ [FIX] استيراد AppReadySignal لتبليغ main.dart أن SplashScreen وصلت
 // فعلياً لوجهتها النهائية — راجع الشرح الكامل في main.dart أعلى تعريف
 // AppReadySignal، ودالة `_navigateToFinalDestination` أسفل هذا الملف.
@@ -400,8 +402,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initAsGuest(String deviceId, Box box) async {
     try {
-      // ✅ استرجاع توكن الإشعارات
-      String? fcmToken = box.get('fcm_token');
+      // ✅ هيدرز تسجيل الإشعارات (FCM أو HMS): x-push-provider + x-push-token
+      final Map<String, String> pushHeaders =
+          await PushService.instance.registrationHeadersFor(box);
 
       // الاعتماد على ApiClient دون حقن الهيدرز يدوياً باستثناء الهيدرز الخاصة بهذه العملية
       final response = await ApiClient.instance.get(
@@ -409,7 +412,7 @@ class _SplashScreenState extends State<SplashScreen>
         options: Options(
           headers: {
             'x-user-id': '0', // للزائر (Guest)
-            if (fcmToken != null) 'x-fcm-token': fcmToken, // توكن الإشعارات
+            ...pushHeaders, // توكن الإشعارات
           },
           receiveTimeout: const Duration(seconds: 10),
         ),
@@ -439,15 +442,16 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initAsUser(String userId, String deviceId, Box box) async {
     try {
-      // ✅ استرجاع توكن الإشعارات
-      String? fcmToken = box.get('fcm_token');
+      // ✅ هيدرز تسجيل الإشعارات (FCM أو HMS): x-push-provider + x-push-token
+      final Map<String, String> pushHeaders =
+          await PushService.instance.registrationHeadersFor(box);
 
       // الاعتماد الكامل على ApiClient لحقن الهيدرز والتوكنز بشكل مركزي مع إضافة توكن الإشعارات
       final response = await ApiClient.instance.get(
         '$_baseUrl/api/public/get-app-init-data',
         options: Options(
           headers: {
-            if (fcmToken != null) 'x-fcm-token': fcmToken, // توكن الإشعارات
+            ...pushHeaders, // توكن الإشعارات
           },
           receiveTimeout: const Duration(seconds: 10),
         ),
