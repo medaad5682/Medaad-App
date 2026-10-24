@@ -5,11 +5,11 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import '../../core/constants/app_colors.dart';
 import 'exam_result_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
+import '../../core/services/attestation_service.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
 
@@ -54,7 +54,8 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
   String? _userId;
   String? _deviceId;
   String? _token;
-  String? _appCheckToken;
+  // 🆕 هيدر الإثبات: X-Firebase-AppCheck (جوجل) أو X-App-Attestation (هواوي)
+  Map<String, String> _attestationHeaders = const <String, String>{};
   final String _appSecret = 'My_Sup3r_S3cr3t_K3y_For_Android_App_Only';
 
   final String _baseUrl = ApiConstants.baseUrl;
@@ -115,11 +116,8 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
       _token = box.get('jwt_token');
       final name = box.get('first_name') ?? 'Student';
 
-      try {
-        _appCheckToken = await FirebaseAppCheck.instance.getToken().timeout(const Duration(seconds: 5));
-      } catch (e) {
-        debugPrint("App Check Error: $e");
-      }
+      // getHeaders() لا ترمي أبداً (تعود بخريطة فارغة عند الفشل)
+      _attestationHeaders = await AttestationService.instance.getHeaders();
 
       final res = await ApiClient.instance.post(
         '$_baseUrl/api/exams/start-attempt',
@@ -337,8 +335,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                   'Authorization': 'Bearer $_token',
                   'x-device-id': _deviceId ?? '',
                   'x-app-secret': _appSecret,
-                  if (_appCheckToken != null)
-                    'X-Firebase-AppCheck': _appCheckToken!,
+                  ..._attestationHeaders,
                 },
                 placeholder: (context, url) => Center(
                     child: CircularProgressIndicator(
@@ -720,8 +717,7 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                                       'Authorization': 'Bearer $_token',
                                       'x-device-id': _deviceId ?? '',
                                       'x-app-secret': _appSecret,
-                                      if (_appCheckToken != null)
-                                        'X-Firebase-AppCheck': _appCheckToken!,
+                                      ..._attestationHeaders,
                                     },
                                     placeholder: (context, url) => Center(
                                         child: CircularProgressIndicator(
