@@ -3,8 +3,9 @@ import 'package:flutter/material.dart'; // ✅ إضافة استيراد Materia
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-// ✅ استيراد مكتبات فايربيز
-import 'package:firebase_messaging/firebase_messaging.dart';
+// 🆕 طبقة الإشعارات الموحّدة (FCM / HMS) بدل استدعاء firebase_messaging مباشرة
+import 'push/push_provider.dart';
+import 'push/push_service.dart';
 
 // ✅ استيراد المفتاح الخاص بالتوجيه ودالة التوجيه الآمنة (تنتظر اكتمال
 // تهيئة السبلاش قبل الدفع — راجع main.dart)
@@ -126,27 +127,59 @@ class NotificationService {
   static const Duration _topicOpTimeout = Duration(seconds: 5);
 
   // دالة ذكية للاشتراك في القنوات وإلغاء القديمة
+  //
+  // 🆕 تعمل الآن عبر PushService (FCM أو HMS حسب الجهاز). تغييرات السلوك:
+  //  - تنتظر اختيار المزوّد وجاهزية التوكن (بمهلة)، وإن لم يتوفرا (لا إشعارات
+  //    على الجهاز / لا شبكة) تخرج بهدوء دون أن تحفظ شيئاً، فتُعاد المحاولة
+  //    تلقائياً في المرة القادمة.
+  //  - تحفظ في subscribed_topics القنوات التي نجح الاشتراك فيها فعلاً فقط
+  //    (سابقاً كانت تُحفظ القائمة كاملة حتى لو فشل الاشتراك، فلا تُعاد
+  //    المحاولة أبداً).
+  //  - إن تغيّر المزوّد عن الذي اشتُركت به القنوات (مثلاً FCM -> HMS) تُعاد
+  //    كل الاشتراكات على المزوّد الجديد.
   Future<void> updateSubscriptions(List<String> newTopics) async {
     try {
-      FirebaseMessaging messaging = FirebaseMessaging.instance;
+      final push = PushService.instance;
+
+      final String? providerName = await push.resolveProviderName();
+      if (providerName == null) {
+        debugPrint('ℹ️ No push provider on this device — skipping topic subscriptions');
+        return;
+      }
+
+      // الاشتراك في القنوات يحتاج توكناً جاهزاً على المزوّد.
+      final String? deviceToken = await push.waitForToken();
+      if (deviceToken == null) {
+        debugPrint('ℹ️ Push token not ready — will retry topic subscriptions next time');
+        return;
+      }
+
       var authBox = await StorageService.openBox('auth_box');
 
-      // جلب القنوات القديمة التي كان مشتركاً بها مسبقاً
-      List<String> oldTopics = authBox.get('subscribed_topics', defaultValue: <String>[]).cast<String>();
+      // المزوّد الذي اشتُركت به القنوات المحفوظة (قبل HMS كان FCM دائماً).
+      final String savedProvider =
+          (authBox.get('subscribed_provider') as String?) ?? 'fcm';
+      final List<String> oldTopics = savedProvider == providerName
+          ? authBox.get('subscribed_topics', defaultValue: <String>[]).cast<String>()
+          : <String>[];
+
+      // القنوات المشترك بها فعلاً (تُحدَّث عند كل نجاح)
+      final Set<String> current = oldTopics.toSet();
 
       // إلغاء الاشتراك من القنوات التي لم تعد موجودة في حساب الطالب (انتهى اشتراكه فيها)
       for (String oldTopic in oldTopics) {
         if (!newTopics.contains(oldTopic)) {
           try {
-            await messaging.unsubscribeFromTopic(oldTopic).timeout(_topicOpTimeout);
-            debugPrint("Unsubscribed from FCM Topic: $oldTopic");
+            await push.unsubscribeFromTopic(oldTopic).timeout(_topicOpTimeout);
+            current.remove(oldTopic);
+            debugPrint("Unsubscribed from $providerName topic: $oldTopic");
           } catch (e, s) {
-            // ✅ لا نوقف باقي القنوات بسبب فشل/تعليق قناة واحدة (خصوصاً على
-            // أجهزة Huawei) — نُسجّل الخطأ ونكمل.
+            // ✅ لا نوقف باقي القنوات بسبب فشل/تعليق قناة واحدة — نُسجّل الخطأ
+            // ونكمل. تبقى القناة في القائمة فتُعاد المحاولة لاحقاً.
             debugPrint("⚠️ Failed/timed out unsubscribing from $oldTopic: $e");
             FirebaseCrashlytics.instance.recordError(
               e, s,
-              reason: 'Timed out/failed unsubscribing from FCM topic (possibly GMS-less device)',
+              reason: 'Timed out/failed unsubscribing from $providerName topic',
               fatal: false,
             );
           }
@@ -155,41 +188,45 @@ class NotificationService {
 
       // الاشتراك في القنوات الجديدة
       for (String topic in newTopics) {
-        if (!oldTopics.contains(topic)) {
+        if (!current.contains(topic)) {
           try {
-            await messaging.subscribeToTopic(topic).timeout(_topicOpTimeout);
-            debugPrint("Subscribed to FCM Topic: $topic");
+            await push.subscribeToTopic(topic).timeout(_topicOpTimeout);
+            current.add(topic);
+            debugPrint("Subscribed to $providerName topic: $topic");
           } catch (e, s) {
             debugPrint("⚠️ Failed/timed out subscribing to $topic: $e");
             FirebaseCrashlytics.instance.recordError(
               e, s,
-              reason: 'Timed out/failed subscribing to FCM topic (possibly GMS-less device)',
+              reason: 'Timed out/failed subscribing to $providerName topic',
               fatal: false,
             );
           }
         }
       }
 
-      // حفظ القائمة الجديدة للاستخدام في المرة القادمة
-      await authBox.put('subscribed_topics', newTopics);
+      // حفظ القنوات التي نجح الاشتراك بها فقط + المزوّد المستخدم
+      await authBox.put('subscribed_topics', current.toList());
+      await authBox.put('subscribed_provider', providerName);
     } catch (e, s) {
-      FirebaseCrashlytics.instance.recordError(e, s, reason: 'Failed to update FCM subscriptions');
+      FirebaseCrashlytics.instance.recordError(e, s, reason: 'Failed to update push subscriptions');
     }
   }
 
   // مستمع الإشعارات والتطبيق مفتوح
+  // 🆕 عبر PushService (FCM أو HMS). رسائل الـ notification في HMS يعرضها النظام
+  // بنفسها، فلا تصل هنا عادةً؛ ونعرض محلياً فقط ما فيه عنوان أو نص.
   void _listenToForegroundMessages() {
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    PushService.instance.onForegroundMessage.listen((PushMessage message) {
       debugPrint('Got a message whilst in the foreground!');
 
-      if (message.notification != null) {
-        _showForegroundFCMNotification(message);
+      if (message.title != null || message.body != null) {
+        _showForegroundPushNotification(message);
       }
     });
   }
 
   // عرض الإشعار المنبثق برمجياً
-  Future<void> _showForegroundFCMNotification(RemoteMessage message) async {
+  Future<void> _showForegroundPushNotification(PushMessage message) async {
     const String channelId = 'fcm_channel';
 
     final AndroidNotificationDetails androidPlatformChannelSpecifics =
@@ -218,9 +255,12 @@ class NotificationService {
     );
 
     await _safeShow(
-      message.notification.hashCode, // توليد ID فريد بناء على الرسالة
-      message.notification?.title,
-      message.notification?.body,
+      // توليد ID فريد (32-bit موجب) بناء على الرسالة
+      (message.id ?? '${message.title}|${message.body}|${DateTime.now().microsecondsSinceEpoch}')
+              .hashCode &
+          0x7FFFFFFF,
+      message.title,
+      message.body,
       platformChannelSpecifics,
     );
   }
