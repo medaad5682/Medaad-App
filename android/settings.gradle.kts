@@ -42,3 +42,30 @@ plugins {
 }
 
 include(":app")
+
+// 🆕 HMS: Gradle 9 حذف jcenter()، وبعض إضافات Flutter القديمة (مثل flutter_hms_gms_availability)
+// ما زالت تستدعيه فيفشل تقييم المشروع. نستبدله بـ mavenCentral() في android/build.gradle
+// لكل إضافة قبل أن يبدأ Gradle بتقييم المشاريع (يعمل محلياً وعلى GitHub Actions، ولا يغيّر شيئاً إن لم يوجد jcenter()).
+run {
+    val pluginsDeps = file("../.flutter-plugins-dependencies")
+    if (pluginsDeps.exists()) {
+        Regex("\"path\"\\s*:\\s*\"([^\"]+)\"")
+            .findAll(pluginsDeps.readText())
+            .map { it.groupValues[1].replace("\\\\", "/") }
+            .distinct()
+            .forEach { pluginDir ->
+                val buildFile = java.io.File(pluginDir, "android/build.gradle")
+                if (buildFile.isFile) {
+                    try {
+                        val text = buildFile.readText()
+                        if (text.contains("jcenter()")) {
+                            buildFile.writeText(text.replace("jcenter()", "mavenCentral()"))
+                            println("settings: replaced jcenter() with mavenCentral() in ${buildFile.path}")
+                        }
+                    } catch (e: Exception) {
+                        println("settings: could not patch ${buildFile.path}: ${e.message}")
+                    }
+                }
+            }
+    }
+}
