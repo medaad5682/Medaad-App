@@ -37,3 +37,6 @@ lib/firebase_options.dart
 .DS_Store
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
+
+# 🆕 HMS: ملف إعدادات AppGallery Connect (لا يُرفع على git)
+android/app/agconnect-services.json
