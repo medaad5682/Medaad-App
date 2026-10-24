@@ -1,0 +1,6 @@
+# Minimal version catalog.
+# Huawei's AGC Gradle plugin (com.huawei.agconnect) looks up a catalog named "libs"
+# and fails with "Catalog named libs doesn't exist" when the project has none.
+# Gradle auto-imports this file as the "libs" catalog.
+[versions]
+agcp = "1.9.5.302"
