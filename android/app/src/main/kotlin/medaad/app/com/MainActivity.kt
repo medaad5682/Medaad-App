@@ -3,6 +3,7 @@ package medaad.app.com
 import android.os.Bundle
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
 import android.media.AudioRecordingConfiguration
 import android.os.Build
@@ -29,8 +30,27 @@ class MainActivity: FlutterActivity() {
     // وضع الرسم كي لا نزيد عدد أحداث اللمس في بقية التطبيق.
     @Volatile private var unbufferedInput = false
 
+    // 🆕 HMS: التقاط الضغط على إشعار Huawei Push Kit بشكل حتمي.
+    // السيرفر يرسل click_action {type: 1, action: "FLUTTER_NOTIFICATION_CLICK"}
+    // (lib/hmsPush.js) وفي AndroidManifest.xml يوجد intent-filter بنفس الـ action،
+    // فيفتح النظام MainActivity بهذا الـ action عند الضغط على الإشعار.
+    //   - تشغيل بارد : onCreate يسجّل العلَم، وDart يستهلكه مرة واحدة (consumeLaunchTap)
+    //   - التطبيق حي : onNewIntent يُبلّغ Dart مباشرة (onNotificationTap)
+    // Dart لا يستمع لهذه القناة إلا عند اختيار مزوّد HMS، فلا أثر على مستخدمي FCM.
+    private val TAP_CHANNEL = "medaad.app.com/notification_tap"
+    private val NOTIFICATION_CLICK_ACTION = "FLUTTER_NOTIFICATION_CLICK"
+    private var tapChannel: MethodChannel? = null
+    @Volatile private var launchedByNotificationTap = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 🆕 HMS: تشغيل بارد بالضغط على إشعار. savedInstanceState != null يعني أن
+        // النظام يعيد إنشاء النشاط (مثلاً بعد قتل العملية) بنفس الـ intent القديم،
+        // فلا نعتبره ضغطة جديدة كي لا تُفتح شاشة الإشعارات من تلقاء نفسها.
+        if (savedInstanceState == null && isNotificationTap(intent)) {
+            launchedByNotificationTap = true
+        }
 
         // ✅ 1. منع تسجيل الفيديو وأخذ لقطات الشاشة (FLAG_SECURE)
         // Applied in onCreate before first frame — consistent with FlutterWindowManagerPlus in Dart
@@ -86,6 +106,32 @@ class MainActivity: FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // 🆕 HMS: قناة الضغط على الإشعارات (انظر التعليق أعلى الملف)
+        val tap = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, TAP_CHANNEL)
+        tap.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "consumeLaunchTap" -> {
+                    val tapped = launchedByNotificationTap
+                    launchedByNotificationTap = false // تُستهلك مرة واحدة
+                    result.success(tapped)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        tapChannel = tap
+    }
+
+    // 🆕 HMS: النشاط singleTop، فالضغط على إشعار والتطبيق حي يصل هنا.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (isNotificationTap(intent)) {
+            tapChannel?.invokeMethod("onNotificationTap", null)
+        }
+    }
+
+    private fun isNotificationTap(intent: Intent?): Boolean {
+        return intent?.action == NOTIFICATION_CLICK_ACTION
     }
 
     // ✅ طلب الإرسال غير المجمَّع (Unbuffered) لتيار اللمس الجاري. يُستدعى مع
