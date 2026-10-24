@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'package:Medaad/app.dart';
 import 'package:Medaad/core/services/security_manager.dart';
 import 'package:Medaad/core/services/widgets/restart_widget.dart';
@@ -28,6 +27,9 @@ import 'package:flutter_background_service_android/flutter_background_service_an
 import 'core/services/notification_service.dart';
 import 'core/services/app_state.dart';
 import 'core/services/storage_service.dart';
+// 🆕 طبقة الإشعارات الموحّدة (FCM / HMS)
+import 'core/services/push/push_provider.dart';
+import 'core/services/push/push_service.dart';
 // ✅ استيراد شاشة الإشعارات ليتم التوجيه إليها
 import 'presentation/screens/notifications_screen.dart';
 
@@ -165,89 +167,23 @@ Future<bool> onIosBackground(ServiceInstance service) async {
   return true;
 }
 
-// ✅ [ROOT-CAUSE FIX] إعداد Firebase Messaging بشكل معزول تمامًا عن مسار
-// إقلاع التطبيق الرئيسي.
+// ✅ [ROOT-CAUSE FIX] إعداد الإشعارات بشكل معزول تمامًا عن مسار إقلاع
+// التطبيق الرئيسي (يُستدعى بعد runApp() ولا يحجب ظهور الواجهة أبداً).
 //
-// المشكلة الأصلية: كان `messaging.getToken()` يُستدعى مباشرة بعد
-// requestPermission() دون أي try/catch من حوله. على iOS تحديدًا،
-// getToken() يتطلب أن يكون APNs token قد وصل بالفعل من نظام التشغيل
-// (عبر application:didRegisterForRemoteNotificationsWithDeviceToken:)
-// قبل أن يتمكن من طلب FCM token. هذا التسجيل مع Apple يحدث بشكل غير
-// متزامن تمامًا، وقد يتأخر (شبكة بطيئة عند أول تشغيل، اتصال خلوي فقط،
-// أو ببساطة رفض المستخدم لإذن الإشعارات فيمنع تسجيل الجهاز أصلاً).
-// عندما لم يكن الـ APNs token جاهزًا، كانت المكتبة ترمي FlutterError من
-// `_APNSTokenCheck` — وبما أن هذا الاستدعاء داخل runZonedGuarded بلا أي
-// حماية، كان الخطأ يصعد مباشرة إلى onError الخاص بالـ Zone، الذي يسجّله
-// كـ crash **قاتل** (`fatal: true`) و **يوقف تنفيذ باقي main() قبل
-// الوصول إلى runApp()** — أي أن التطبيق لا يفتح إطلاقًا لبعض المستخدمين،
-// وذلك فقط على الأجهزة/الشبكات التي يتأخر فيها تسجيل APNs، وهو ما يفسر
-// حدوث المشكلة على بعض أجهزة iOS دون الأخرى.
-//
-// الإصلاح: (1) لف كل شيء بـ try/catch محلي بحيث لا يمكن لأي فشل هنا أن
-// يصل إطلاقًا إلى الـ Zone الرئيسي أو يمنع runApp(). (2) على iOS، ننتظر
-// فعليًا وصول الـ APNs token (بمحاولات متكررة محدودة بمهلة زمنية) قبل أي
-// استدعاء لـ getToken() بدلاً من افتراض جاهزيته فورًا. (3) تُستدعى هذه
-// الدالة الآن بعد runApp() (fire-and-forget) حتى لا تؤخر ظهور واجهة
-// التطبيق أبدًا مهما استغرق تسجيل الإشعارات من وقت.
-Future<void> _setupFirebaseMessaging() async {
+// 🆕 HMS: كان هذا المكان يستدعي FirebaseMessaging مباشرة (الإذن + APNs +
+// getToken). أصبح كل ذلك داخل PushService الذي يختار مزوّداً واحداً حسب
+// الجهاز:
+//   - أجهزة Google (وiOS)         -> FCM (نفس المنطق القديم تماماً، بما فيه
+//                                    انتظار APNs token على iOS)
+//   - أجهزة هواوي بلا خدمات Google -> HMS (لا تُستدعى FirebaseMessaging إطلاقاً)
+// وهو الذي يحفظ المزوّد والتوكن في auth_box (push_provider / push_token /
+// وfcm_token للتوافق). PushService.initialize() لا يرمي استثناءً أبداً،
+// لكننا نُبقي try/catch هنا كخط دفاع إضافي كي لا يصل أي فشل إلى الـ Zone.
+Future<void> _setupPush() async {
   try {
-    final messaging = FirebaseMessaging.instance;
-
-    final settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    debugPrint('🔔 Notification permission status: ${settings.authorizationStatus}');
-
-    await messaging.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
-    // ✅ على iOS فقط: انتظر وصول الـ APNs token فعليًا قبل طلب FCM token.
-    // بدون هذا الانتظار، getToken() يرمي FlutterError إن لم يكن الـ APNs
-    // token جاهزًا بعد — وهو ما كان يسبب الانهيار الأصلي.
-    if (Platform.isIOS) {
-      String? apnsToken = await messaging.getAPNSToken();
-      var attempts = 0;
-      while (apnsToken == null && attempts < 10) {
-        await Future.delayed(const Duration(seconds: 1));
-        apnsToken = await messaging.getAPNSToken();
-        attempts++;
-      }
-      if (apnsToken == null) {
-        // لم يصل الـ APNs token خلال 10 ثوانٍ (شبكة بطيئة جدًا أو الإذن
-        // مرفوض) — نتخلى عن جلب FCM token في هذه الجلسة بهدوء بدلاً من
-        // رمي استثناء. سيُعاد المحاولة تلقائيًا في التشغيل التالي، أو عبر
-        // onTokenRefresh لاحقًا إن توفر الاتصال.
-        debugPrint('⚠️ APNs token not available after retries — skipping FCM token fetch for now');
-        return;
-      }
-    }
-
-    final fcmToken = await messaging.getToken();
-    assert(() {
-      debugPrint("🔥 FCM Token: $fcmToken");
-      return true;
-    }());
-
-    if (fcmToken != null) {
-      // ✅ [CLEAN] auth_box يُفتح هنا فقط عند الحاجة الفعلية لحفظ الـ
-      // fcm_token — بدل فتحه مسبقاً في main() وتمريره كمعامل. بفضل قفل
-      // StorageService.openBox() (_openInFlight)، هذا الاستدعاء يتشارك
-      // نفس نتيجة الفتح مع splash_screen.dart إن كانت قد بدأته بالفعل
-      // (أو أي مسار آخر)، فلا يحدث أي فتح مكرر فعلياً للصندوق. قد تكون
-      // النتيجة null إذا فشل فتح الصندوق بأمان — لا نريد رمي استثناء آخر
-      // هنا.
-      final authBox = await _openBoxSafely('auth_box');
-      await authBox?.put('fcm_token', fcmToken);
-    }
+    await PushService.instance.initialize();
   } catch (e, stack) {
-    // ✅ أي فشل هنا (بما فيه FlutterError من _APNSTokenCheck) يُسجَّل كخطأ
-    // غير قاتل ولا يؤثر إطلاقًا على بقية التطبيق.
-    debugPrint('⚠️ Firebase Messaging setup failed (non-fatal): $e');
+    debugPrint('⚠️ Push setup failed (non-fatal): $e');
     if (Firebase.apps.isNotEmpty) {
       await _safeRecordError(e, stack, fatal: false);
     }
@@ -298,7 +234,7 @@ Future<void> _initStorageAfterAppReady() async {
     // يحتاجه فيها:
     //   - settings_box  → AppState.initTheme()/initLocale() أدناه في main()
     //   - auth_box       → SplashScreen._initializeApp() فور ظهورها، أو من
-    //                       داخل _setupFirebaseMessaging() أدناه فقط إذا
+    //                       داخل _setupPush() أدناه فقط إذا
     //                       وُجد fcm_token فعلاً لحفظه
     //   - downloads_box  → SplashScreen._initializeApp()
     //   - pdf_drawings_db → PdfAnnotationStore عند فتح أول ملف PDF فعلياً
@@ -328,7 +264,7 @@ Future<void> _initStorageAfterAppReady() async {
   // فتح الصناديق. الدالة نفسها معزولة بالكامل بـ try/catch فلا يمكن لأي
   // فشل بداخلها أن يصل لهذا الـ Zone أو يُسجَّل كـ fatal. هي التي تفتح
   // auth_box بنفسها (عند الحاجة فقط) بدل انتظار مرجع مُمرَّر لها.
-  await _setupFirebaseMessaging();
+  await _setupPush();
 }
 
 void main() async {
@@ -460,7 +396,7 @@ void main() async {
     // الآن: لا شيء هنا يحجب runApp() إطلاقاً. تهيئة Hive وفتح الصناديق
     // انتقلت بالكامل إلى _initStorageAfterAppReady() أسفل هذه الدالة،
     // والتي تُستدعى (fire-and-forget) بعد runApp() تماماً مثل
-    // _setupFirebaseMessaging(). واجهة التطبيق تظهر فوراً بغض النظر عن
+    // _setupPush(). واجهة التطبيق تظهر فوراً بغض النظر عن
     // حالة التخزين الآمن، و StorageService._getKey() نفسها لديها الآن
     // بوابة داخلية (_AppReadyGate) تنتظر تأكيد أن الإطار الأول رُسم
     // وأن حالة دورة الحياة resumed قبل لمس Keychain — هذا يحمي أيضاً أي
@@ -468,7 +404,7 @@ void main() async {
     // عند الحاجة بشكل مستقل عن هذا الاستدعاء أصلاً).
     //
     // ✅ إعداد Firebase Messaging (الإذن + التوكن) انتُقل إلى ما بعد
-    // runApp() أسفل هذه الدالة — انظر _setupFirebaseMessaging() أعلاه
+    // runApp() أسفل هذه الدالة — انظر _setupPush() أعلاه
     // لشرح السبب الكامل لهذا التغيير.
 
     // =========================================================================
@@ -483,14 +419,16 @@ void main() async {
     // أيضاً عرضة تماماً لمشكلة "الدفع فوق SplashScreen ثم مسحه" الموضحة
     // أعلاه عند AppReadySignal. الآن ننتظر الجاهزية الفعلية الحقيقية بدل
     // تخمين وقتها.
-    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+    // 🆕 عبر PushService (FCM أو HMS حسب الجهاز). getInitialMessage() تنتظر
+    // اختيار المزوّد داخلياً (بحد أقصى 30 ثانية) ولا تحجب الإقلاع.
+    PushService.instance.getInitialMessage().then((PushMessage? message) {
       if (message != null) {
         openNotificationsScreenWhenReady();
       }
     });
 
     // 2. إذا كان التطبيق يعمل في الخلفية (Background) وتم الضغط على الإشعار
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    PushService.instance.onMessageOpenedApp.listen((PushMessage message) {
       openNotificationsScreenWhenReady();
     });
     // =========================================================================
@@ -584,7 +522,7 @@ void main() async {
 
     // ✅ [FIX] تهيئة Hive تُستدعى الآن أيضاً بعد runApp() (fire-and-forget)
     // — انظر توثيق _initStorageAfterAppReady() أدناه. لم تعد main.dart
-    // تفتح أي صندوق استباقياً هنا؛ _setupFirebaseMessaging() تفتح auth_box
+    // تفتح أي صندوق استباقياً هنا؛ _setupPush() تفتح auth_box
     // بنفسها فقط عند الحاجة الفعلية لحفظ fcm_token.
     unawaited(_initStorageAfterAppReady());
   }, (error, stack) async {
