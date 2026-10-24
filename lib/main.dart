@@ -109,6 +109,26 @@ Future<void> openNotificationsScreenWhenReady() async {
   }
 }
 
+// 🆕 [HMS] إزالة تكرار ضغطة الإشعار. الضغطة الواحدة قد تصل من أكثر من مصدر في
+// نفس اللحظة تقريباً: getInitialMessage() + stream الضغطات، وعلى HMS أيضاً
+// الإضافة (huawei_push) + الـ intent الأصلي (MainActivity.kt). القفل داخل
+// openNotificationsScreenWhenReady() يمنع التكرار المتزامن فقط (يُحرَّر بعد
+// الدفع مباشرة)، فإن وصلت الإشارة الثانية بعد انتهاء الأولى بأجزاء من الثانية
+// فُتحت شاشة الإشعارات مرتين. هذه النافذة الزمنية تغلق تلك الثغرة.
+const Duration _pushTapDedupeWindow = Duration(seconds: 2);
+DateTime? _lastPushTapAt;
+
+void _handlePushTap() {
+  final now = DateTime.now();
+  final last = _lastPushTapAt;
+  if (last != null && now.difference(last) < _pushTapDedupeWindow) {
+    debugPrint('ℹ️ [push] duplicate notification tap ignored');
+    return;
+  }
+  _lastPushTapAt = now;
+  openNotificationsScreenWhenReady();
+}
+
 // ✅ دالة التقاط الإشعارات عندما يكون التطبيق مغلقاً أو في الخلفية (يجب أن تكون خارج أي Class)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -423,13 +443,13 @@ void main() async {
     // اختيار المزوّد داخلياً (بحد أقصى 30 ثانية) ولا تحجب الإقلاع.
     PushService.instance.getInitialMessage().then((PushMessage? message) {
       if (message != null) {
-        openNotificationsScreenWhenReady();
+        _handlePushTap(); // يمرّ عبر إزالة التكرار (راجع _handlePushTap)
       }
     });
 
     // 2. إذا كان التطبيق يعمل في الخلفية (Background) وتم الضغط على الإشعار
     PushService.instance.onMessageOpenedApp.listen((PushMessage message) {
-      openNotificationsScreenWhenReady();
+      _handlePushTap(); // يمرّ عبر إزالة التكرار (راجع _handlePushTap)
     });
     // =========================================================================
 
