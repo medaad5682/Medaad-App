@@ -20,10 +20,11 @@ pluginManagement {
     }
 
     // 🆕 HMS: إضافة Huawei غير منشورة بصيغة plugin-marker، لذلك نربط الـ id بالمكتبة يدوياً
+    // ملاحظة: في app/build.gradle.kts يُطلب الـ plugin بدون version، فتكون requested.version = null، لذلك نضع نسخة احتياطية (يجب أن تطابق النسخة في plugins{} بالأسفل)
     resolutionStrategy {
         eachPlugin {
             if (requested.id.id == "com.huawei.agconnect") {
-                useModule("com.huawei.agconnect:agcp:${requested.version}")
+                useModule("com.huawei.agconnect:agcp:${requested.version ?: "1.9.5.302"}")
             }
         }
     }
