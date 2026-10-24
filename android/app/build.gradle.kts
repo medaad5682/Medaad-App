@@ -7,6 +7,8 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
+    // 🆕 HMS: يقرأ android/app/agconnect-services.json
+    id("com.huawei.agconnect")
 }
 
 android {

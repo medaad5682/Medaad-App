@@ -43,3 +43,13 @@
 # التي قد تستخدمها مكتبات أخرى كـ youtube_player_flutter
 -keep class com.google.android.exoplayer2.** { *; }
 -dontwarn com.google.android.exoplayer2.**
+
+# ==========================================
+# --- 🆕 Huawei HMS (Push Kit / AGC) ---
+# ==========================================
+# بدون هذه القواعد قد يحذف R8 كلاسات HMS في نسخة الـ release فلا يعمل الـ Push
+-keep class com.huawei.hianalytics.**{*;}
+-keep class com.huawei.updatesdk.**{*;}
+-keep class com.huawei.hms.**{*;}
+-keep class com.huawei.agconnect.**{*;}
+-dontwarn com.huawei.**
