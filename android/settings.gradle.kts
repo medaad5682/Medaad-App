@@ -43,28 +43,43 @@ plugins {
 
 include(":app")
 
-// 🆕 HMS: Gradle 9 حذف jcenter()، وبعض إضافات Flutter القديمة (مثل flutter_hms_gms_availability)
-// ما زالت تستدعيه فيفشل تقييم المشروع. نستبدله بـ mavenCentral() في android/build.gradle
-// لكل إضافة قبل أن يبدأ Gradle بتقييم المشاريع (يعمل محلياً وعلى GitHub Actions، ولا يغيّر شيئاً إن لم يوجد jcenter()).
+// 🆕 HMS: إصلاحات توافق لإضافات Flutter القديمة. تُطبَّق على نسخة الإضافة في pub-cache قبل تقييم المشاريع
+// (تعمل محلياً وعلى GitHub Actions، ولا يتغير أي ملف إن لم تكن المشكلة موجودة):
+//  1) Gradle 9 حذف jcenter() ← نستبدله بـ mavenCentral() في android/build.gradle.
+//  2) Flutter الحديث حذف PluginRegistry.Registrar (v1 embedding) ← نحذف سطر import غير المستخدم
+//     (هذا ما يكسر flutter_hms_gms_availability: Unresolved reference 'Registrar').
 run {
     val pluginsDeps = file("../.flutter-plugins-dependencies")
+    val registrarImport =
+        Regex("(?m)^[ \\t]*import io\\.flutter\\.plugin\\.common\\.PluginRegistry\\.Registrar;?[ \\t]*\\r?\\n")
     if (pluginsDeps.exists()) {
         Regex("\"path\"\\s*:\\s*\"([^\"]+)\"")
             .findAll(pluginsDeps.readText())
             .map { it.groupValues[1].replace("\\\\", "/") }
             .distinct()
             .forEach { pluginDir ->
-                val buildFile = java.io.File(pluginDir, "android/build.gradle")
-                if (buildFile.isFile) {
-                    try {
+                try {
+                    val buildFile = java.io.File(pluginDir, "android/build.gradle")
+                    if (buildFile.isFile) {
                         val text = buildFile.readText()
                         if (text.contains("jcenter()")) {
                             buildFile.writeText(text.replace("jcenter()", "mavenCentral()"))
                             println("settings: replaced jcenter() with mavenCentral() in ${buildFile.path}")
                         }
-                    } catch (e: Exception) {
-                        println("settings: could not patch ${buildFile.path}: ${e.message}")
                     }
+                    java.io.File(pluginDir, "android/src").walkTopDown()
+                        .filter { it.isFile && (it.extension == "kt" || it.extension == "java") }
+                        .forEach { src ->
+                            val code = src.readText()
+                            val cleaned = registrarImport.replace(code, "")
+                            // نحذف الـ import فقط إذا لم يكن Registrar مستخدماً في أي مكان آخر بالملف
+                            if (cleaned != code && !cleaned.contains("Registrar")) {
+                                src.writeText(cleaned)
+                                println("settings: removed unused Registrar import in ${src.path}")
+                            }
+                        }
+                } catch (e: Exception) {
+                    println("settings: could not patch plugin at $pluginDir: ${e.message}")
                 }
             }
     }
