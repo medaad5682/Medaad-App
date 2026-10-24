@@ -15,9 +15,8 @@ import 'package:audio_session/audio_session.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:secure_display/secure_display.dart';
 
-// ✅ استيراد حزمة App Check و Foundation لمعرفة وضع التطبيق
+// ✅ استيراد Foundation لمعرفة وضع التطبيق
 import 'package:flutter/foundation.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 // ✅ استيراد حزمة الخلفية
@@ -26,6 +25,8 @@ import 'package:flutter_background_service_android/flutter_background_service_an
 
 import 'core/services/notification_service.dart';
 import 'core/services/app_state.dart';
+// 🆕 إثبات الأصالة: App Check (جوجل) / SysIntegrity (هواوي HMS فقط)
+import 'core/services/attestation_service.dart';
 import 'core/services/storage_service.dart';
 // 🆕 طبقة الإشعارات الموحّدة (FCM / HMS)
 import 'core/services/push/push_provider.dart';
@@ -339,14 +340,11 @@ void main() async {
     // =========================================================
     Future<void> activateAppCheck() async {
       try {
-        await FirebaseAppCheck.instance
-            .activate(
-              // Play Integrity للأندرويد (الأقوى ضد الروت والتعديل) في وضع الإنتاج، أو Debug في وضع التطوير
-              providerAndroid: kReleaseMode ? const AndroidPlayIntegrityProvider() : const AndroidDebugProvider(),
-              // ✅ App Attest مع DeviceCheck كـ fallback للأجهزة القديمة التي لا تدعم App Attest
-              providerApple: kReleaseMode ? const AppleAppAttestWithDeviceCheckFallbackProvider() : const AppleDebugProvider(),
-            )
-            .timeout(const Duration(seconds: 5));
+        // 🆕 خطوة 18: AttestationService تفعّل Firebase App Check كما كان تماماً
+        // (Play Integrity / App Attest + مهلة 5 ثوانٍ)، إلا على أجهزة هواوي
+        // التي بلا خدمات Google (HMS فقط) فلا تلمس FirebaseAppCheck إطلاقاً،
+        // فلا تظهر حوارات Play Integrity. إثبات هواوي يتم عند أول طلب شبكة.
+        await AttestationService.instance.activate();
       } catch (e, stack) {
         // ✅ لا نمنع فتح التطبيق أبداً بسبب فشل/بطء App Check (خصوصاً في وضع
         // Offline أو على أجهزة بلا Google Play Services كاملة مثل Huawei).
