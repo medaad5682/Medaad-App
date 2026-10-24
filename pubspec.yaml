@@ -23,6 +23,8 @@ dependencies:
 
   # 🆕 Huawei Mobile Services (HMS): إشعارات لأجهزة هواوي بدون خدمات جوجل
   huawei_push: ^6.14.0+300
+  # 🆕 Safety Detect (SysIntegrity): بديل Play Integrity على هواوي بدون خدمات Google (خطوة 18)
+  huawei_safetydetect: ^6.4.0+302
   flutter_hms_gms_availability: ^3.10.0
   
   # State Management
