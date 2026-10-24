@@ -9,22 +9,45 @@
 //    Push.getTokenStream، فنخزّنه ونوفّره عبر getToken().
 //  - كل التعامل مع كائنات huawei_push يتم بحذر (dynamic + try/catch) كي لا
 //    يؤدي اختلاف بسيط في شكل الرسالة إلى كراش.
+//
+// الإشعارات (خطوة 14):
+//  - السيرفر يرسل رسائل "notification" فقط (lib/hmsPush.js). النظام (HMS Core)
+//    هو من يعرضها دائماً، حتى والتطبيق في الواجهة، لأن foreground_show غير
+//    مضبوط (القيمة الافتراضية true) — وفي هذه الحالة لا يستلم التطبيق محتوى
+//    الرسالة أصلاً. لذلك لا نعرض أبداً إشعاراً محلياً لرسائل HMS (انظر
+//    onForegroundMessage) فلا يظهر إشعاران.
+//  - الضغط على الإشعار يُكتشف من مصدرين، ويُزال تكرارهما في main.dart:
+//      1) huawei_push: Push.getInitialNotification / Push.onNotificationOpenedApp
+//      2) intent أصلي بـ action = FLUTTER_NOTIFICATION_CLICK (click_action type 1
+//         في الرسالة + intent-filter في AndroidManifest) تلتقطه MainActivity.kt
+//         وتمرّره عبر MethodChannel. هذا المسار حتمي ولا يعتمد على شكل ما
+//         تعيده الإضافة.
 // ------------------------------------------------------------------
 
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show MethodCall, MethodChannel;
 import 'package:huawei_push/huawei_push.dart' as hms;
 import 'package:permission_handler/permission_handler.dart';
 
 import 'push_provider.dart';
 
 class HmsPushProvider implements PushProvider {
+  // نفس اسم القناة في MainActivity.kt
+  static const MethodChannel _tapChannel =
+      MethodChannel('medaad.app.com/notification_tap');
+
   final StreamController<String> _tokenController =
       StreamController<String>.broadcast();
 
+  // كل ضغطات الإشعارات (من الإضافة ومن الـ intent الأصلي) تمرّ من هنا.
+  final StreamController<PushMessage> _openedController =
+      StreamController<PushMessage>.broadcast();
+
   StreamSubscription<dynamic>? _tokenSub;
+  StreamSubscription<dynamic>? _openedSub;
   Completer<String?>? _pendingToken;
   String? _lastToken;
   bool _initialized = false;
@@ -40,14 +63,8 @@ class HmsPushProvider implements PushProvider {
     if (_initialized) return;
     _initialized = true;
 
-    // إذن الإشعارات على أندرويد 13+ (huawei_push لا يوفّر requestPermission).
-    try {
-      final status = await Permission.notification.request();
-      debugPrint('🔔 [push/hms] notification permission: $status');
-    } catch (e) {
-      debugPrint('⚠️ [push/hms] notification permission request failed: $e');
-    }
-
+    // المستمعون أولاً: نافذة إذن الإشعارات أدناه قد تبقى مفتوحة وقتاً، ولا نريد
+    // أن يضيع توكن أو ضغطة إشعار وصلا أثناءها.
     try {
       _tokenSub = hms.Push.getTokenStream.listen(
         _handleToken,
@@ -56,6 +73,46 @@ class HmsPushProvider implements PushProvider {
     } catch (e) {
       debugPrint('⚠️ [push/hms] failed to listen to token stream: $e');
     }
+
+    _listenForNotificationTaps();
+
+    // إذن الإشعارات على أندرويد 13+ (huawei_push لا يوفّر requestPermission).
+    try {
+      final status = await Permission.notification.request();
+      debugPrint('🔔 [push/hms] notification permission: $status');
+    } catch (e) {
+      debugPrint('⚠️ [push/hms] notification permission request failed: $e');
+    }
+  }
+
+  /// يربط مصدرَي "المستخدم ضغط على إشعار والتطبيق يعمل في الخلفية".
+  void _listenForNotificationTaps() {
+    // 1) إضافة huawei_push. أي حدث على هذا الـ stream هو ضغطة فعلاً.
+    try {
+      _openedSub = hms.Push.onNotificationOpenedApp.listen(
+        (dynamic event) => _emitOpened(_fromOpenedNotification(event)),
+        onError: (Object e) =>
+            debugPrint('⚠️ [push/hms] opened stream error: $e'),
+      );
+    } catch (e) {
+      debugPrint('⚠️ [push/hms] failed to listen to onNotificationOpenedApp: $e');
+    }
+
+    // 2) الـ intent الأصلي (MainActivity.onNewIntent -> هذه القناة).
+    try {
+      _tapChannel.setMethodCallHandler((MethodCall call) async {
+        if (call.method == 'onNotificationTap') {
+          _emitOpened(const PushMessage(data: <String, String>{'source': 'intent'}));
+        }
+        return null;
+      });
+    } catch (e) {
+      debugPrint('⚠️ [push/hms] failed to listen to native tap channel: $e');
+    }
+  }
+
+  void _emitOpened(PushMessage message) {
+    if (!_openedController.isClosed) _openedController.add(message);
   }
 
   void _handleToken(dynamic token) {
@@ -123,31 +180,81 @@ class HmsPushProvider implements PushProvider {
   // ---------------------------------------------------------------
   // messages
   // ---------------------------------------------------------------
+
+  /// رسائل وصلت إلى التطبيق وهو مفتوح.
+  ///
+  /// إشعارات HMS العادية يعرضها النظام بنفسه (انظر تعليق أعلى الملف)، ولا
+  /// تصل هنا أصلاً غالباً. وكإجراء احتياطي صريح: إن وصلت رسالة هنا بعنوان
+  /// ونص (مثلاً بعد تغيير مستقبلي في السيرفر) نمرّرها بدونهما، لأن
+  /// NotificationService يعرض إشعاراً محلياً فقط عندما يجد عنواناً أو نصاً —
+  /// وهذا سيعني إشعارين للمستخدم (واحد من النظام وواحد محلي).
   @override
   Stream<PushMessage> get onForegroundMessage {
     return hms.Push.onMessageReceivedStream
         .handleError((Object e) => debugPrint('⚠️ [push/hms] message stream error: $e'))
-        .map(_fromRemoteMessage);
+        .map((dynamic raw) {
+      final PushMessage m = _fromRemoteMessage(raw);
+      return PushMessage(id: m.id, data: m.data); // بلا title/body عمداً
+    });
   }
 
   @override
-  Stream<PushMessage> get onMessageOpenedApp {
-    return hms.Push.onNotificationOpenedApp
-        .handleError((Object e) => debugPrint('⚠️ [push/hms] opened stream error: $e'))
-        .map(_fromOpenedNotification);
-  }
+  Stream<PushMessage> get onMessageOpenedApp => _openedController.stream;
 
   @override
   Future<PushMessage?> getInitialMessage() async {
+    // 1) الـ intent الأصلي: الأوثق. القيمة تُستهلك (تعود true مرة واحدة فقط).
+    try {
+      final bool? launchedByTap =
+          await _tapChannel.invokeMethod<bool>('consumeLaunchTap');
+      if (launchedByTap == true) {
+        return const PushMessage(data: <String, String>{'source': 'intent'});
+      }
+    } catch (e) {
+      // MissingPluginException (نسخة MainActivity بدون القناة) أو غيرها: نكمل.
+      debugPrint('ℹ️ [push/hms] native launch-tap check unavailable: $e');
+    }
+
+    // 2) إضافة huawei_push. هذه دالة "سحب" قد تعيد خريطة غير فارغة حتى في
+    // تشغيل عادي، لذلك لا نقبلها إلا إن حملت أثر رسالة/ضغطة فعلاً.
     try {
       final dynamic initial = await hms.Push.getInitialNotification();
-      if (initial == null) return null;
-      if (initial is Map && initial.isEmpty) return null;
-      return _fromOpenedNotification(initial);
+      if (_looksLikeNotificationTap(initial)) {
+        return _fromOpenedNotification(initial);
+      }
     } catch (e) {
       debugPrint('⚠️ [push/hms] getInitialNotification failed: $e');
-      return null;
     }
+    return null;
+  }
+
+  /// هل تحمل النتيجة أثر ضغطة حقيقية على إشعار؟ (تفادي فتح شاشة الإشعارات في
+  /// كل تشغيل عادي إن أعادت الإضافة خريطة بحقول فارغة.)
+  bool _looksLikeNotificationTap(dynamic raw) {
+    if (raw is! Map || raw.isEmpty) return false;
+
+    bool filled(dynamic v) {
+      if (v == null) return false;
+      if (v is Map) return v.isNotEmpty;
+      if (v is Iterable) return v.isNotEmpty;
+      if (v is String) return v.trim().isNotEmpty;
+      return true;
+    }
+
+    if (filled(raw['uriPage'])) return true;
+    if (filled(raw['remoteMessage'])) return true;
+    if (filled(raw['messageId'])) return true;
+    if (filled(raw['notification'])) return true;
+    if (filled(raw['data'])) return true;
+
+    // extras يحمل مفاتيح مثل _push_msgid عند فتح التطبيق من إشعار Push Kit.
+    final dynamic extras = raw['extras'];
+    if (extras is Map) {
+      for (final dynamic key in extras.keys) {
+        if ('$key'.toLowerCase().contains('push')) return true;
+      }
+    }
+    return false;
   }
 
   // ---------------------------------------------------------------
@@ -204,6 +311,8 @@ class HmsPushProvider implements PushProvider {
 
   Future<void> dispose() async {
     await _tokenSub?.cancel();
+    await _openedSub?.cancel();
     await _tokenController.close();
+    await _openedController.close();
   }
 }

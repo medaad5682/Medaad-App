@@ -104,9 +104,10 @@ class PushService {
 
       // أي تغيّر لاحق للتوكن (أو وصوله متأخراً بعد عودة الشبكة)
       provider.onTokenRefresh.listen(
-        (String newToken) {
+        (String newToken) async {
           _token = newToken;
-          _persist(provider, newToken);
+          // نحفظ أولاً ثم نُعلن الجاهزية: registrationHeadersFor() يقرأ من الصندوق.
+          await _persist(provider, newToken);
           if (!_tokenReady.isCompleted) _tokenReady.complete();
         },
         onError: (Object e) => debugPrint('⚠️ [push] token refresh error: $e'),
@@ -229,6 +230,31 @@ class PushService {
       }
     } catch (_) {}
     return const <String, String>{};
+  }
+
+  /// نسخة غير متزامنة من [registrationHeaders] (خطوة 13).
+  ///
+  /// المشكلة: عند أول تشغيل (أو أول تسجيل دخول) قد لا يكون توكن الجهاز وصل بعد
+  /// — وعلى HMS يصل التوكن عبر stream بعد ثوانٍ — فيذهب أول طلب get-app-init-data
+  /// بلا توكن ولا يتعرّف السيرفر على الجهاز إلا في التشغيل التالي.
+  ///
+  /// الحل: إن كان في الصندوق توكن محفوظ (الحالة الغالبة) تعود فوراً بلا أي
+  /// انتظار. وإلا تنتظر التوكن حتى [waitIfMissing] فقط، ثم تقرأ الصندوق مرة
+  /// أخرى. لا ترمي استثناءً أبداً، وإن لم يصل التوكن تعود بهيدرز فارغة (كما كان
+  /// السلوك القديم تماماً).
+  Future<Map<String, String>> registrationHeadersFor(
+    dynamic box, {
+    Duration waitIfMissing = const Duration(seconds: 3),
+  }) async {
+    try {
+      final Map<String, String> current = registrationHeaders(box);
+      if (current.isNotEmpty) return current;
+      await waitForToken(timeout: waitIfMissing);
+      return registrationHeaders(box);
+    } catch (e) {
+      debugPrint('⚠️ [push] registrationHeadersFor failed (non-fatal): $e');
+      return const <String, String>{};
+    }
   }
 
   // ---------------------------------------------------------------
