@@ -15,6 +15,17 @@ pluginManagement {
         gradlePluginPortal()
         google()
         mavenCentral()
+        // 🆕 HMS: مستودع Huawei (يحتوي على إضافة com.huawei.agconnect)
+        maven { url = uri("https://developer.huawei.com/repo/") }
+    }
+
+    // 🆕 HMS: إضافة Huawei غير منشورة بصيغة plugin-marker، لذلك نربط الـ id بالمكتبة يدوياً
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "com.huawei.agconnect") {
+                useModule("com.huawei.agconnect:agcp:${requested.version}")
+            }
+        }
     }
 }
 
@@ -25,6 +36,8 @@ plugins {
     // إضافة إصدارات إضافات Firebase
     id("com.google.gms.google-services") version "4.4.2" apply false
     id("com.google.firebase.crashlytics") version "3.0.2" apply false
+    // 🆕 HMS: إضافة AppGallery Connect (تقرأ agconnect-services.json)
+    id("com.huawei.agconnect") version "1.9.5.302" apply false
 }
 
 include(":app")

@@ -4,6 +4,8 @@ allprojects {
         gradlePluginPortal()
         google()
         mavenCentral()
+        // 🆕 HMS: مستودع Huawei للمكتبات (huawei_push وما يتبعها)
+        maven { url = uri("https://developer.huawei.com/repo/") }
     }
 }
 
