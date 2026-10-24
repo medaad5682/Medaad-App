@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../constants/api_constants.dart'; // ✅ استيراد الثوابت
 import 'api_client.dart';
+import 'attestation_service.dart';
 
 enum UpdateStatus { none, optional, force }
 
@@ -39,7 +40,7 @@ class UpdateService {
       final info = await PackageInfo.fromPlatform();
       final currentVersion = info.version;
 
-      final platform = Platform.isAndroid ? 'android' : 'ios';
+      final platform = await _resolvePlatform();
 
       final response = await ApiClient.instance.get(
         _checkVersionUrl, // ✅ استخدام الرابط الجديد المعتمد على ApiConstants
@@ -85,6 +86,23 @@ class UpdateService {
       /// 🔥 لو حصل خطأ في الاتصال لا نوقف التطبيق
       return _noUpdate();
     }
+  }
+
+  /// 🆕 خطوة 20: المنصة المرسلة للسيرفر لتحديد صف الإصدار ورابط المتجر.
+  ///   iOS                          -> 'ios'     (App Store)
+  ///   Android + HMS فقط (بدون GMS) -> 'huawei'  (AppGallery)
+  ///   غير ذلك                      -> 'android' (Google Play، كما كان)
+  /// نعتمد على نفس كشف البيئة الذي يستخدمه AttestationService (مخزّن مؤقتاً ولا
+  /// يرمي استثناءً)، فأجهزة HMS فقط هي نفسها التي لا تملك Google Play أصلاً.
+  Future<String> _resolvePlatform() async {
+    if (!Platform.isAndroid) return 'ios';
+    try {
+      final method = await AttestationService.instance.method;
+      if (method == AttestationMethod.hms) return 'huawei';
+    } catch (_) {
+      // أي فشل في الكشف: نبقى على android (السلوك السابق)
+    }
+    return 'android';
   }
 
   /// 🔢 مقارنة الإصدارات بشكل آمن
