@@ -57,6 +57,7 @@ jobs:
       - name: Create and Verify Keystore
         env:
           DATA: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+          AGC_DATA: ${{ secrets.AGCONNECT_SERVICES_JSON_BASE64 }}
           KEYSTORE_DATA: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -64,6 +65,14 @@ jobs:
           # التحقق من وجود الأسرار قبل فك التشفير لتجنب الأخطاء
           if [ -n "$DATA" ]; then
             echo "$DATA" | tr -d '[:space:]' | base64 -d > android/app/google-services.json
+          fi
+
+          # 🆕 HMS: ملف AppGallery Connect (مطلوب لإضافة com.huawei.agconnect، وبدونه يفشل البناء)
+          if [ -n "$AGC_DATA" ]; then
+            echo "$AGC_DATA" | tr -d '[:space:]' | base64 -d > android/app/agconnect-services.json
+          else
+            echo "::error::Secret AGCONNECT_SERVICES_JSON_BASE64 is missing. Add it in GitHub > Settings > Secrets and variables > Actions."
+            exit 1
           fi
           
           if [ -n "$KEYSTORE_DATA" ]; then
