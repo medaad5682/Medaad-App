@@ -1,3 +1,16 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // 🆕 HMS: إضافة com.huawei.agconnect تبحث عن com.android.tools.build:gradle
+        // داخل buildscript classpath لمعرفة إصدار AGP، وبدونها تفشل بـ "No value present".
+        // يجب أن يطابق الإصدار القيمة في settings.gradle.kts (com.android.application).
+        classpath("com.android.tools.build:gradle:8.11.1")
+    }
+}
+
 allprojects {
     repositories {
         // ✅ التغيير هنا أيضاً: تغيير الترتيب
