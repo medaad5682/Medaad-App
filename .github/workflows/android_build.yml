@@ -92,8 +92,109 @@ jobs:
           # بناء APK واحد يحتوي على كل المعماريات
           flutter build apk --release --target-platform android-arm,android-arm64 --dart-define=APP_SECRET="$APP_SECRET" 
 
+      # 🆕 فحص الـ APK بعد البناء: الأذونات، التوقيع، البصمات، ملف AppGallery.
+      # النتيجة تظهر في سجل الخطوة وفي صفحة ملخص التشغيل (Summary) أعلى صفحة الـ workflow.
+      # لا تطبع أي سر: كلمات المرور تُمرَّر عبر متغيرات بيئة فقط، والبصمات ليست أسراراً.
+      # continue-on-error: فشل الفحص لا يمنع رفع الـ APK.
+      - name: Inspect APK (permissions, signing, digests)
+        continue-on-error: true
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          AAPT="$BT/aapt"
+          APKSIGNER="$BT/apksigner"
+          REPORT=$(find build -name "manifest-merger-release-report.txt" | head -1)
+
+          {
+            echo "## 📦 معلومات الحزمة"
+            echo '```'
+            "$AAPT" dump badging "$APK" | grep -E "^package:|^sdkVersion|^targetSdkVersion|^native-code" || true
+            echo "حجم الملف: $(du -h "$APK" | cut -f1)"
+            echo '```'
+
+            echo "## 🔐 كل الأذونات داخل الـ APK"
+            echo '```'
+            "$AAPT" dump permissions "$APK" | grep "uses-permission" | sed -E "s/uses-permission(-sdk-23)?: name='([^']*)'.*/\2/" | sort -u
+            echo '```'
+
+            echo "## ⚠️ الأذونات الحساسة (لنموذج الخصوصية في AppGallery)"
+            echo '```'
+            "$AAPT" dump permissions "$APK" | grep "uses-permission" | sed -E "s/uses-permission(-sdk-23)?: name='([^']*)'.*/\2/" | sort -u \
+              | grep -E "LOCATION|CAMERA|RECORD_AUDIO|CONTACTS|SMS|PHONE|CALL_|CALENDAR|BODY_SENSORS|READ_MEDIA|EXTERNAL_STORAGE|BLUETOOTH|WIFI|INSTALL_PACKAGES|SYSTEM_ALERT|QUERY_ALL_PACKAGES|AD_ID" \
+              || echo "لا توجد أذونات حساسة من هذه القائمة"
+            echo '```'
+
+            echo "## 📍 من أضاف أذونات الموقع؟ (تقرير دمج المانيفست)"
+            echo '```'
+            if [ -n "$REPORT" ]; then
+              grep -n -B1 -A6 "ACCESS_FINE_LOCATION\|ACCESS_COARSE_LOCATION\|ACCESS_BACKGROUND_LOCATION" "$REPORT" \
+                || echo "لا توجد أذونات موقع في تقرير الدمج"
+            else
+              echo "لم يُعثر على manifest-merger-release-report.txt"
+            fi
+            echo '```'
+
+            echo "## ✍️ توقيع الـ APK الحالي"
+            echo '```'
+            "$APKSIGNER" verify --print-certs "$APK" | grep -E "Signer #1 certificate (DN|SHA-256|SHA-1)"
+            echo '```'
+
+            CERT_HEX=$("$APKSIGNER" verify --print-certs "$APK" | grep -m1 "certificate SHA-256 digest" | awk '{print $NF}')
+            if [ -n "$CERT_HEX" ]; then
+              CERT_COLON=$(echo "$CERT_HEX" | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')
+              CERT_B64=$(python3 -c "import binascii,base64,sys; print(base64.b64encode(binascii.unhexlify(sys.argv[1])).decode())" "$CERT_HEX")
+              echo "### بصمة الشهادة بالصيغ المطلوبة"
+              echo '```'
+              echo "HMS_ATTEST_ALLOWED_CERT_SHA256 / AppGallery : $CERT_COLON"
+              echo "ما ستراه في payload هواوي (apkCertificateDigestSha256): $CERT_B64"
+              echo '```'
+            fi
+
+            echo "## 🧾 بصمة ملف الـ APK نفسه (SHA-256)"
+            APK_HEX=$(sha256sum "$APK" | awk '{print $1}')
+            APK_B64=$(python3 -c "import binascii,base64,sys; print(base64.b64encode(binascii.unhexlify(sys.argv[1])).decode())" "$APK_HEX")
+            echo '```'
+            echo "hex   : $APK_HEX"
+            echo "base64: $APK_B64   (يقابل apkDigestSha256 في payload هواوي، إن ثبّتّ هذا الملف نفسه دون إعادة توقيع)"
+            echo '```'
+
+            echo "## 🗝️ بصمة مفتاح الرفع (upload keystore)"
+            echo '```'
+            if [ -f android/app/keystore/upload-keystore.jks ] && [ -n "$KEY_ALIAS" ]; then
+              keytool -list -v -keystore android/app/keystore/upload-keystore.jks -alias "$KEY_ALIAS" -storepass:env STORE_PASSWORD 2>&1 \
+                | grep -E "Owner:|Valid from|SHA1:|SHA256:" || echo "تعذر قراءة المفتاح"
+            else
+              echo "لا يوجد keystore أو KEY_ALIAS غير مضبوط"
+            fi
+            echo '```'
+
+            echo "## 🔗 ملف AppGallery Connect المستعمل في البناء"
+            echo '```'
+            python3 - <<'PY'
+          import json
+          try:
+              c = json.load(open("android/app/agconnect-services.json")).get("client", {})
+              print("package_name:", c.get("package_name"))
+              print("app_id      :", c.get("app_id"))
+          except Exception as e:
+              print("تعذر قراءة agconnect-services.json:", e)
+          PY
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      # 🆕 تقرير دمج المانيفست كاملاً (يذكر مصدر كل إذن)
+      - name: Upload manifest merger report
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-merger-report
+          path: build/app/outputs/logs/manifest-merger-release-report.txt
+          if-no-files-found: ignore
