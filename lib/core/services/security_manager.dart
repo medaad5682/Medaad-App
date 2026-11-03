@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:Medaad/core/services/audio_protection_service.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:safe_device/safe_device.dart';
@@ -544,4 +545,4 @@ class SecurityBreachException implements Exception {
   @override
   String toString() =>
       'SecurityBreachException(${type.name}): $uiMessage\n$details';
-} 
+}
