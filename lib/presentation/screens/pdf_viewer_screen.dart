@@ -7,7 +7,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
-import 'package:pdfrx/pdfrx.dart';
+import 'package:pdfrx/pdfrx.dart' hide PdfPageTextCache;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
