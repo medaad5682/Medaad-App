@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:pdfrx/pdfrx.dart';
+import 'package:pdfrx/pdfrx.dart' hide PdfPageTextCache;
 
 import '../models/highlight_model.dart';
 import '../services/pdf_annotation_store.dart';
