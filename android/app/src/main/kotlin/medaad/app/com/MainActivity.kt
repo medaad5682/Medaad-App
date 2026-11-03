@@ -98,6 +98,14 @@ class MainActivity: FlutterActivity() {
                 "isDeviceRooted" -> {
                     result.success(isDeviceRooted())
                 }
+                // تشخيص تفصيلي: أي فحص بالظبط فشل (يُرسل لـ Crashlytics)
+                "getSecurityDiagnostics" -> {
+                    result.success(getSecurityDiagnostics())
+                }
+                // تشخيص تفصيلي لسبب اعتبار الجهاز "بيسجل" (وضع الصوت / عدد جلسات التسجيل)
+                "getRecordingDiagnostics" -> {
+                    result.success(getRecordingDiagnostics())
+                }
                 // وضع الرسم في قارئ الـ PDF: إيصال كل عيّنات اللمس بلا تجميع
                 "setUnbufferedInput" -> {
                     unbufferedInput = (call.arguments as? Boolean) ?: false
@@ -174,6 +182,103 @@ class MainActivity: FlutterActivity() {
             e.printStackTrace()
         }
         return false
+    }
+
+    // ✅ تشخيص تفصيلي لكل فحص native على حدة + بيانات الجهاز (Build).
+    // يُرجع Map<String, Any> فيها نتيجة كل فحص وسبب فشله بالظبط، بحيث
+    // نسجلها في Crashlytics ونعرف أي اختبار فشل ولماذا.
+    private fun getSecurityDiagnostics(): Map<String, Any> {
+        val d = HashMap<String, Any>()
+
+        // 1. مسارات ملفات الروت المعروفة
+        val rootPaths = arrayOf(
+            "/system/app/Superuser.apk", "/system/app/SuperSU.apk", "/sbin/su",
+            "/system/bin/su", "/system/xbin/su", "/data/local/su",
+            "/data/local/bin/su", "/data/local/xbin/su", "/system/sd/xbin/su",
+            "/system/bin/failsafe/su", "/dev/com.koushikdutta.superuser.daemon/"
+        )
+        val foundPaths = rootPaths.filter {
+            try { File(it).exists() } catch (e: Exception) { false }
+        }
+        d["su_paths_found"] = if (foundPaths.isEmpty()) "none" else foundPaths.joinToString(",")
+
+        // 2. الكتابة على /system
+        d["system_writable"] = try {
+            val f = File("/system/medaad_rw_test")
+            val created = f.createNewFile()
+            if (created) f.delete()
+            created
+        } catch (e: Exception) { false }
+
+        // 3. Build tags
+        d["build_tags"] = Build.TAGS ?: "null"
+        d["test_keys"] = (Build.TAGS ?: "").contains("test-keys")
+
+        // 4. عدد الأنوية
+        val cores = Runtime.getRuntime().availableProcessors()
+        d["cpu_cores"] = cores
+        d["cpu_cores_too_low"] = cores < 2
+
+        // 5. مؤشرات المحاكي من Build (للتشخيص فقط)
+        d["build_fingerprint"] = Build.FINGERPRINT ?: "null"
+        d["build_model"] = Build.MODEL ?: "null"
+        d["build_manufacturer"] = Build.MANUFACTURER ?: "null"
+        d["build_brand"] = Build.BRAND ?: "null"
+        d["build_device"] = Build.DEVICE ?: "null"
+        d["build_product"] = Build.PRODUCT ?: "null"
+        d["build_hardware"] = Build.HARDWARE ?: "null"
+        d["build_board"] = Build.BOARD ?: "null"
+        d["sdk_int"] = Build.VERSION.SDK_INT
+
+        val fp = (Build.FINGERPRINT ?: "").lowercase()
+        val hw = (Build.HARDWARE ?: "").lowercase()
+        val prod = (Build.PRODUCT ?: "").lowercase()
+        d["emu_hint_fingerprint"] = fp.startsWith("generic") || fp.contains("emulator") || fp.contains("vbox")
+        d["emu_hint_hardware"] = hw.contains("goldfish") || hw.contains("ranchu") || hw.contains("vbox")
+        d["emu_hint_product"] = prod.contains("sdk") || prod.contains("emulator") || prod.contains("vbox")
+
+        // 6. خيارات المطور / ADB (قراءة مباشرة من إعدادات النظام)
+        try {
+            d["dev_options_enabled"] = android.provider.Settings.Global.getInt(
+                contentResolver, android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1
+        } catch (e: Exception) { d["dev_options_enabled"] = "error:" + e.javaClass.simpleName }
+        try {
+            d["adb_enabled"] = android.provider.Settings.Global.getInt(
+                contentResolver, android.provider.Settings.Global.ADB_ENABLED, 0) == 1
+        } catch (e: Exception) { d["adb_enabled"] = "error:" + e.javaClass.simpleName }
+
+        return d
+    }
+
+    private fun getRecordingDiagnostics(): Map<String, Any> {
+        val d = HashMap<String, Any>()
+        try {
+            if (audioManager == null) {
+                audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            }
+            val mode = audioManager?.mode ?: -1
+            d["audio_mode"] = mode
+            d["audio_mode_name"] = when (mode) {
+                AudioManager.MODE_NORMAL -> "MODE_NORMAL"
+                AudioManager.MODE_RINGTONE -> "MODE_RINGTONE"
+                AudioManager.MODE_IN_CALL -> "MODE_IN_CALL"
+                AudioManager.MODE_IN_COMMUNICATION -> "MODE_IN_COMMUNICATION"
+                else -> "OTHER($mode)"
+            }
+            d["trigger_audio_mode"] = (mode == AudioManager.MODE_IN_CALL ||
+                    mode == AudioManager.MODE_IN_COMMUNICATION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val configs = audioManager?.activeRecordingConfigurations ?: emptyList<AudioRecordingConfiguration>()
+                d["active_recording_configs"] = configs.size
+                d["recording_sources"] = configs.joinToString(",") { c ->
+                    try { "src=" + c.clientAudioSource + "/session=" + c.clientAudioSessionId } catch (e: Exception) { "?" }
+                }
+                d["trigger_active_recording"] = configs.isNotEmpty()
+            }
+        } catch (e: Exception) {
+            d["error"] = e.javaClass.simpleName + ": " + (e.message ?: "")
+        }
+        return d
     }
 
     // [FIX F-04] Multi-vector native root detection.
