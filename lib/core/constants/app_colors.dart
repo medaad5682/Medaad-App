@@ -75,6 +75,30 @@ class AppColors {
     return diff < 0.18 ? accentYellow : c.withOpacity(1.0);
   }
 
+  // ========================================================
+  // 🗂️ ألوان الفلاش كاردس (بنفسجي) — واضحة في الوضعين
+  // ========================================================
+  // الداكن: 8B5CF6 (اللون المعتمد). الفاتح: 6D28D9 أغمق، لأن 8B5CF6 فوق بطاقة الوضع
+  // الفاتح (F8F9FA) تباينه ≈ 4:1 فقط (غير كافٍ للنصوص الصغيرة)، بينما 6D28D9 ≈ 6.7:1.
+  static const Color _darkFlashcardAccent = Color(0xFF8B5CF6);
+  static const Color _lightFlashcardAccent = Color(0xFF6D28D9);
+
+  /// لون التمييز للنصوص/الحدود/الأيقونات/التعبئة.
+  static Color get flashcardAccent =>
+      AppState.isDark ? _darkFlashcardAccent : _lightFlashcardAccent;
+
+  /// خلفية خفيفة بلون التمييز (شارات/أسطح ثانوية).
+  static Color get flashcardAccentSoft =>
+      flashcardAccent.withOpacity(AppState.isDark ? 0.14 : 0.10);
+
+  /// الجزء غير المعبّأ من شريط تقدم الفلاش كاردس
+  /// (الأبيض الشفاف يختفي فوق الخلفية الفاتحة، فنستخدم رمادياً مائلاً للأخضر المعتمد).
+  static Color get flashcardTrack =>
+      AppState.isDark ? Colors.white12 : _lightTextSecondary.withOpacity(0.25);
+
+  /// نص/أيقونة فوق تعبئة لون التمييز (أبيض في الوضعين: تباينه كافٍ مع الدرجتين).
+  static const Color onFlashcardAccent = Colors.white;
+
   // ألوان ثابتة لا تتغير (إلا إذا أردت تغييرها أيضاً)
   static const Color accentOrange = Color(0xFFb45309);
   static const Color accentBlue = Color(0xFF3B82F6);
