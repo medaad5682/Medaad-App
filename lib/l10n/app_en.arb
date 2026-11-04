@@ -2945,5 +2945,197 @@
   "deleteScreenshotConfirmBody": "This screenshot will be permanently deleted.",
   "@deleteScreenshotConfirmBody": {
     "description": "Confirmation dialog body when deleting a video screenshot"
+  },
+  "flashcardsSectionTitle": "🗂️ Flashcards",
+  "@flashcardsSectionTitle": {
+    "description": "Divider title above the flashcard decks in the subject Exams tab"
+  },
+  "flashcardsCountOne": "1 card",
+  "@flashcardsCountOne": {
+    "description": "Card count label on a deck that has exactly one card"
+  },
+  "flashcardsCountMany": "{count} cards",
+  "@flashcardsCountMany": {
+    "description": "Card count label on a deck, {count} is the number of cards",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardNoCards": "No cards yet",
+  "@flashcardNoCards": {
+    "description": "Shown on a deck that has no cards"
+  },
+  "flashcardStudy": "Study",
+  "@flashcardStudy": {
+    "description": "Deck button label when the student has not started the deck"
+  },
+  "flashcardContinue": "Continue",
+  "@flashcardContinue": {
+    "description": "Deck button label when the student has partial progress"
+  },
+  "flashcardReview": "Review",
+  "@flashcardReview": {
+    "description": "Deck button label when the student knows every card"
+  },
+  "flashcardHidden": "Hidden from students",
+  "@flashcardHidden": {
+    "description": "Badge shown to the owner teacher on a hidden deck"
+  },
+  "flashcardResetTooltip": "Reset progress",
+  "@flashcardResetTooltip": {
+    "description": "Tooltip of the reset-progress icon on a deck card"
+  },
+  "flashcardResetTitle": "Reset progress",
+  "@flashcardResetTitle": {
+    "description": "Title of the reset-progress confirmation dialog"
+  },
+  "flashcardResetMessage": "Your progress in this deck will be cleared on this device only. Continue?",
+  "@flashcardResetMessage": {
+    "description": "Body of the reset-progress confirmation dialog"
+  },
+  "flashcardReset": "Reset",
+  "@flashcardReset": {
+    "description": "Confirm button of the reset-progress dialog"
+  },
+  "flashcardErrorOffline": "No internet connection and this deck is not saved on your device yet.",
+  "@flashcardErrorOffline": {
+    "description": "Error when a deck cannot be loaded offline and is not cached"
+  },
+  "flashcardErrorExpired": "Your access to this subject has expired.",
+  "@flashcardErrorExpired": {
+    "description": "Error when the subject subscription has expired"
+  },
+  "flashcardErrorNotOwned": "You don't have access to this subject.",
+  "@flashcardErrorNotOwned": {
+    "description": "Error when the student is not subscribed to the subject"
+  },
+  "flashcardErrorNotFound": "This deck is no longer available.",
+  "@flashcardErrorNotFound": {
+    "description": "Error when the deck was deleted or hidden"
+  },
+  "flashcardErrorUnauthorized": "Session expired, please sign in again.",
+  "@flashcardErrorUnauthorized": {
+    "description": "Error when the session/device token is invalid"
+  },
+  "flashcardErrorServer": "Could not load the deck, please try again.",
+  "@flashcardErrorServer": {
+    "description": "Generic error when a deck fails to load"
+  },
+  "flashcardFront": "Question",
+  "@flashcardFront": {
+    "description": "Label on the front face of a flashcard"
+  },
+  "flashcardBack": "Answer",
+  "@flashcardBack": {
+    "description": "Label on the back face of a flashcard"
+  },
+  "flashcardTapToFlip": "Tap the card to flip it",
+  "@flashcardTapToFlip": {
+    "description": "Hint under the card before it is flipped"
+  },
+  "flashcardGotIt": "Got it",
+  "@flashcardGotIt": {
+    "description": "Rating button: the student knew the card"
+  },
+  "flashcardStillLearning": "Still learning",
+  "@flashcardStillLearning": {
+    "description": "Rating button: the student has not learned the card yet"
+  },
+  "flashcardSwipeKnown": "✅ Got it",
+  "@flashcardSwipeKnown": {
+    "description": "Label shown on the card while swiping right"
+  },
+  "flashcardSwipeLearning": "🔁 Still learning",
+  "@flashcardSwipeLearning": {
+    "description": "Label shown on the card while swiping left"
+  },
+  "flashcardShuffleTooltip": "Shuffle",
+  "@flashcardShuffleTooltip": {
+    "description": "Tooltip of the shuffle toggle in the study screen"
+  },
+  "flashcardOnlyUnknownTooltip": "Unknown cards only",
+  "@flashcardOnlyUnknownTooltip": {
+    "description": "Tooltip of the unknown-only toggle in the study screen"
+  },
+  "flashcardOnlyUnknownChip": "Unknown only",
+  "@flashcardOnlyUnknownChip": {
+    "description": "Chip shown while studying only unknown cards"
+  },
+  "flashcardRoundChip": "Round {round}",
+  "@flashcardRoundChip": {
+    "description": "Chip showing the current round number",
+    "placeholders": {
+      "round": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardNoUnknown": "You know every card! Nothing left to review.",
+  "@flashcardNoUnknown": {
+    "description": "Snackbar when unknown-only is turned on but every card is known"
+  },
+  "flashcardClose": "Close",
+  "@flashcardClose": {
+    "description": "Tooltip of the close button in the study screen"
+  },
+  "flashcardRoundDoneTitle": "Round {round} complete",
+  "@flashcardRoundDoneTitle": {
+    "description": "Summary title at the end of a round",
+    "placeholders": {
+      "round": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardRoundDoneMessage": "Nice work! Repeat the cards you missed until you know them all.",
+  "@flashcardRoundDoneMessage": {
+    "description": "Summary message at the end of a round"
+  },
+  "flashcardAllKnownTitle": "Deck mastered 🎉",
+  "@flashcardAllKnownTitle": {
+    "description": "Summary title when every card in the deck is known"
+  },
+  "flashcardAllKnownMessage": "You know every card in this deck. Start over any time to review.",
+  "@flashcardAllKnownMessage": {
+    "description": "Summary message when every card in the deck is known"
+  },
+  "flashcardStatKnown": "Known",
+  "@flashcardStatKnown": {
+    "description": "Summary tile label for cards known in the round"
+  },
+  "flashcardStatLearning": "Still learning",
+  "@flashcardStatLearning": {
+    "description": "Summary tile label for cards still being learned in the round"
+  },
+  "flashcardOverallProgress": "Deck progress: {known} of {total}",
+  "@flashcardOverallProgress": {
+    "description": "Overall deck progress line in the summary",
+    "placeholders": {
+      "known": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardRepeatUnknown": "Repeat the ones I didn't know ({count})",
+  "@flashcardRepeatUnknown": {
+    "description": "Summary button that starts a new round with only the unknown cards",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardStartOver": "Start over",
+  "@flashcardStartOver": {
+    "description": "Summary button that resets progress and restarts the deck"
+  },
+  "flashcardFinish": "Finish",
+  "@flashcardFinish": {
+    "description": "Summary button that closes the study screen"
   }
 }
