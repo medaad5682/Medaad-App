@@ -22,6 +22,7 @@ import 'package:Medaad/presentation/widgets/marquee_text.dart';
 import '../../core/services/flashcard_service.dart'; // 🗂️ Step 12/13
 import '../../data/models/flashcard_model.dart';
 import '../widgets/flashcard_deck_card.dart';
+import 'flashcard_study_screen.dart'; // 🗂️ Step 14
 
 class SubjectMaterialsScreen extends StatefulWidget {
   final String subjectId;
@@ -897,20 +898,15 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
       final full = await FlashcardService.loadDeck(deck.id, serverUpdatedAt: deck.updatedAt);
       if (!mounted) return;
 
-      // TODO(Step 14): استبدل هذا السطر بالانتقال لشاشة المذاكرة:
-      //   await Navigator.push(context, MaterialPageRoute(builder: (_) => FlashcardStudyScreen(deck: full)));
-      // مؤقتاً نُظهر أن التحميل/الكاش نجح فقط.
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(FlashcardStrings.loadedTemp(full.cards.length)),
-          backgroundColor: AppColors.flashcardAccent,
-        ),
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => FlashcardStudyScreen(deck: full)),
       );
     } on FlashcardException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(FlashcardStrings.errorFor(e.failure)),
+          content: Text(flashcardErrorMessage(AppLocalizations.of(context)!, e.failure)),
           backgroundColor: AppColors.error,
         ),
       );
@@ -925,7 +921,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(FlashcardStrings.errorFor(FlashcardFailure.server)),
+            content: Text(flashcardErrorMessage(AppLocalizations.of(context)!, FlashcardFailure.server)),
             backgroundColor: AppColors.error,
           ),
         );
