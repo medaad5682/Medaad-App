@@ -2,58 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/constants/app_colors.dart';
-import '../../core/services/app_state.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../core/services/flashcard_progress_store.dart';
 import '../../core/services/flashcard_service.dart';
 import '../../data/models/flashcard_model.dart';
 import 'directional_icon.dart';
 
-/// نصوص الفلاش كاردس (عربي/إنجليزي).
-/// ملاحظة: مؤقتة هنا وتُنقل إلى ملفات ARB (app_ar/app_en) في Step 16.
-class FlashcardStrings {
-  FlashcardStrings._();
-  static bool get _ar => AppState.isArabic;
+/// نص عدد البطاقات (مفرد/جمع) من ملفات الترجمة.
+String flashcardCountLabel(AppLocalizations l, int n) =>
+    n == 1 ? l.flashcardsCountOne : l.flashcardsCountMany(n);
 
-  static String get sectionTitle => _ar ? '🗂️ بطاقات الفلاش' : '🗂️ Flashcards';
-  static String cardsCount(int n) {
-    if (_ar) return n == 1 ? 'بطاقة واحدة' : '$n بطاقة';
-    return n == 1 ? '1 card' : '$n cards';
+/// رسالة الخطأ المناسبة لسبب فشل تحميل المجموعة.
+String flashcardErrorMessage(AppLocalizations l, FlashcardFailure f) {
+  switch (f) {
+    case FlashcardFailure.offline:
+      return l.flashcardErrorOffline;
+    case FlashcardFailure.expired:
+      return l.flashcardErrorExpired;
+    case FlashcardFailure.notOwned:
+      return l.flashcardErrorNotOwned;
+    case FlashcardFailure.notFound:
+      return l.flashcardErrorNotFound;
+    case FlashcardFailure.unauthorized:
+      return l.flashcardErrorUnauthorized;
+    case FlashcardFailure.server:
+      return l.flashcardErrorServer;
   }
-
-  static String get noCards => _ar ? 'لا توجد بطاقات بعد' : 'No cards yet';
-  static String get study => _ar ? 'ابدأ المذاكرة' : 'Study';
-  static String get continueStudy => _ar ? 'متابعة' : 'Continue';
-  static String get review => _ar ? 'مراجعة' : 'Review';
-  static String get hidden => _ar ? 'مخفية عن الطلاب' : 'Hidden from students';
-  static String get resetTooltip => _ar ? 'إعادة ضبط التقدم' : 'Reset progress';
-  static String get resetTitle => _ar ? 'إعادة ضبط التقدم' : 'Reset progress';
-  static String get resetMessage => _ar
-      ? 'سيتم مسح تقدمك في هذه المجموعة على هذا الجهاز فقط. هل تريد المتابعة؟'
-      : 'Your progress in this deck will be cleared on this device only. Continue?';
-  static String get cancel => _ar ? 'إلغاء' : 'Cancel';
-  static String get reset => _ar ? 'إعادة ضبط' : 'Reset';
-
-  static String errorFor(FlashcardFailure f) {
-    switch (f) {
-      case FlashcardFailure.offline:
-        return _ar
-            ? 'لا يوجد اتصال بالإنترنت ولم تُحفظ هذه المجموعة على جهازك بعد.'
-            : 'No internet connection and this deck is not saved on your device yet.';
-      case FlashcardFailure.expired:
-        return _ar ? 'انتهت صلاحية اشتراكك في هذه المادة.' : 'Your access to this subject has expired.';
-      case FlashcardFailure.notOwned:
-        return _ar ? 'لا تملك اشتراكاً في هذه المادة.' : "You don't have access to this subject.";
-      case FlashcardFailure.notFound:
-        return _ar ? 'هذه المجموعة لم تعد متاحة.' : 'This deck is no longer available.';
-      case FlashcardFailure.unauthorized:
-        return _ar ? 'انتهت الجلسة، أعد تسجيل الدخول.' : 'Session expired, please sign in again.';
-      case FlashcardFailure.server:
-        return _ar ? 'تعذّر تحميل المجموعة، حاول مجدداً.' : 'Could not load the deck, please try again.';
-    }
-  }
-
-  static String loadedTemp(int n) =>
-      _ar ? 'تم تحميل $n بطاقة' : 'Loaded $n cards';
 }
 
 /// عنوان فاصل قسم الفلاش كاردس أسفل بطاقات الامتحانات.
@@ -71,7 +45,7 @@ class FlashcardSectionDivider extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Text(
-              FlashcardStrings.sectionTitle,
+              AppLocalizations.of(context)!.flashcardsSectionTitle,
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
@@ -143,19 +117,19 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.backgroundSecondary,
-        title: Text(FlashcardStrings.resetTitle,
+        title: Text(AppLocalizations.of(context)!.flashcardResetTitle,
             style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
-        content: Text(FlashcardStrings.resetMessage,
+        content: Text(AppLocalizations.of(context)!.flashcardResetMessage,
             style: TextStyle(color: AppColors.textSecondary, height: 1.5)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(FlashcardStrings.cancel,
+            child: Text(AppLocalizations.of(context)!.cancel,
                 style: TextStyle(color: AppColors.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(FlashcardStrings.reset,
+            child: Text(AppLocalizations.of(context)!.flashcardReset,
                 style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold)),
           ),
         ],
@@ -178,8 +152,8 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
     final progress = hasCards ? (known / total).clamp(0.0, 1.0) : 0.0;
 
     final String buttonLabel = done
-        ? FlashcardStrings.review
-        : (known > 0 ? FlashcardStrings.continueStudy : FlashcardStrings.study);
+        ? AppLocalizations.of(context)!.flashcardReview
+        : (known > 0 ? AppLocalizations.of(context)!.flashcardContinue : AppLocalizations.of(context)!.flashcardStudy);
 
     return Opacity(
       // المخفية (تظهر للمعلم فقط) أخفت قليلاً
@@ -224,7 +198,7 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        hasCards ? FlashcardStrings.cardsCount(total) : FlashcardStrings.noCards,
+                        hasCards ? flashcardCountLabel(AppLocalizations.of(context)!, total) : AppLocalizations.of(context)!.flashcardNoCards,
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -236,7 +210,7 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
                 ),
                 if (known > 0)
                   IconButton(
-                    tooltip: FlashcardStrings.resetTooltip,
+                    tooltip: AppLocalizations.of(context)!.flashcardResetTooltip,
                     icon: Icon(LucideIcons.refreshCcw, size: 18, color: AppColors.textSecondary),
                     onPressed: widget.isLoading ? null : _confirmReset,
                   ),
@@ -258,7 +232,7 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
                     Icon(LucideIcons.eyeOff, size: 13, color: AppColors.accentYellow),
                     const SizedBox(width: 6),
                     Text(
-                      FlashcardStrings.hidden,
+                      AppLocalizations.of(context)!.flashcardHidden,
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
