@@ -19,6 +19,9 @@ import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
 import 'package:Medaad/presentation/widgets/marquee_text.dart';
+import '../../core/services/flashcard_service.dart'; // 🗂️ Step 12/13
+import '../../data/models/flashcard_model.dart';
+import '../widgets/flashcard_deck_card.dart';
 
 class SubjectMaterialsScreen extends StatefulWidget {
   final String subjectId;
@@ -44,6 +47,10 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
   String? _accessDenialReason;
   Map<String, dynamic>? _content;
   bool _isTeacher = false;
+
+  // 🗂️ الفلاش كاردس: المجموعة التي يجري تحميلها الآن + رقم يُزاد لإعادة قراءة التقدم المحلي
+  int? _openingDeckId;
+  int _flashcardRefresh = 0;
   // ✅ [جديد] أسماء المجلدات المطوية حالياً. المجلدات تكون مطوية (مغلقة)
   // بشكل افتراضي عند ظهورها لأول مرة — انظر _syncFolderDefaults.
   final Set<String> _collapsedFolders = {};
@@ -684,15 +691,32 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
       return true;
     }).toList();
 
-    if (visibleExams.isEmpty) {
+    // 🗂️ مجموعات الفلاش كاردس (المخفية لا تصل إلا للمعلم المالك — يفلترها السيرفر)
+    final decks = FlashcardDeckSummary.listFrom(_content?['flashcard_decks']);
+
+    // حالة «لا امتحانات» تظهر فقط عندما لا توجد امتحانات **ولا** مجموعات
+    if (visibleExams.isEmpty && decks.isEmpty) {
       return _buildEmptyState(
           LucideIcons.fileCheck, AppLocalizations.of(context)!.noExamsAvailable);
     }
 
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      itemCount: visibleExams.length,
+      // الامتحانات ثم (إن وُجدت مجموعات) فاصل «الفلاش كاردس» ثم المجموعات
+      itemCount: visibleExams.length + (decks.isEmpty ? 0 : decks.length + 1),
       itemBuilder: (context, index) {
+        if (index >= visibleExams.length) {
+          final deckIndex = index - visibleExams.length;
+          if (deckIndex == 0) return const FlashcardSectionDivider();
+          final deck = decks[deckIndex - 1];
+          return FlashcardDeckCard(
+            key: ValueKey('flashcard_deck_${deck.id}'),
+            deck: deck,
+            refreshToken: _flashcardRefresh,
+            isLoading: _openingDeckId == deck.id,
+            onStudy: () => _openFlashcardDeck(deck),
+          );
+        }
         final exam = visibleExams[index];
         final bool isCompleted = exam['isCompleted'] ?? false;
         final bool isExpired = exam['isExpired'] ?? false;
@@ -862,6 +886,58 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
         );
       },
     );
+  }
+
+  // 🗂️ فتح مجموعة فلاش كاردس: تحميلها (الكاش/السيرفر) ثم الانتقال لشاشة المذاكرة.
+  Future<void> _openFlashcardDeck(FlashcardDeckSummary deck) async {
+    if (_openingDeckId != null) return; // تجاهل النقر المزدوج
+    setState(() => _openingDeckId = deck.id);
+
+    try {
+      final full = await FlashcardService.loadDeck(deck.id, serverUpdatedAt: deck.updatedAt);
+      if (!mounted) return;
+
+      // TODO(Step 14): استبدل هذا السطر بالانتقال لشاشة المذاكرة:
+      //   await Navigator.push(context, MaterialPageRoute(builder: (_) => FlashcardStudyScreen(deck: full)));
+      // مؤقتاً نُظهر أن التحميل/الكاش نجح فقط.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(FlashcardStrings.loadedTemp(full.cards.length)),
+          backgroundColor: AppColors.flashcardAccent,
+        ),
+      );
+    } on FlashcardException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(FlashcardStrings.errorFor(e.failure)),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      // انتهى الاشتراك أو اختفت المجموعة: نحدّث محتوى المادة ليعكس الحالة الحقيقية
+      if (e.failure == FlashcardFailure.expired ||
+          e.failure == FlashcardFailure.notOwned ||
+          e.failure == FlashcardFailure.notFound) {
+        _fetchContent();
+      }
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(e, stack, reason: 'Opening flashcard deck failed');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(FlashcardStrings.errorFor(FlashcardFailure.server)),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _openingDeckId = null;
+          _flashcardRefresh++; // إعادة قراءة التقدم بعد العودة
+        });
+      }
+    }
   }
 
   // ✅ التعديل هنا: الدالة الخاصة بفتح الامتحان والتوجيه الصحيح في حالة الإعادة
