@@ -46,7 +46,6 @@ class _LoginScreenState extends State<LoginScreen>
   // ── زر الدعم الفني (واتساب) ─────────────────────────────────────────────
   /// رقم الدعم بالصيغة الدولية بلا صفر أو "+" (مصر: 01559725404 → 201559725404).
   static const String _supportPhone = '201559725404';
-  static const Color _whatsappGreen = Color(0xFF25D366);
 
   /// قطر الزر.
   static const double _supportButtonSize = 46;
@@ -96,10 +95,12 @@ class _LoginScreenState extends State<LoginScreen>
         child: Tooltip(
           message: label,
           child: Material(
-            color: _whatsappGreen,
+            // ألوان التطبيق (تتبدل تلقائياً بين الدارك واللايت):
+            // دارك = ذهبي، لايت = طوبي — نفس زر الدخول الأساسي.
+            color: AppColors.accentYellow,
             shape: const CircleBorder(),
             elevation: 4,
-            shadowColor: Colors.black54,
+            shadowColor: AppColors.accentYellow.withOpacity(0.4),
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: _openSupportWhatsApp,
@@ -110,7 +111,7 @@ class _LoginScreenState extends State<LoginScreen>
                   // أيقونة موظف الدعم الفني (شخص بسماعة رأس)
                   child: Icon(
                     Icons.support_agent,
-                    color: Colors.white,
+                    color: AppColors.backgroundPrimary,
                     size: _supportButtonSize * 0.6,
                   ),
                 ),
