@@ -183,6 +183,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     PdfTool.comment,
   };
 
+  // ── إخفاء شريط الأدوات أثناء اللمس ─────────────────────────────────────
+  // عند لمس الشاشة (بقلم أو إصبع) مع أداة حبر نشطة (قلم / هايلايتر حر / ممحاة)
+  // يختفي الشريط السفلي كي لا يحجب الصفحة، ويعود بعد رفع آخر مؤشر بمهلة قصيرة.
+  // يعمل سواء كان رفض راحة اليد مفعّلاً أو لا: يُحسب اللمس قبل أي فلترة.
+  //
+  // نستخدم ValueNotifier + ValueListenableBuilder حول الشريط فقط بدل setState
+  // للشاشة كلها، حتى لا يُعاد بناء عارض الـ PDF عند بداية/نهاية كل خط.
+  final ValueNotifier<bool> _toolbarHiddenByTouch = ValueNotifier<bool>(false);
+  final Set<int> _touchPointers = <int>{};
+  Timer? _toolbarRevealTimer;
+
+  /// مهلة إعادة إظهار الشريط بعد رفع القلم/الإصبع. تمنع الوميض بين الخطوط
+  /// المتتالية أثناء الكتابة (رفع القلم بين الحروف/الكلمات).
+  static const Duration _toolbarRevealDelay = Duration(milliseconds: 450);
+
   // أنواع المؤشرات المسموح لها عند تفعيل رفض راحة اليد.
   static const Set<PointerDeviceKind> _penDevices = {
     PointerDeviceKind.stylus,
@@ -277,6 +292,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       _flushDirtyDrawings();
     }
     _drawingSaveTimer?.cancel();
+    _toolbarRevealTimer?.cancel();
+    _toolbarHiddenByTouch.dispose();
     _documentEventsSubscription?.cancel();
     _reader?.close();
     // Left the screen while the PDF was still downloading: stop the transfer
@@ -291,7 +308,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // التطبيق ذاهب للخلفية (قد يُقتل): ثبّت أي رسم ما زال بانتظار الحفظ المؤجّل.
-    if (state != AppLifecycleState.resumed) _flushDirtyDrawings();
+    if (state != AppLifecycleState.resumed) {
+      _flushDirtyDrawings();
+      // قد يضيع حدث الرفع عند الذهاب للخلفية: لا نترك الشريط مخفياً للأبد.
+      _resetToolbarTouchState();
+    }
   }
 
   /// يربط الاستماع لأحداث الوثيقة (تغيّر حالة الصفحات) بمجرد توفر المستند،
@@ -731,41 +752,77 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       appBar: _buildAppBar(),
       body: Stack(
         children: [
-          // حارس راحة اليد: يلغي لمسات الأصابع/الكف على مستوى المؤشر أثناء
-          // الكتابة بالقلم، فلا تصل أبداً إلى عارض الـ PDF (لا تمرير/تكبير).
-          // يقع خارجه شريط الأدوات، فلا يتأثر بالحارس.
-          PalmGuardLayer(
-            filter: _palmFilter,
-            isActive: () =>
-                _isDrawingMode && _penGuardTools.contains(_activeTool),
-            onHaltPageMotion: _haltPdfMotion,
-            child: _isOffline && _encryptedFile != null && _originalFileSize != null
-                ? PdfViewer.custom(
-                    key: _viewerKey,
-                    fileSize: _originalFileSize!,
-                    read: _customRead,
-                    sourceName: _encryptedFile!.path,
-                    controller: controller,
-                    params: _buildPdfParams(),
-                  )
-                // Online: same in-memory mechanism as offline, different source.
-                // (PdfViewer.uri is deliberately NOT used: it makes pdfrx write
-                // the downloaded PDF to a plaintext cache file on disk.)
-                : PdfViewer.custom(
-                    key: _viewerKey,
-                    fileSize: _onlineBytes!.length,
-                    read: _readOnlineBytes,
-                    // An identifier, never a URL or a path: this name can end
-                    // up in logs. Unique per PDF; the document is released when
-                    // the viewer goes away, so retries never reuse a stale one.
-                    sourceName: 'online-pdf:${widget.pdfId}',
-                    controller: controller,
-                    params: _buildPdfParams(),
-                  ),
+          // Listener خارجي شفاف: يرصد نزول/رفع أي مؤشر (قلم/إصبع/كف) لإخفاء
+          // الشريط السفلي أثناء اللمس. يقع فوق الحارس فيرى اللمسات قبل أن يُسقطها
+          // (فيعمل مع رفض راحة اليد مفعّلاً أو معطّلاً)، وخارج الشريط فلا يتأثر به.
+          Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _onViewerPointerDown,
+            onPointerUp: _onViewerPointerEnd,
+            onPointerCancel: _onViewerPointerEnd,
+            // حارس راحة اليد: يلغي لمسات الأصابع/الكف على مستوى المؤشر أثناء
+            // الكتابة بالقلم، فلا تصل أبداً إلى عارض الـ PDF (لا تمرير/تكبير).
+            // يقع خارجه شريط الأدوات، فلا يتأثر بالحارس.
+            child: PalmGuardLayer(
+              filter: _palmFilter,
+              isActive: () =>
+                  _isDrawingMode && _penGuardTools.contains(_activeTool),
+              onHaltPageMotion: _haltPdfMotion,
+              child: _isOffline &&
+                      _encryptedFile != null &&
+                      _originalFileSize != null
+                  ? PdfViewer.custom(
+                      key: _viewerKey,
+                      fileSize: _originalFileSize!,
+                      read: _customRead,
+                      sourceName: _encryptedFile!.path,
+                      controller: controller,
+                      params: _buildPdfParams(),
+                    )
+                  // Online: same in-memory mechanism as offline, different source.
+                  // (PdfViewer.uri is deliberately NOT used: it makes pdfrx write
+                  // the downloaded PDF to a plaintext cache file on disk.)
+                  : PdfViewer.custom(
+                      key: _viewerKey,
+                      fileSize: _onlineBytes!.length,
+                      read: _readOnlineBytes,
+                      // An identifier, never a URL or a path: this name can end
+                      // up in logs. Unique per PDF; the document is released when
+                      // the viewer goes away, so retries never reuse a stale one.
+                      sourceName: 'online-pdf:${widget.pdfId}',
+                      controller: controller,
+                      params: _buildPdfParams(),
+                    ),
+            ),
           ),
           _buildWatermark(),
           if (_isDrawingMode)
-            Positioned(bottom: 12, left: 0, right: 0, child: _buildToolbarSlot()),
+            Positioned(
+              bottom: 12,
+              left: 0,
+              right: 0,
+              // يختفي الشريط (انزلاق للأسفل + تلاشٍ) أثناء لمس الشاشة، ولا يلتقط
+              // أي لمسة وهو مخفي فتمرّ للعارض كالمعتاد.
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _toolbarHiddenByTouch,
+                child: _buildToolbarSlot(),
+                builder: (context, hidden, toolbar) {
+                  return IgnorePointer(
+                    ignoring: hidden,
+                    child: AnimatedSlide(
+                      offset: hidden ? const Offset(0, 1.4) : Offset.zero,
+                      duration: Duration(milliseconds: hidden ? 90 : 220),
+                      curve: hidden ? Curves.easeIn : Curves.easeOutCubic,
+                      child: AnimatedOpacity(
+                        opacity: hidden ? 0.0 : 1.0,
+                        duration: Duration(milliseconds: hidden ? 90 : 180),
+                        child: toolbar,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           // Stylus simulator (test only). One-line switch:
           // kEnableStylusSimulator in debug_stylus_simulator.dart.
           // The const flag removes it completely from the build when false.
@@ -942,6 +999,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
         setState(() {
           _isDrawingMode = !_isDrawingMode;
           _controlsOpen = false;
+          _resetToolbarTouchState();
           if (!_isDrawingMode) {
             _activeTool = PdfTool.none;
             _highlightController.activeTool = TextMarkupTool.none;
@@ -1516,6 +1574,42 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       t == PdfTool.pen ||
       t == PdfTool.eraser ||
       t == PdfTool.freehandHighlighter;
+
+  // ─────────────── إخفاء الشريط السفلي أثناء اللمس ───────────────
+
+  /// هل يُخفى الشريط عند اللمس في الحالة الحالية؟ (وضع الرسم + أداة حبر).
+  bool get _hidesToolbarOnTouch => _isDrawingMode && _isInkTool(_activeTool);
+
+  /// نزول أي مؤشر (قلم/إصبع/كف/فأرة) على منطقة العارض. يُستدعى قبل أي فلترة
+  /// لرفض راحة اليد، فيختفي الشريط في الحالتين (مفعّل أو معطّل).
+  void _onViewerPointerDown(PointerDownEvent event) {
+    if (!_hidesToolbarOnTouch) return;
+    _touchPointers.add(event.pointer);
+    _toolbarRevealTimer?.cancel();
+    _toolbarRevealTimer = null;
+    _toolbarHiddenByTouch.value = true;
+  }
+
+  /// رفع/إلغاء مؤشر. الإلغاء يشمل ما يُسقطه حارس راحة اليد عبر
+  /// `GestureBinding.cancelPointer`، فلا يبقى معرّف عالقاً.
+  void _onViewerPointerEnd(PointerEvent event) {
+    if (!_touchPointers.remove(event.pointer)) return;
+    if (_touchPointers.isNotEmpty) return; // ما زال مؤشر آخر على الشاشة
+    _toolbarRevealTimer?.cancel();
+    _toolbarRevealTimer = Timer(_toolbarRevealDelay, () {
+      _toolbarRevealTimer = null;
+      _toolbarHiddenByTouch.value = false;
+    });
+  }
+
+  /// تصفير فوري (خروج من وضع الرسم، ذهاب التطبيق للخلفية، ...): الشريط يعود
+  /// ظاهراً ولا يبقى أي مؤشر مسجَّل.
+  void _resetToolbarTouchState() {
+    _toolbarRevealTimer?.cancel();
+    _toolbarRevealTimer = null;
+    _touchPointers.clear();
+    _toolbarHiddenByTouch.value = false;
+  }
 
   PageInkState _inkFor(int pageNumber) =>
       _inks.putIfAbsent(pageNumber, () => PageInkState());
