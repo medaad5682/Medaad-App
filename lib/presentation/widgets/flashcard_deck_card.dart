@@ -62,25 +62,36 @@ class FlashcardSectionDivider extends StatelessWidget {
 }
 
 /// بطاقة مجموعة فلاش كاردس (مصغّرة): العنوان وعدد البطاقات والمتقنة، شريط تقدم رفيع،
-/// ثم صف واحد: شارة «N مستحقة اليوم» (أو «أنهيت كل المستحق ✓ المراجعة التالية …») بجانب زر المذاكرة.
+/// ثم صف واحد: شارتا «N جديدة» و«M مراجعة» (أو «أنهيت كل المطلوب ✓ المراجعة التالية …») بجانب زر الفتح.
 ///
-/// Step 19 (لايتنر):
-///  - الشارة البنفسجية «N مستحقة اليوم» بجانب الزر، والزر «مذاكرة المستحقة» حين يوجد مستحق.
-///  - لا مستحق ⇒ «أنهيت كل المستحق ✓» + «المراجعة التالية غداً / بعد 3 أيام»، والزر «مراجعة» (دراسة المجموعة كاملة).
+///  - الشارة تختفي إن كان عددها صفراً. الجديدة = بلا سجل، والمراجعة = الغلط + المستحق.
+///  - الزر الرئيسي يفتح صفحة المجموعة دائماً (حتى لو انتهى كل المطلوب) كي يبقى «ذاكر المجموعة كاملة» متاحاً.
+///  - قائمة النقاط الثلاث (⋮): «ذاكر المجموعة كاملة»، «كرر الغلط (N)» (إن وُجد غلط)، «إعادة ضبط التقدم» (إن وُجد تقدم).
 ///  - شريط التقدم = المتقنة (الصندوق 4 أو 5) من العدد الكلي.
 ///
 /// العدد الكلي من السيرفر ([FlashcardDeckSummary.cardCount]) والتقدم من Hive ([FlashcardProgressStore]).
 /// غيّر [refreshToken] لإعادة قراءة التقدم (مثلاً بعد العودة من شاشة المذاكرة).
+enum _DeckMenuAction { studyAnyway, repeatWrong, reset }
+
 class FlashcardDeckCard extends StatefulWidget {
   final FlashcardDeckSummary deck;
   final int refreshToken;
   final bool isLoading;
+  /// يفتح صفحة المجموعة.
   final VoidCallback onStudy;
+
+  /// من القائمة: يفتح جلسة «ذاكر المجموعة كاملة» مباشرة.
+  final VoidCallback onStudyAnyway;
+
+  /// من القائمة: يفتح جلسة «كرر الغلط» مباشرة.
+  final VoidCallback onRepeatWrong;
 
   const FlashcardDeckCard({
     super.key,
     required this.deck,
     required this.onStudy,
+    required this.onStudyAnyway,
+    required this.onRepeatWrong,
     this.refreshToken = 0,
     this.isLoading = false,
   });
@@ -129,6 +140,20 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
     }
   }
 
+  void _onMenuSelected(_DeckMenuAction action) {
+    switch (action) {
+      case _DeckMenuAction.studyAnyway:
+        widget.onStudyAnyway();
+        break;
+      case _DeckMenuAction.repeatWrong:
+        widget.onRepeatWrong();
+        break;
+      case _DeckMenuAction.reset:
+        _confirmReset();
+        break;
+    }
+  }
+
   Future<void> _confirmReset() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -166,17 +191,19 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
     final total = deck.cardCount;
     final hasCards = total > 0;
 
-    // قبل اكتمال القراءة: كل البطاقات تُعدّ مستحقة (جديدة) — الشاشة نفسها تتصرف بالصواب عند الفتح
+    // قبل اكتمال القراءة: كل البطاقات تُعدّ جديدة — الصفحة نفسها تتصرف بالصواب عند الفتح
     final stats = _stats;
-    final due = stats?.due ?? total;
+    final newCount = stats?.newCount ?? total;
+    final reviewCount = stats?.reviewCount ?? 0;
+    final wrongCount = stats?.wrongCount ?? 0;
     final mastered = stats?.mastered ?? 0;
     final hasProgress = stats?.hasProgress ?? false;
     final allMastered = hasCards && mastered >= total;
     final progress = hasCards ? (mastered / total).clamp(0.0, 1.0) : 0.0;
-    final caughtUp = hasCards && stats != null && due == 0;
+    final caughtUp = hasCards && stats != null && newCount == 0 && reviewCount == 0;
     final nextDays = stats?.nextReviewInDays;
 
-    final String buttonLabel = caughtUp ? l.flashcardReview : l.flashcardStudyDue;
+    final String buttonLabel = caughtUp ? l.flashcardOpenDeck : l.flashcardStudy;
 
     return Opacity(
       // المخفية (تظهر للمعلم فقط) أخفت قليلاً
@@ -259,15 +286,42 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
                     ],
                   ),
                 ),
-                if (hasProgress)
+                if (hasCards)
                   SizedBox(
                     width: 30,
                     height: 30,
-                    child: IconButton(
+                    child: PopupMenuButton<_DeckMenuAction>(
                       padding: EdgeInsets.zero,
-                      tooltip: l.flashcardResetTooltip,
-                      icon: Icon(LucideIcons.refreshCcw, size: 15, color: AppColors.textSecondary),
-                      onPressed: widget.isLoading ? null : _confirmReset,
+                      enabled: !widget.isLoading,
+                      tooltip: l.flashcardMenuTooltip,
+                      color: AppColors.backgroundSecondary,
+                      icon: Icon(Icons.more_vert, size: 18, color: AppColors.textSecondary),
+                      onSelected: _onMenuSelected,
+                      itemBuilder: (ctx) => [
+                        PopupMenuItem<_DeckMenuAction>(
+                          value: _DeckMenuAction.studyAnyway,
+                          child: Text(
+                            l.flashcardStudyAnyway,
+                            style: TextStyle(color: AppColors.textPrimary),
+                          ),
+                        ),
+                        if (wrongCount > 0)
+                          PopupMenuItem<_DeckMenuAction>(
+                            value: _DeckMenuAction.repeatWrong,
+                            child: Text(
+                              l.flashcardRepeatWrong(wrongCount),
+                              style: TextStyle(color: AppColors.textPrimary),
+                            ),
+                          ),
+                        if (hasProgress)
+                          PopupMenuItem<_DeckMenuAction>(
+                            value: _DeckMenuAction.reset,
+                            child: Text(
+                              l.flashcardResetTooltip,
+                              style: const TextStyle(color: AppColors.error),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
               ],
@@ -297,7 +351,16 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
                           ? _CaughtUpStatus(nextDays: nextDays)
                           : Align(
                               alignment: AlignmentDirectional.centerStart,
-                              child: _DueBadge(label: l.flashcardDueToday(due)),
+                              child: Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  if (newCount > 0)
+                                    _CountBadge(label: l.flashcardNewCount(newCount)),
+                                  if (reviewCount > 0)
+                                    _CountBadge(label: l.flashcardReviewCount(reviewCount)),
+                                ],
+                              ),
                             ))
                       : const SizedBox.shrink(),
                 ),
@@ -348,10 +411,10 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
   }
 }
 
-/// الشارة البنفسجية «N مستحقة اليوم».
-class _DueBadge extends StatelessWidget {
+/// الشارة البنفسجية («N جديدة» / «M مراجعة»).
+class _CountBadge extends StatelessWidget {
   final String label;
-  const _DueBadge({required this.label});
+  const _CountBadge({required this.label});
 
   @override
   Widget build(BuildContext context) {
