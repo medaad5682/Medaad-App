@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -7,6 +8,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/attestation_service.dart';
+import '../../core/services/flashcard_leitner.dart';
 import '../../core/services/flashcard_progress_store.dart';
 import '../../core/services/storage_service.dart';
 import '../../data/models/flashcard_model.dart';
@@ -15,8 +17,17 @@ import '../widgets/flashcard_flip_card.dart';
 import 'flashcard_summary_screen.dart';
 import 'screen_protect_wrapper.dart';
 
-/// 🃏 شاشة مذاكرة الفلاش كاردس (Step 14 + 15).
+/// 🃏 شاشة مذاكرة الفلاش كاردس (Step 14 + 15 + 19).
 ///
+/// ## Step 19 — لايتنر (التكرار المتباعد)
+/// - الجلسة تفتح بالبطاقات **المستحقة فقط** (دفعة من [FlashcardLeitner.dailyReviewTarget] = 30 كهدف مرن)
+///   بالأولوية: «ما زلت أتعلم» ← الأقدم تأخراً ← مستحقة اليوم ← الجديدة. وإن لم يوجد مستحق تُفتح المجموعة كاملة («مراجعة»).
+/// - «عرفتها» ⇒ صندوق + 1 (مرة واحدة فقط) وموعد من تاريخ المراجعة الفعلي، مع تلميح «المراجعة التالية بعد…».
+/// - «ما زلت أتعلم» ⇒ الصندوق 1 وتدخل جولة التكرار (`_pending`) حتى تُجاب «عرفتها».
+/// - نهاية الجولة: «كرر التي لم أعرفها» / «مراجعة المزيد» (دفعة مستحقة أخرى بدون لمس مواعيد المتأخرة) /
+///   «ذاكر المجموعة كاملة» (لا يغيّر إلا البطاقات التي قُيّمت فعلاً).
+///
+/// ما قبله:
 /// - بطاقة قابلة للقلب؛ أزرار «عرفتها» / «ما زلت أتعلم» تظهر **بعد القلب فقط** وهي التحكم الأساسي.
 /// - السحب (يمين=عرفتها، يسار=ما زلت أتعلم) اختصار اختياري يعمل بعد القلب ويظهر بتلوين ونص توضيحي.
 /// - تلميح السحب يظهر مرة واحدة فقط (يُحفظ محلياً) عند أول قلب لأول بطاقة.
@@ -41,8 +52,8 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   bool _ready = false;
   Map<String, String> _imageHeaders = const {};
 
-  // التقدم المحلي
-  Set<int> _known = <int>{};
+  // التقدم المحلي (Step 19): سجل لكل بطاقة {box, dueDate}. البطاقة الغائبة = جديدة (الصندوق 1، مستحقة).
+  Map<int, FlashcardCardProgress> _progress = <int, FlashcardCardProgress>{};
   Future<void> _saveChain = Future<void>.value(); // يسلسل الكتابات لتفادي سباق القراءة/الكتابة
 
   // الجولة الحالية
@@ -53,10 +64,21 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   final List<int> _roundLearningIds = [];
   bool _showSummary = false;
 
-  // الإعدادات
-  // «غير المعروفة فقط» لم يعد زراً؛ يُفعَّل داخلياً فقط عند استئناف مجموعة مذاكَرة جزئياً
-  // أو عند «تكرار غير المعروفة» في نهاية الجولة.
-  bool _onlyUnknown = false;
+  // جلسة لايتنر
+  /// البطاقات التي عُلّمت «ما زلت أتعلم» في هذه الجلسة ولم تُجب «عرفتها» بعد.
+  /// جولة التكرار تُبنى منها فقط، فلا تدخلها بطاقة اكتملت أبداً.
+  final Set<int> _pending = <int>{};
+
+  /// true ⇒ جلسة «مراجعة المجموعة كاملة» (لا يوجد مستحق أو «ذاكر المجموعة كاملة»)، false ⇒ جلسة المستحق.
+  bool _studyingAll = false;
+
+  /// عدد المستحق الآن في المجموعة كلها (يظهر في الرأس ويتناقص مع «عرفتها»).
+  int _dueCount = 0;
+
+  /// تلميح «المراجعة التالية بعد N يوم» الذي يظهر تحت البطاقة بعد «عرفتها».
+  int? _nextReviewDays;
+  int _nextReviewSeq = 0;
+  Timer? _nextReviewTimer;
 
   // حالة البطاقة الحالية
   GlobalKey<FlashcardFlipCardState> _cardKey = GlobalKey<FlashcardFlipCardState>();
@@ -67,7 +89,19 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   final math.Random _random = math.Random();
 
   List<FlashcardModel> get _cards => widget.deck.cards;
-  int get _knownCount => math.min(_known.length, _cards.length);
+  DateTime get _today => FlashcardLeitner.today();
+  int get _knownCount =>
+      math.min(_progress.values.where((p) => p.isKnown).length, _cards.length);
+
+  void _recomputeDue() {
+    _dueCount = FlashcardLeitner.countDue(cards: _cards, progress: _progress, today: _today);
+  }
+
+  @override
+  void dispose() {
+    _nextReviewTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -93,16 +127,17 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     }
 
     try {
-      _known = await FlashcardProgressStore.pruneToCards(widget.deck.id, widget.deck.cardIds);
+      // pruneToCards يهاجر تقدم النظام القديم تلقائياً (المعروف ⇒ الصندوق 3 وبعد 3 أيام) ثم ينظّف المحذوف
+      _progress = Map<int, FlashcardCardProgress>.of(
+        await FlashcardProgressStore.pruneToCards(widget.deck.id, widget.deck.cardIds),
+      );
       _hintSeen = await FlashcardProgressStore.hasSeenSwipeHint();
     } catch (_) {
-      _known = <int>{};
+      _progress = <int, FlashcardCardProgress>{};
       _hintSeen = true; // لا نزعج الطالب بالتلميح إن تعذّر القراءة
     }
 
-    // مجموعة فيها بعض المعروف وليس كله ⇒ نبدأ بغير المعروف (متابعة). غير ذلك ⇒ كل البطاقات.
-    _onlyUnknown = _known.isNotEmpty && _known.length < _cards.length;
-    _startRound(_buildQueue(), keepRoundNumber: false);
+    _startDueSession();
 
     if (!mounted) return;
     setState(() => _ready = true);
@@ -111,11 +146,18 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
 
   // ───────────────────────── بناء الجولة ─────────────────────────
 
-  List<FlashcardModel> _ordered(Iterable<FlashcardModel> source) => source.toList();
-
-  List<FlashcardModel> _buildQueue() {
-    final base = _onlyUnknown ? _cards.where((c) => !_known.contains(c.id)) : _cards;
-    return _ordered(base);
+  /// جلسة جديدة بالمستحق فقط (دفعة بحجم الهدف اليومي). إن لم يوجد مستحق ⇒ المجموعة كاملة («مراجعة»).
+  void _startDueSession() {
+    _pending.clear();
+    final due = FlashcardLeitner.selectDue(
+      cards: _cards,
+      progress: _progress,
+      today: _today,
+      limit: FlashcardLeitner.dailyReviewTarget,
+    );
+    _studyingAll = due.isEmpty;
+    _startRound(due.isEmpty ? List<FlashcardModel>.of(_cards) : due, keepRoundNumber: false);
+    _recomputeDue();
   }
 
   void _startRound(List<FlashcardModel> queue, {required bool keepRoundNumber}) {
@@ -125,6 +167,8 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     _roundKnownIds.clear();
     _roundLearningIds.clear();
     _showSummary = false;
+    _nextReviewTimer?.cancel();
+    _nextReviewDays = null;
     _resetCardState();
   }
 
@@ -145,23 +189,34 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   }
 
   void _onDecision(bool known) {
+    if (_showSummary || _index >= _queue.length) return; // حماية: لا تقييم خارج الجولة
     final card = _queue[_index];
+    final today = _today;
 
+    final FlashcardCardProgress updated;
     if (known) {
-      _known.add(card.id);
+      // خطوة واحدة فقط للأعلى، والموعد من تاريخ المراجعة الفعلي (وليس موعداً قديماً)
+      updated = FlashcardLeitner.afterGotIt(card.id, _progress[card.id]?.box, today);
+      _pending.remove(card.id);
       _roundKnownIds.add(card.id);
     } else {
-      _known.remove(card.id);
+      // دائماً الصندوق 1 (حتى لو كانت متقنة) وتدخل جولة التكرار حتى تُجاب «عرفتها»
+      updated = FlashcardLeitner.afterStillLearning(card.id, today);
+      _pending.add(card.id);
       _roundLearningIds.add(card.id);
     }
-    _persist(card.id, known);
+    _progress[card.id] = updated;
+    _persist(updated);
+    _recomputeDue();
 
     final next = _index + 1;
     if (next >= _queue.length) {
+      _nextReviewTimer?.cancel();
       setState(() {
         _index = next;
         _showSummary = true;
         _rating = false;
+        _nextReviewDays = null;
       });
       return;
     }
@@ -169,14 +224,27 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
       _index = next;
       _resetCardState();
     });
+    if (known) _showNextReviewHint(FlashcardLeitner.intervalDays(updated.box));
     _prefetchUpcoming();
   }
 
-  /// حفظ محلي متسلسل. الفشل لا يوقف الدراسة (التقدم في الذاكرة يبقى للجلسة).
-  void _persist(int cardId, bool known) {
+  /// يعرض «المراجعة التالية بعد N يوم» تحت البطاقة لثانيتين تقريباً.
+  void _showNextReviewHint(int days) {
+    _nextReviewTimer?.cancel();
+    setState(() {
+      _nextReviewDays = days;
+      _nextReviewSeq++;
+    });
+    _nextReviewTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted) setState(() => _nextReviewDays = null);
+    });
+  }
+
+  /// حفظ محلي متسلسل لسجل البطاقة. الفشل لا يوقف الدراسة (التقدم في الذاكرة يبقى للجلسة).
+  void _persist(FlashcardCardProgress progress) {
     _saveChain = _saveChain.then((_) async {
       try {
-        await FlashcardProgressStore.setKnown(widget.deck.id, cardId, known);
+        await FlashcardProgressStore.saveCardProgress(widget.deck.id, progress);
       } catch (_) {}
     });
   }
@@ -223,18 +291,45 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
 
   // ───────────────────────── الجولات (Step 15) ─────────────────────────
 
+  /// جولة تكرار: «ما زلت أتعلم» التي لم تُجب «عرفتها» بعد فقط (بترتيب المجموعة).
+  /// تتكرر الجولات حتى تنال كل بطاقة «عرفتها»؛ ولا تدخلها بطاقة اكتملت.
   void _repeatUnknown() {
-    // البطاقات التي لم يعرفها في هذه الجولة ولا تزال غير معروفة
-    final ids = _roundLearningIds.toSet();
-    final queue = _ordered(_cards.where((c) => ids.contains(c.id) && !_known.contains(c.id)));
-    if (queue.isEmpty) {
-      _startOver();
-      return;
-    }
+    final queue = _cards.where((c) => _pending.contains(c.id)).toList();
+    if (queue.isEmpty) return;
     setState(() {
-      _onlyUnknown = true;
       _round += 1;
       _startRound(queue, keepRoundNumber: true);
+    });
+    _prefetchUpcoming();
+  }
+
+  /// دفعة مستحقة أخرى بعد إنهاء الحالية. لا تُغيَّر مواعيد أي بطاقة، والمعلّقة («ما زلت أتعلم»)
+  /// تُستبعد لأن مكانها زر التكرار.
+  void _reviewMore() {
+    final queue = FlashcardLeitner.selectDue(
+      cards: _cards,
+      progress: _progress,
+      today: _today,
+      exclude: _pending,
+      limit: FlashcardLeitner.dailyReviewTarget,
+    );
+    if (queue.isEmpty) return;
+    setState(() {
+      _studyingAll = false;
+      _round += 1;
+      _startRound(queue, keepRoundNumber: true);
+      _recomputeDue();
+    });
+    _prefetchUpcoming();
+  }
+
+  /// «ذاكر المجموعة كاملة» حتى لو لا يوجد مستحق. البطاقات التي لم تُقيَّم تبقى بمواعيدها كما هي.
+  void _studyAnyway() {
+    setState(() {
+      _pending.clear();
+      _studyingAll = true;
+      _round += 1;
+      _startRound(List<FlashcardModel>.of(_cards), keepRoundNumber: true);
     });
     _prefetchUpcoming();
   }
@@ -246,10 +341,12 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     } catch (_) {}
     if (!mounted) return;
     setState(() {
-      _known = <int>{};
-      _onlyUnknown = false;
+      _progress = <int, FlashcardCardProgress>{};
+      _pending.clear();
+      _studyingAll = true;
       _round += 1;
-      _startRound(_ordered(_cards), keepRoundNumber: true);
+      _startRound(List<FlashcardModel>.of(_cards), keepRoundNumber: true);
+      _recomputeDue();
     });
     _prefetchUpcoming();
   }
@@ -375,8 +472,14 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   }
 
   Widget _buildSummary() {
-    final roundLearningRemaining =
-        _roundLearningIds.where((id) => !_known.contains(id)).length;
+    final today = _today;
+    // المستحق المتبقي خارج المعلّقة (التي لها زر التكرار) = ما تحمله «مراجعة المزيد»
+    final dueRemaining = FlashcardLeitner.countDue(
+      cards: _cards,
+      progress: _progress,
+      today: today,
+      exclude: _pending,
+    );
     return Column(
       children: [
         _buildHeader(showControls: false),
@@ -388,7 +491,13 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
               roundLearning: _roundLearningIds.length,
               totalKnown: _knownCount,
               totalCards: _cards.length,
-              onRepeatUnknown: roundLearningRemaining > 0 ? _repeatUnknown : null,
+              schedule: FlashcardLeitner.upcomingSchedule(_progress.values, today),
+              allCaughtUp: dueRemaining == 0 && _pending.isEmpty,
+              reviewMoreCount: dueRemaining,
+              onRepeatUnknown: _pending.isNotEmpty ? _repeatUnknown : null,
+              onReviewMore: dueRemaining > 0 ? _reviewMore : null,
+              onStudyAnyway: dueRemaining == 0 ? _studyAnyway : null,
+              pendingCount: _pending.length,
               onStartOver: _startOver,
               onFinish: _exit,
             ),
@@ -474,18 +583,23 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  if (_round > 1 || _onlyUnknown)
+                  if (_round > 1)
                     _Chip(
-                      label: _round > 1
-                          ? AppLocalizations.of(context)!.flashcardRoundChip(_round)
-                          : AppLocalizations.of(context)!.flashcardOnlyUnknownChip,
+                      label: AppLocalizations.of(context)!.flashcardRoundChip(_round),
                       color: accent,
                     ),
                   const Spacer(),
-                  _Chip(
-                    label: '✅ $_knownCount/${_cards.length}',
-                    color: AppColors.success,
-                  ),
+                  // جلسة المستحق: «المستحقة اليوم: N» بدل العداد القديم. جلسة المجموعة كاملة: العداد القديم.
+                  if (_studyingAll)
+                    _Chip(
+                      label: '✅ $_knownCount/${_cards.length}',
+                      color: AppColors.success,
+                    )
+                  else
+                    _Chip(
+                      label: AppLocalizations.of(context)!.flashcardDueTodayHeader(_dueCount),
+                      color: accent,
+                    ),
                 ],
               ),
             ],
@@ -505,6 +619,32 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
               onDecision: _onDecision,
               onImageTap: _showZoomableImage,
             ),
+          ),
+        ),
+
+        // تلميح «المراجعة التالية…» تحت البطاقة بعد «عرفتها» (ارتفاع ثابت كي لا تقفز البطاقة)
+        SizedBox(
+          height: 20,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: _nextReviewDays == null
+                ? const SizedBox.shrink(key: ValueKey('next_hint_none'))
+                : Row(
+                    key: ValueKey('next_hint_$_nextReviewSeq'),
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(LucideIcons.clock, size: 13, color: AppColors.success),
+                      const SizedBox(width: 6),
+                      Text(
+                        AppLocalizations.of(context)!.flashcardNextReviewIn(_nextReviewDays!),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.success,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
 

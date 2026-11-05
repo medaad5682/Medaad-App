@@ -2,14 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/constants/app_colors.dart';
+import '../../core/services/flashcard_leitner.dart';
 import '../../l10n/generated/app_localizations.dart';
 
-/// 📊 ملخص نهاية الجولة (Step 15).
+/// 📊 ملخص نهاية الجولة (Step 15 + 19).
 ///
 /// يُعرض داخل شاشة المذاكرة (ليس صفحة منفصلة) كي تبقى الجولات المتتالية في نفس الجلسة:
-///  - «كرر التي لم أعرفها» ⇒ جولة جديدة بالبطاقات غير المعروفة فقط.
+///  - «كرر التي لم أعرفها» ⇒ جولة جديدة بـ«ما زلت أتعلم» التي لم تُجب «عرفتها» بعد.
+///  - «مراجعة المزيد» ⇒ دفعة مستحقة أخرى (تظهر حين يبقى مستحق خارج الدفعة الحالية).
+///  - «ذاكر المجموعة كاملة» ⇒ مراجعة المجموعة حتى لو لا يوجد مستحق (يظهر حين لا يبقى مستحق).
 ///  - «ابدأ من جديد» ⇒ تصفير التقدم وجولة بكل البطاقات.
 ///  - «إنهاء» ⇒ إغلاق شاشة المذاكرة (التقدم محفوظ محلياً).
+///
+/// الجدول: «المراجعات القادمة» (غداً / بعد 3 أيام / …) من مواعيد البطاقات المحفوظة.
 ///
 /// الأرقام: [roundKnown]/[roundLearning] لهذه الجولة، و[totalKnown]/[totalCards] للمجموعة كاملة.
 class FlashcardRoundSummary extends StatelessWidget {
@@ -19,8 +24,26 @@ class FlashcardRoundSummary extends StatelessWidget {
   final int totalKnown;
   final int totalCards;
 
-  /// null ⇒ لا يوجد ما يُكرَّر (أتقن الطالب كل بطاقات هذه الجولة).
+  /// المراجعات القادمة (من الغد فصاعداً).
+  final List<FlashcardScheduleEntry> schedule;
+
+  /// لا مستحق متبقٍ ولا بطاقات «ما زلت أتعلم» معلّقة.
+  final bool allCaughtUp;
+
+  /// «ما زلت أتعلم» المعلّقة في الجلسة (لم تُجب «عرفتها» بعد) — عدد زر التكرار.
+  final int pendingCount;
+
+  /// عدد المستحق المتبقي خارج الدفعة الحالية (عدد زر «مراجعة المزيد»).
+  final int reviewMoreCount;
+
+  /// null ⇒ لا يوجد ما يُكرَّر (كل بطاقات الجلسة نالت «عرفتها»).
   final VoidCallback? onRepeatUnknown;
+
+  /// null ⇒ لا مستحق إضافي.
+  final VoidCallback? onReviewMore;
+
+  /// null ⇒ ما زال هناك مستحق (استخدم «مراجعة المزيد»).
+  final VoidCallback? onStudyAnyway;
   final VoidCallback onStartOver;
   final VoidCallback onFinish;
 
@@ -31,7 +54,13 @@ class FlashcardRoundSummary extends StatelessWidget {
     required this.roundLearning,
     required this.totalKnown,
     required this.totalCards,
+    required this.schedule,
+    required this.allCaughtUp,
+    required this.pendingCount,
+    required this.reviewMoreCount,
     required this.onRepeatUnknown,
+    required this.onReviewMore,
+    required this.onStudyAnyway,
     required this.onStartOver,
     required this.onFinish,
   });
@@ -39,7 +68,7 @@ class FlashcardRoundSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = AppColors.flashcardAccent;
-    final allKnown = totalCards > 0 && totalKnown >= totalCards;
+    final allKnown = totalCards > 0 && allCaughtUp;
     final roundTotal = roundKnown + roundLearning;
     final ratio = roundTotal == 0 ? 0.0 : roundKnown / roundTotal;
 
@@ -121,20 +150,45 @@ class FlashcardRoundSummary extends StatelessWidget {
               color: AppColors.textSecondary,
             ),
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 20),
 
-          if (onRepeatUnknown != null)
+          if (schedule.isNotEmpty) ...[
+            _ScheduleCard(schedule: schedule),
+            const SizedBox(height: 20),
+          ] else
+            const SizedBox(height: 8),
+
+          if (onRepeatUnknown != null) ...[
             _ActionButton(
-              label: AppLocalizations.of(context)!.flashcardRepeatUnknown(roundLearning),
+              label: AppLocalizations.of(context)!.flashcardRepeatUnknown(pendingCount),
               icon: LucideIcons.rotateCcw,
               filled: true,
               onPressed: onRepeatUnknown!,
             ),
-          if (onRepeatUnknown != null) const SizedBox(height: 10),
+            const SizedBox(height: 10),
+          ],
+          if (onReviewMore != null) ...[
+            _ActionButton(
+              label: AppLocalizations.of(context)!.flashcardReviewMore(reviewMoreCount),
+              icon: LucideIcons.layers,
+              filled: onRepeatUnknown == null,
+              onPressed: onReviewMore!,
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (onStudyAnyway != null) ...[
+            _ActionButton(
+              label: AppLocalizations.of(context)!.flashcardStudyAnyway,
+              icon: LucideIcons.layers,
+              filled: onRepeatUnknown == null,
+              onPressed: onStudyAnyway!,
+            ),
+            const SizedBox(height: 10),
+          ],
           _ActionButton(
             label: AppLocalizations.of(context)!.flashcardStartOver,
             icon: LucideIcons.refreshCcw,
-            filled: onRepeatUnknown == null,
+            filled: false,
             onPressed: onStartOver,
           ),
           const SizedBox(height: 10),
@@ -150,6 +204,69 @@ class FlashcardRoundSummary extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// «المراجعات القادمة»: غداً: 5 بطاقات، بعد 3 أيام: 4 بطاقات، …
+class _ScheduleCard extends StatelessWidget {
+  final List<FlashcardScheduleEntry> schedule;
+  const _ScheduleCard({required this.schedule});
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
+    final accent = AppColors.flashcardAccent;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      decoration: BoxDecoration(
+        color: AppColors.flashcardAccentSoft,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(LucideIcons.clock, size: 15, color: accent),
+              const SizedBox(width: 8),
+              Text(
+                l.flashcardScheduleTitle,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: accent),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final e in schedule)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l.flashcardScheduleWhen(e.days),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    e.count == 1 ? l.flashcardsCountOne : l.flashcardsCountMany(e.count),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

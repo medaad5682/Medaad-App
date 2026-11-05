@@ -655,9 +655,13 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                         _buildTab(
                             AppLocalizations.of(context)!.chaptersTabLabel,
                             'chapters'),
+                        // «الامتحانات وبطاقات الفلاش (N)»: العدد = الامتحانات + مجموعات الفلاش كاردس
                         _buildTab(
-                            AppLocalizations.of(context)!
-                                .examsTabLabel(exams.length),
+                            AppLocalizations.of(context)!.examsTabLabel(
+                                exams.length +
+                                    FlashcardDeckSummary.listFrom(
+                                            _content?['flashcard_decks'])
+                                        .length),
                             'exams'),
                       ],
                     ),
@@ -1452,15 +1456,20 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                 ? [const BoxShadow(color: Colors.black12, blurRadius: 4)]
                 : [],
           ),
-          child: Text(
-            title.toUpperCase(),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color:
-                  isActive ? AppColors.accentYellow : AppColors.textSecondary,
-              letterSpacing: 1.5,
+          // الاسم الأطول («Exams & Flashcards») يتصغّر ليبقى في سطر واحد بدل أن يلتف
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              title.toUpperCase(),
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color:
+                    isActive ? AppColors.accentYellow : AppColors.textSecondary,
+                letterSpacing: 1.5,
+              ),
             ),
           ),
         ),
