@@ -19,9 +19,11 @@ import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
 import 'package:Medaad/presentation/widgets/marquee_text.dart';
+import '../../core/services/flashcard_leitner.dart'; // FlashcardStudyMode
 import '../../core/services/flashcard_service.dart'; // 🗂️ Step 12/13
 import '../../data/models/flashcard_model.dart';
 import '../widgets/flashcard_deck_card.dart';
+import 'flashcard_deck_hub_screen.dart'; // صفحة المجموعة (تبويبا الجديدة والمراجعة)
 import 'flashcard_study_screen.dart'; // 🗂️ Step 14
 
 class SubjectMaterialsScreen extends StatefulWidget {
@@ -720,6 +722,8 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
             refreshToken: _flashcardRefresh,
             isLoading: _openingDeckId == deck.id,
             onStudy: () => _openFlashcardDeck(deck),
+            onStudyAnyway: () => _openFlashcardDeck(deck, mode: FlashcardStudyMode.studyAnyway),
+            onRepeatWrong: () => _openFlashcardDeck(deck, mode: FlashcardStudyMode.repeatWrong),
           );
         }
         final exam = visibleExams[index];
@@ -893,8 +897,9 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
     );
   }
 
-  // 🗂️ فتح مجموعة فلاش كاردس: تحميلها (الكاش/السيرفر) ثم الانتقال لشاشة المذاكرة.
-  Future<void> _openFlashcardDeck(FlashcardDeckSummary deck) async {
+  // 🗂️ فتح مجموعة فلاش كاردس: تحميلها (الكاش/السيرفر) ثم الانتقال لصفحة المجموعة،
+  // أو لشاشة المذاكرة مباشرة بوضع محدد ([mode]) حين يُطلب من قائمة الكارت (⋮).
+  Future<void> _openFlashcardDeck(FlashcardDeckSummary deck, {FlashcardStudyMode? mode}) async {
     if (_openingDeckId != null) return; // تجاهل النقر المزدوج
     setState(() => _openingDeckId = deck.id);
 
@@ -904,7 +909,11 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => FlashcardStudyScreen(deck: full)),
+        MaterialPageRoute(
+          builder: (_) => mode == null
+              ? FlashcardDeckHubScreen(deck: full)
+              : FlashcardStudyScreen(deck: full, mode: mode),
+        ),
       );
     } on FlashcardException catch (e) {
       if (!mounted) return;

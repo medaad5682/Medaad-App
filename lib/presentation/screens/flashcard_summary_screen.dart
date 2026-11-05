@@ -5,13 +5,12 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/flashcard_leitner.dart';
 import '../../l10n/generated/app_localizations.dart';
 
-/// 📊 ملخص نهاية الجولة (Step 15 + 19).
+/// 📊 ملخص نهاية الجولة.
 ///
 /// يُعرض داخل شاشة المذاكرة (ليس صفحة منفصلة) كي تبقى الجولات المتتالية في نفس الجلسة:
-///  - «كرر التي لم أعرفها» ⇒ جولة جديدة بـ«ما زلت أتعلم» التي لم تُجب «عرفتها» بعد.
-///  - «مراجعة المزيد» ⇒ دفعة مستحقة أخرى (تظهر حين يبقى مستحق خارج الدفعة الحالية).
-///  - «ذاكر المجموعة كاملة» ⇒ مراجعة المجموعة حتى لو لا يوجد مستحق (يظهر حين لا يبقى مستحق).
-///  - «ابدأ من جديد» ⇒ تصفير التقدم وجولة بكل البطاقات.
+///  - «كرر الغلط» ⇒ جولة بكل بطاقات الصندوق 1 في المجموعة (يختفي إن لم يوجد غلط).
+///  - «ابدأ مراجعة المستحقة» ⇒ الغلط أولاً ثم المستحقة بالأقدم (يظهر فقط بعد جلسة الكروت الجديدة
+///    وحين يوجد مستحق من غير الغلط).
 ///  - «إنهاء» ⇒ إغلاق شاشة المذاكرة (التقدم محفوظ محلياً).
 ///
 /// الجدول: «المراجعات القادمة» (غداً / بعد 3 أيام / …) من مواعيد البطاقات المحفوظة.
@@ -27,24 +26,20 @@ class FlashcardRoundSummary extends StatelessWidget {
   /// المراجعات القادمة (من الغد فصاعداً).
   final List<FlashcardScheduleEntry> schedule;
 
-  /// لا مستحق متبقٍ ولا بطاقات «ما زلت أتعلم» معلّقة.
-  final bool allCaughtUp;
+  /// لا غلط ولا مستحق ولا جديد متبقٍ.
+  final bool allDone;
 
-  /// «ما زلت أتعلم» المعلّقة في الجلسة (لم تُجب «عرفتها» بعد) — عدد زر التكرار.
-  final int pendingCount;
+  /// عدد بطاقات الصندوق 1 في المجموعة (عدد زر «كرر الغلط»).
+  final int wrongCount;
 
-  /// عدد المستحق المتبقي خارج الدفعة الحالية (عدد زر «مراجعة المزيد»).
-  final int reviewMoreCount;
+  /// عدد المستحق من غير الغلط (عدد زر «ابدأ مراجعة المستحقة»).
+  final int dueReviewCount;
 
-  /// null ⇒ لا يوجد ما يُكرَّر (كل بطاقات الجلسة نالت «عرفتها»).
-  final VoidCallback? onRepeatUnknown;
+  /// null ⇒ لا يوجد غلط.
+  final VoidCallback? onRepeatWrong;
 
-  /// null ⇒ لا مستحق إضافي.
-  final VoidCallback? onReviewMore;
-
-  /// null ⇒ ما زال هناك مستحق (استخدم «مراجعة المزيد»).
-  final VoidCallback? onStudyAnyway;
-  final VoidCallback onStartOver;
+  /// null ⇒ الزر غير متاح (ليست جلسة جديدة، أو لا يوجد مستحق غير الغلط).
+  final VoidCallback? onStartDueReview;
   final VoidCallback onFinish;
 
   const FlashcardRoundSummary({
@@ -55,20 +50,18 @@ class FlashcardRoundSummary extends StatelessWidget {
     required this.totalKnown,
     required this.totalCards,
     required this.schedule,
-    required this.allCaughtUp,
-    required this.pendingCount,
-    required this.reviewMoreCount,
-    required this.onRepeatUnknown,
-    required this.onReviewMore,
-    required this.onStudyAnyway,
-    required this.onStartOver,
+    required this.allDone,
+    required this.wrongCount,
+    required this.dueReviewCount,
+    required this.onRepeatWrong,
+    required this.onStartDueReview,
     required this.onFinish,
   });
 
   @override
   Widget build(BuildContext context) {
     final accent = AppColors.flashcardAccent;
-    final allKnown = totalCards > 0 && allCaughtUp;
+    final allKnown = totalCards > 0 && allDone;
     final roundTotal = roundKnown + roundLearning;
     final ratio = roundTotal == 0 ? 0.0 : roundKnown / roundTotal;
 
@@ -153,45 +146,29 @@ class FlashcardRoundSummary extends StatelessWidget {
           const SizedBox(height: 20),
 
           if (schedule.isNotEmpty) ...[
-            _ScheduleCard(schedule: schedule),
+            FlashcardScheduleCard(schedule: schedule),
             const SizedBox(height: 20),
           ] else
             const SizedBox(height: 8),
 
-          if (onRepeatUnknown != null) ...[
+          if (onRepeatWrong != null) ...[
             _ActionButton(
-              label: AppLocalizations.of(context)!.flashcardRepeatUnknown(pendingCount),
+              label: AppLocalizations.of(context)!.flashcardRepeatWrong(wrongCount),
               icon: LucideIcons.rotateCcw,
               filled: true,
-              onPressed: onRepeatUnknown!,
+              onPressed: onRepeatWrong!,
             ),
             const SizedBox(height: 10),
           ],
-          if (onReviewMore != null) ...[
+          if (onStartDueReview != null) ...[
             _ActionButton(
-              label: AppLocalizations.of(context)!.flashcardReviewMore(reviewMoreCount),
+              label: AppLocalizations.of(context)!.flashcardStartDueReview(dueReviewCount),
               icon: LucideIcons.layers,
-              filled: onRepeatUnknown == null,
-              onPressed: onReviewMore!,
+              filled: onRepeatWrong == null,
+              onPressed: onStartDueReview!,
             ),
             const SizedBox(height: 10),
           ],
-          if (onStudyAnyway != null) ...[
-            _ActionButton(
-              label: AppLocalizations.of(context)!.flashcardStudyAnyway,
-              icon: LucideIcons.layers,
-              filled: onRepeatUnknown == null,
-              onPressed: onStudyAnyway!,
-            ),
-            const SizedBox(height: 10),
-          ],
-          _ActionButton(
-            label: AppLocalizations.of(context)!.flashcardStartOver,
-            icon: LucideIcons.refreshCcw,
-            filled: false,
-            onPressed: onStartOver,
-          ),
-          const SizedBox(height: 10),
           TextButton(
             onPressed: onFinish,
             style: TextButton.styleFrom(minimumSize: const Size(double.infinity, 44)),
@@ -211,9 +188,10 @@ class FlashcardRoundSummary extends StatelessWidget {
 }
 
 /// «المراجعات القادمة»: غداً: 5 بطاقات، بعد 3 أيام: 4 بطاقات، …
-class _ScheduleCard extends StatelessWidget {
+/// (عامة لأن صفحة المجموعة تعرضها أيضاً عند انتهاء المطلوب).
+class FlashcardScheduleCard extends StatelessWidget {
   final List<FlashcardScheduleEntry> schedule;
-  const _ScheduleCard({required this.schedule});
+  const FlashcardScheduleCard({super.key, required this.schedule});
 
   @override
   Widget build(BuildContext context) {

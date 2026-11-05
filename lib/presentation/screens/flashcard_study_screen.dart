@@ -17,28 +17,34 @@ import '../widgets/flashcard_flip_card.dart';
 import 'flashcard_summary_screen.dart';
 import 'screen_protect_wrapper.dart';
 
-/// 🃏 شاشة مذاكرة الفلاش كاردس (Step 14 + 15 + 19).
+/// 🃏 شاشة مذاكرة الفلاش كاردس (جلسة واحدة بوضع محدد).
 ///
-/// ## Step 19 — لايتنر (التكرار المتباعد)
-/// - الجلسة تفتح بالبطاقات **المستحقة فقط** (دفعة من [FlashcardLeitner.dailyReviewTarget] = 30 كهدف مرن)
-///   بالأولوية: «ما زلت أتعلم» ← الأقدم تأخراً ← مستحقة اليوم ← الجديدة. وإن لم يوجد مستحق تُفتح المجموعة كاملة («مراجعة»).
-/// - «عرفتها» ⇒ صندوق + 1 (مرة واحدة فقط) وموعد من تاريخ المراجعة الفعلي، مع تلميح «المراجعة التالية بعد…».
-/// - «ما زلت أتعلم» ⇒ الصندوق 1 وتدخل جولة التكرار (`_pending`) حتى تُجاب «عرفتها».
-/// - نهاية الجولة: «كرر التي لم أعرفها» / «مراجعة المزيد» (دفعة مستحقة أخرى بدون لمس مواعيد المتأخرة) /
-///   «ذاكر المجموعة كاملة» (لا يغيّر إلا البطاقات التي قُيّمت فعلاً).
+/// تُفتح من صفحة المجموعة ([FlashcardStudyMode]) أو مباشرة من قائمة كارت المجموعة:
+/// - `newCards`: كل البطاقات التي بلا سجل بترتيب المجموعة (بلا حد).
+/// - `review`: الغلط (الصندوق 1) أولاً ثم المستحقة بالأقدم موعداً (بلا حد).
+/// - `repeatWrong`: كل بطاقات الصندوق 1 في المجموعة، وتتكرر الجولات حتى لا يبقى غلط.
+/// - `studyAnyway`: المجموعة كاملة بترتيبها. «عرفتها» لا ترفع أي بطاقة في الصندوق 2 فما فوق،
+///   وتنقل الجديدة/الغلط إلى الصندوق 2 (غداً). «ما زلت أتعلم» تنزل أي بطاقة للصندوق 1.
+///
+/// القواعد العامة (لايتنر):
+/// - «عرفتها» ⇒ صندوق + 1 (مرة واحدة) وموعد من تاريخ المراجعة الفعلي (حتى المتأخرة تترقى عادي).
+/// - «ما زلت أتعلم» ⇒ الصندوق 1 (= غلط) وموعدها اليوم.
+/// - الغلط مشتق من الصندوق مباشرة؛ لا توجد قائمة «معلّقة» منفصلة.
+/// - نهاية الجولة ⇒ [FlashcardRoundSummary] بـ«كرر الغلط» (لو يوجد غلط في المجموعة)
+///   و«ابدأ مراجعة المستحقة» (فقط لجلسة بدأت بالجديدة ويوجد مستحق غير الغلط).
 ///
 /// ما قبله:
 /// - بطاقة قابلة للقلب؛ أزرار «عرفتها» / «ما زلت أتعلم» تظهر **بعد القلب فقط** وهي التحكم الأساسي.
-/// - السحب (يمين=عرفتها، يسار=ما زلت أتعلم) اختصار اختياري يعمل بعد القلب ويظهر بتلوين ونص توضيحي.
+/// - السحب (يمين=عرفتها، يسار=ما زلت أتعلم) اختصار اختياري يعمل بعد القلب.
 /// - تلميح السحب يظهر مرة واحدة فقط (يُحفظ محلياً) عند أول قلب لأول بطاقة.
 /// - الرأس: شريط تقدم وعداد، وزر خلط يعيد ترتيب البطاقات المتبقية فوراً عند كل ضغطة.
 /// - كل تقييم يُحفظ فوراً في Hive، فالخروج في منتصف الجلسة لا يضيّع شيئاً.
-/// - نهاية الجولة ⇒ [FlashcardRoundSummary] (تكرار غير المعروفة / ابدأ من جديد / إنهاء).
 /// - محمية بنفس طبقة الحماية المستخدمة في بقية الشاشات الحساسة ([ScreenProtectWrapper]).
 class FlashcardStudyScreen extends StatefulWidget {
   final FlashcardDeckModel deck;
+  final FlashcardStudyMode mode;
 
-  const FlashcardStudyScreen({super.key, required this.deck});
+  const FlashcardStudyScreen({super.key, required this.deck, required this.mode});
 
   @override
   State<FlashcardStudyScreen> createState() => _FlashcardStudyScreenState();
@@ -64,16 +70,12 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   final List<int> _roundLearningIds = [];
   bool _showSummary = false;
 
-  // جلسة لايتنر
-  /// البطاقات التي عُلّمت «ما زلت أتعلم» في هذه الجلسة ولم تُجب «عرفتها» بعد.
-  /// جولة التكرار تُبنى منها فقط، فلا تدخلها بطاقة اكتملت أبداً.
-  final Set<int> _pending = <int>{};
+  // وضع الجلسة الحالي (قد يتغير داخل نفس الشاشة: جديدة ← كرر الغلط ← مراجعة)
+  late FlashcardStudyMode _mode;
 
-  /// true ⇒ جلسة «مراجعة المجموعة كاملة» (لا يوجد مستحق أو «ذاكر المجموعة كاملة»)، false ⇒ جلسة المستحق.
-  bool _studyingAll = false;
-
-  /// عدد المستحق الآن في المجموعة كلها (يظهر في الرأس ويتناقص مع «عرفتها»).
-  int _dueCount = 0;
+  /// true ⇒ بدأت هذه السلسلة من «الكروت الجديدة»، فيبقى زر «ابدأ مراجعة المستحقة»
+  /// متاحاً في الملخص حتى بعد جولات «كرر الغلط».
+  bool _startedFromNew = false;
 
   /// تلميح «المراجعة التالية بعد N يوم» الذي يظهر تحت البطاقة بعد «عرفتها».
   int? _nextReviewDays;
@@ -93,10 +95,6 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   int get _knownCount =>
       math.min(_progress.values.where((p) => p.isKnown).length, _cards.length);
 
-  void _recomputeDue() {
-    _dueCount = FlashcardLeitner.countDue(cards: _cards, progress: _progress, today: _today);
-  }
-
   @override
   void dispose() {
     _nextReviewTimer?.cancel();
@@ -106,6 +104,7 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   @override
   void initState() {
     super.initState();
+    _mode = widget.mode;
     _init();
   }
 
@@ -137,7 +136,7 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
       _hintSeen = true; // لا نزعج الطالب بالتلميح إن تعذّر القراءة
     }
 
-    _startDueSession();
+    _startSession(widget.mode);
 
     if (!mounted) return;
     setState(() => _ready = true);
@@ -146,18 +145,14 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
 
   // ───────────────────────── بناء الجولة ─────────────────────────
 
-  /// جلسة جديدة بالمستحق فقط (دفعة بحجم الهدف اليومي). إن لم يوجد مستحق ⇒ المجموعة كاملة («مراجعة»).
-  void _startDueSession() {
-    _pending.clear();
-    final due = FlashcardLeitner.selectDue(
-      cards: _cards,
-      progress: _progress,
-      today: _today,
-      limit: FlashcardLeitner.dailyReviewTarget,
+  /// جلسة جديدة بوضع محدد. الطابور كامل بلا حد ولا دفعات.
+  void _startSession(FlashcardStudyMode mode) {
+    _mode = mode;
+    _startedFromNew = mode == FlashcardStudyMode.newCards;
+    _startRound(
+      FlashcardLeitner.buildQueue(mode: mode, cards: _cards, progress: _progress, today: _today),
+      keepRoundNumber: false,
     );
-    _studyingAll = due.isEmpty;
-    _startRound(due.isEmpty ? List<FlashcardModel>.of(_cards) : due, keepRoundNumber: false);
-    _recomputeDue();
   }
 
   void _startRound(List<FlashcardModel> queue, {required bool keepRoundNumber}) {
@@ -166,7 +161,7 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     if (!keepRoundNumber) _round = 1;
     _roundKnownIds.clear();
     _roundLearningIds.clear();
-    _showSummary = false;
+    _showSummary = queue.isEmpty; // طابور فارغ ⇒ نذهب للملخص مباشرة
     _nextReviewTimer?.cancel();
     _nextReviewDays = null;
     _resetCardState();
@@ -192,22 +187,25 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     if (_showSummary || _index >= _queue.length) return; // حماية: لا تقييم خارج الجولة
     final card = _queue[_index];
     final today = _today;
+    final previous = _progress[card.id];
 
     final FlashcardCardProgress updated;
     if (known) {
-      // خطوة واحدة فقط للأعلى، والموعد من تاريخ المراجعة الفعلي (وليس موعداً قديماً)
-      updated = FlashcardLeitner.afterGotIt(card.id, _progress[card.id]?.box, today);
-      _pending.remove(card.id);
+      // «ذاكر المجموعة كاملة»: لا ترفع بطاقة في الصندوق 2+؛ غير ذلك خطوة واحدة فقط للأعلى
+      // والموعد من تاريخ المراجعة الفعلي (وليس موعداً قديماً)
+      updated = _mode == FlashcardStudyMode.studyAnyway
+          ? FlashcardLeitner.afterGotItStudyAnyway(card.id, previous, today)
+          : FlashcardLeitner.afterGotIt(card.id, previous?.box, today);
       _roundKnownIds.add(card.id);
     } else {
-      // دائماً الصندوق 1 (حتى لو كانت متقنة) وتدخل جولة التكرار حتى تُجاب «عرفتها»
+      // دائماً الصندوق 1 (غلط) حتى لو كانت متقنة
       updated = FlashcardLeitner.afterStillLearning(card.id, today);
-      _pending.add(card.id);
       _roundLearningIds.add(card.id);
     }
+    final changed =
+        previous == null || previous.box != updated.box || previous.dueDate != updated.dueDate;
     _progress[card.id] = updated;
-    _persist(updated);
-    _recomputeDue();
+    if (changed) _persist(updated);
 
     final next = _index + 1;
     if (next >= _queue.length) {
@@ -224,7 +222,12 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
       _index = next;
       _resetCardState();
     });
-    if (known) _showNextReviewHint(FlashcardLeitner.intervalDays(updated.box));
+    if (known) {
+      // من الموعد الفعلي للبطاقة (قد لا يتغير في «ذاكر المجموعة كاملة»)
+      final due = FlashcardLeitner.parseDateKey(updated.dueDate) ?? today;
+      final days = FlashcardLeitner.daysBetween(today, due);
+      if (days >= 1) _showNextReviewHint(days);
+    }
     _prefetchUpcoming();
   }
 
@@ -289,64 +292,29 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     _prefetchUpcoming();
   }
 
-  // ───────────────────────── الجولات (Step 15) ─────────────────────────
+  // ───────────────────────── الجولات ─────────────────────────
 
-  /// جولة تكرار: «ما زلت أتعلم» التي لم تُجب «عرفتها» بعد فقط (بترتيب المجموعة).
-  /// تتكرر الجولات حتى تنال كل بطاقة «عرفتها»؛ ولا تدخلها بطاقة اكتملت.
-  void _repeatUnknown() {
-    final queue = _cards.where((c) => _pending.contains(c.id)).toList();
+  /// «كرر الغلط»: كل بطاقات الصندوق 1 في المجموعة. تتكرر الجولات حتى لا يبقى غلط.
+  void _repeatWrong() {
+    final queue = FlashcardLeitner.selectWrong(cards: _cards, progress: _progress, today: _today);
     if (queue.isEmpty) return;
     setState(() {
+      _mode = FlashcardStudyMode.repeatWrong;
       _round += 1;
       _startRound(queue, keepRoundNumber: true);
     });
     _prefetchUpcoming();
   }
 
-  /// دفعة مستحقة أخرى بعد إنهاء الحالية. لا تُغيَّر مواعيد أي بطاقة، والمعلّقة («ما زلت أتعلم»)
-  /// تُستبعد لأن مكانها زر التكرار.
-  void _reviewMore() {
-    final queue = FlashcardLeitner.selectDue(
-      cards: _cards,
-      progress: _progress,
-      today: _today,
-      exclude: _pending,
-      limit: FlashcardLeitner.dailyReviewTarget,
-    );
+  /// «ابدأ مراجعة المستحقة»: الغلط أولاً ثم المستحقة بالأقدم، بلا حد.
+  void _startDueReview() {
+    final queue = FlashcardLeitner.selectReview(cards: _cards, progress: _progress, today: _today);
     if (queue.isEmpty) return;
     setState(() {
-      _studyingAll = false;
+      _mode = FlashcardStudyMode.review;
+      _startedFromNew = false;
       _round += 1;
       _startRound(queue, keepRoundNumber: true);
-      _recomputeDue();
-    });
-    _prefetchUpcoming();
-  }
-
-  /// «ذاكر المجموعة كاملة» حتى لو لا يوجد مستحق. البطاقات التي لم تُقيَّم تبقى بمواعيدها كما هي.
-  void _studyAnyway() {
-    setState(() {
-      _pending.clear();
-      _studyingAll = true;
-      _round += 1;
-      _startRound(List<FlashcardModel>.of(_cards), keepRoundNumber: true);
-    });
-    _prefetchUpcoming();
-  }
-
-  Future<void> _startOver() async {
-    await _saveChain; // ننتظر الكتابات المعلقة قبل التصفير
-    try {
-      await FlashcardProgressStore.resetDeck(widget.deck.id);
-    } catch (_) {}
-    if (!mounted) return;
-    setState(() {
-      _progress = <int, FlashcardCardProgress>{};
-      _pending.clear();
-      _studyingAll = true;
-      _round += 1;
-      _startRound(List<FlashcardModel>.of(_cards), keepRoundNumber: true);
-      _recomputeDue();
     });
     _prefetchUpcoming();
   }
@@ -473,13 +441,13 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
 
   Widget _buildSummary() {
     final today = _today;
-    // المستحق المتبقي خارج المعلّقة (التي لها زر التكرار) = ما تحمله «مراجعة المزيد»
-    final dueRemaining = FlashcardLeitner.countDue(
-      cards: _cards,
-      progress: _progress,
-      today: today,
-      exclude: _pending,
-    );
+    final wrong = FlashcardLeitner.countWrong(cards: _cards, progress: _progress);
+    final dueNonWrong =
+        FlashcardLeitner.countDueNonWrong(cards: _cards, progress: _progress, today: today);
+    final newLeft = FlashcardLeitner.countNew(cards: _cards, progress: _progress);
+    // «ابدأ مراجعة المستحقة» فقط لسلسلة بدأت بالجديدة ويوجد مستحق غير الغلط
+    // (الغلط له زر «كرر الغلط»).
+    final canStartReview = _startedFromNew && dueNonWrong > 0;
     return Column(
       children: [
         _buildHeader(showControls: false),
@@ -492,19 +460,31 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
               totalKnown: _knownCount,
               totalCards: _cards.length,
               schedule: FlashcardLeitner.upcomingSchedule(_progress.values, today),
-              allCaughtUp: dueRemaining == 0 && _pending.isEmpty,
-              reviewMoreCount: dueRemaining,
-              onRepeatUnknown: _pending.isNotEmpty ? _repeatUnknown : null,
-              onReviewMore: dueRemaining > 0 ? _reviewMore : null,
-              onStudyAnyway: dueRemaining == 0 ? _studyAnyway : null,
-              pendingCount: _pending.length,
-              onStartOver: _startOver,
+              allDone: wrong == 0 && dueNonWrong == 0 && newLeft == 0,
+              wrongCount: wrong,
+              dueReviewCount: dueNonWrong,
+              onRepeatWrong: wrong > 0 ? _repeatWrong : null,
+              onStartDueReview: canStartReview ? _startDueReview : null,
               onFinish: _exit,
             ),
           ),
         ),
       ],
     );
+  }
+
+  String _modeLabel(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
+    switch (_mode) {
+      case FlashcardStudyMode.newCards:
+        return l.flashcardModeNew;
+      case FlashcardStudyMode.review:
+        return l.flashcardModeReview;
+      case FlashcardStudyMode.repeatWrong:
+        return l.flashcardModeRepeatWrong;
+      case FlashcardStudyMode.studyAnyway:
+        return l.flashcardModeStudyAnyway;
+    }
   }
 
   Widget _buildHeader({required bool showControls}) {
@@ -589,17 +569,8 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
                       color: accent,
                     ),
                   const Spacer(),
-                  // جلسة المستحق: «المستحقة اليوم: N» بدل العداد القديم. جلسة المجموعة كاملة: العداد القديم.
-                  if (_studyingAll)
-                    _Chip(
-                      label: '✅ $_knownCount/${_cards.length}',
-                      color: AppColors.success,
-                    )
-                  else
-                    _Chip(
-                      label: AppLocalizations.of(context)!.flashcardDueTodayHeader(_dueCount),
-                      color: accent,
-                    ),
+                  // اسم وضع الجلسة الحالي
+                  _Chip(label: _modeLabel(context), color: accent),
                 ],
               ),
             ],
