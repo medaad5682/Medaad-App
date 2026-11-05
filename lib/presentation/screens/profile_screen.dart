@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/payment_config.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
@@ -400,18 +401,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   clipBehavior: Clip.antiAlias,
                   child: Column(
                     children: [
-                      // 1. طلبات الاشتراك
-                      _buildMenuItem(context,
-                          icon: LucideIcons.bellRing,
-                          title: AppLocalizations.of(context)!.incomingRequestsMenu,
-                          onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) =>
-                                      const StudentRequestsScreen()))),
-                      Divider(
-                          height: 1,
-                          color: AppColors.textSecondary.withOpacity(0.1)),
+                      // 1. طلبات الاشتراك (🙈 مخفية عند kShowPaymentUI = false)
+                      if (kShowPaymentUI) ...[
+                        _buildMenuItem(context,
+                            icon: LucideIcons.bellRing,
+                            title: AppLocalizations.of(context)!.incomingRequestsMenu,
+                            onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        const StudentRequestsScreen()))),
+                        Divider(
+                            height: 1,
+                            color: AppColors.textSecondary.withOpacity(0.1)),
+                      ],
 
                       // 2. إدارة الطلاب
                       _buildMenuItem(context,
@@ -498,7 +501,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       const ChangePasswordScreen()))),
 
                       // ⚠️ إظهار "طلباتي" فقط للطالب
-                      if (!_isTeacher) ...[
+                      if (!_isTeacher && kShowPaymentUI) ...[
                         Divider(
                             height: 1,
                             color: AppColors.textSecondary.withOpacity(0.1)),

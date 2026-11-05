@@ -5,6 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart'; // ✅ ضروري لفتح الرابط
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/payment_config.dart';
 import 'course_details_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
@@ -187,7 +188,8 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
               ),
 
               // ✅ زر الواتساب
-              if (_teacher!['whatsapp_number'] != null &&
+              if (kShowPaymentUI &&
+                  _teacher!['whatsapp_number'] != null &&
                   _teacher!['whatsapp_number'].toString().isNotEmpty) ...[
                 const SizedBox(height: 20),
                 Center(
@@ -301,7 +303,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen> {
                                           fontSize: 16)),
 
                                   // ✅ التعديل: إخفاء السعر إذا كان الوضع المجاني مفعلاً
-                                  if (!_isFreeMode) ...[
+                                  if (!_isFreeMode && kShowPaymentUI) ...[
                                     const SizedBox(height: 4),
                                     Text(AppLocalizations.of(context)!.priceEgp(c['price'].toString()),
                                         style: TextStyle(

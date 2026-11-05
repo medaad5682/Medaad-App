@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/payment_config.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/storage_service.dart';
@@ -261,6 +262,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                           ),
+                          // 🙈 زر الطلبات (المعلم والطالب): يظهر فقط عند تفعيل واجهة الدفع
+                          if (kShowPaymentUI) ...[
                           const SizedBox(width: 12), // المسافة بين الأزرار
                           
                           // زر الطلبات 📋
@@ -293,6 +296,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                           ),
+                          ],
                         ],
                       ),
                     ],

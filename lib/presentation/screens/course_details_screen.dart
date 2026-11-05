@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/payment_config.dart';
 import 'checkout_screen.dart';
 import 'teacher_profile_screen.dart';
 import 'login_screen.dart'; // ✅ استيراد صفحة الدخول
@@ -170,6 +171,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
     }
 
     bool isCourseOwned = (course['isOwned'] ?? false) || allSubjectsOwned;
+
+    // 🙈 إخفاء واجهة الشراء (اختيار المواد/الأسعار/الشريط السفلي) ما لم يكن الوضع المجاني مفعلاً
+    final bool hideSelection = !kShowPaymentUI && !_isFreeMode;
 
     double currentPrice = _isFullCourse
         ? fullPrice
@@ -373,7 +377,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                       else ...[
                         // ✅ تغيير النص ليكون عاماً
                         Text(
-                            _isFreeMode
+                            (_isFreeMode || hideSelection)
                                 ? AppLocalizations.of(context)!
                                     .courseContentLabel
                                 : AppLocalizations.of(context)!
@@ -386,7 +390,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                         const SizedBox(height: 20),
 
                         // 1. Full Course Option
-                        if (!isCourseOwned)
+                        if (!isCourseOwned && !hideSelection)
                           GestureDetector(
                             onTap: () => setState(() {
                               _isFullCourse = !_isFullCourse;
@@ -454,7 +458,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                               ),
                             ),
                           )
-                        else
+                        else if (isCourseOwned)
                           Container(
                             padding: const EdgeInsets.all(24),
                             width: double.infinity,
@@ -478,6 +482,26 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                         letterSpacing: 1.5)),
                               ],
                             ),
+                          )
+                        else
+                          // 🙈 واجهة الشراء مخفية: ملاحظة محايدة بلا أسعار أو تعليمات دفع
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: AppColors.backgroundSecondary,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                  color:
+                                      AppColors.textSecondary.withOpacity(0.1)),
+                            ),
+                            child: Text(
+                              AppLocalizations.of(context)!.notInAccountNote,
+                              style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 12,
+                                  height: 1.5),
+                            ),
                           ),
 
                         if (subjects.isNotEmpty) ...[
@@ -499,7 +523,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                 .contains(sub['id'].toString());
 
                             return GestureDetector(
-                              onTap: (isOwned || isCourseOwned)
+                              onTap: (isOwned || isCourseOwned || hideSelection)
                                   ? null
                                   : () {
                                       setState(() {
@@ -529,7 +553,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                 ),
                                 child: Row(
                                   children: [
-                                    if (!isOwned && !isCourseOwned)
+                                    if (!isOwned && !isCourseOwned && !hideSelection)
                                       Container(
                                         margin:
                                             const EdgeInsetsDirectional.only(end: 16),
@@ -572,7 +596,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                                               color: AppColors.success,
                                               fontSize: 10,
                                               fontWeight: FontWeight.bold))
-                                    else if (!_isFreeMode) // ✅ إخفاء السعر هنا
+                                    else if (!_isFreeMode && kShowPaymentUI) // ✅ إخفاء السعر هنا
                                       Text(
                                           AppLocalizations.of(context)!
                                               .priceEgp(
@@ -597,7 +621,8 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
 
           // --- Bottom Action Bar ---
           // يظهر الشريط إذا تم اختيار عناصر (أو الوضع الطبيعي) وليس معلماً
-          if (((_isFullCourse || _selectedSubjectIds.isNotEmpty) ||
+          if (!hideSelection &&
+              ((_isFullCourse || _selectedSubjectIds.isNotEmpty) ||
                   !_isFreeMode) &&
               !_isTeacher)
             if (currentPrice > 0 ||
