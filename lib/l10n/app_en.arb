@@ -599,7 +599,7 @@
   "@chaptersTabLabel": {
     "description": "Tab label for the chapters list on the Subject Materials screen"
   },
-  "examsTabLabel": "Exams ({count})",
+  "examsTabLabel": "Exams & Flashcards ({count})",
   "@examsTabLabel": {
     "description": "Tab label for the exams list on the Subject Materials screen, showing the exam count",
     "placeholders": {
@@ -3093,11 +3093,11 @@
   "@flashcardRoundDoneMessage": {
     "description": "Summary message at the end of a round"
   },
-  "flashcardAllKnownTitle": "Deck mastered 🎉",
+  "flashcardAllKnownTitle": "All caught up 🎉",
   "@flashcardAllKnownTitle": {
     "description": "Summary title when every card in the deck is known"
   },
-  "flashcardAllKnownMessage": "You know every card in this deck. Start over any time to review.",
+  "flashcardAllKnownMessage": "Every card is on schedule. Come back when your next reviews are due, or study anyway.",
   "@flashcardAllKnownMessage": {
     "description": "Summary message when every card in the deck is known"
   },
@@ -3137,6 +3137,76 @@
   "flashcardFinish": "Finish",
   "@flashcardFinish": {
     "description": "Summary button that closes the study screen"
+  },
+  "flashcardDueToday": "{count} due today",
+  "@flashcardDueToday": {
+    "description": "Purple badge on a deck card: number of cards due for review today",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardDueTodayHeader": "Due today: {count}",
+  "@flashcardDueTodayHeader": {
+    "description": "Chip in the study screen header: number of cards still due today",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardAllCaughtUp": "All caught up ✓",
+  "@flashcardAllCaughtUp": {
+    "description": "Deck card status when no cards are due"
+  },
+  "flashcardNextReviewIn": "Next review {days, plural, =1{tomorrow} other{in {days} days}}",
+  "@flashcardNextReviewIn": {
+    "description": "When the next review is due, in whole calendar days from today",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardStudyDue": "Study due cards",
+  "@flashcardStudyDue": {
+    "description": "Deck button label when there are cards due today"
+  },
+  "flashcardMasteredCount": "{count} mastered",
+  "@flashcardMasteredCount": {
+    "description": "Deck card subtitle: number of mastered cards (spaced-repetition box 4 or 5)",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardScheduleTitle": "Upcoming reviews",
+  "@flashcardScheduleTitle": {
+    "description": "Heading of the upcoming review schedule in the round summary"
+  },
+  "flashcardScheduleWhen": "{days, plural, =1{Tomorrow} other{In {days} days}}",
+  "@flashcardScheduleWhen": {
+    "description": "Row label in the upcoming review schedule",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardReviewMore": "Review more ({count})",
+  "@flashcardReviewMore": {
+    "description": "Summary button that loads another batch of due cards",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardStudyAnyway": "Study anyway",
+  "@flashcardStudyAnyway": {
+    "description": "Summary button that studies the whole deck even when no cards are due"
   },
   "notInAccountNote": "Only content activated on your account is available.",
   "@notInAccountNote": {
