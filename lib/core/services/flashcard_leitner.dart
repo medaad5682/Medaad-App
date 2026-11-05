@@ -1,28 +1,42 @@
 import '../../data/models/flashcard_model.dart';
 
-/// 🗓️ نظام لايتنر للتكرار المتباعد (Step 19) — منطق صرف (بدون Flutter/Hive) كي يسهل اختباره.
+/// أوضاع المذاكرة الأربعة (صفحة المجموعة ← جلسة المذاكرة).
+///
+/// - [newCards]: البطاقات الجديدة فقط (لا سجل لها).
+/// - [review]: كروت المراجعة (الغلط أولاً ثم المستحقة بالأقدم).
+/// - [repeatWrong]: كل بطاقات الصندوق 1 في المجموعة، وتتكرر جولاتها حتى لا يبقى غلط.
+/// - [studyAnyway]: المجموعة كاملة بدون ترقية (انظر [FlashcardLeitner.afterGotItStudyAnyway]).
+enum FlashcardStudyMode { newCards, review, repeatWrong, studyAnyway }
+
+/// 🗓️ نظام لايتنر للتكرار المتباعد — منطق صرف (بدون Flutter/Hive) كي يسهل اختباره.
 ///
 /// الصناديق الخمسة والفواصل بالأيام التقويمية (وليس الساعات):
 ///
 /// | الصندوق | المعنى               | المراجعة التالية بعد «عرفتها» |
 /// |---------|----------------------|-------------------------------|
-/// | 1       | جديدة / نُسيت للتو   | في نفس الجلسة (تكرار)          |
+/// | 1       | غلط / نُسيت للتو      | في نفس الجلسة (تكرار)          |
 /// | 2       | أجبت صح مرة          | يوم                           |
 /// | 3       | تصبح مألوفة          | 3 أيام                         |
 /// | 4       | متينة نسبياً         | 7 أيام                         |
 /// | 5       | متقنة                | 14 يوماً                       |
 ///
+/// ## التعريفات
+/// - **جديدة**: بطاقة بلا أي سجل (ليست في أي صندوق).
+/// - **غلط**: أي بطاقة لها سجل وهي في الصندوق 1 (مشتقة من الصندوق، بلا علامة منفصلة).
+/// - **مراجعة**: كل الغلط + باقي السجلات التي `dueDate <= today`.
+///   الترتيب: الغلط أولاً ثم الباقي، وداخل كل مجموعة الأقدم موعداً ثم ترتيب المجموعة.
+/// - لا يوجد حد لحجم الجلسة ولا تقسيم دفعات.
+///
+/// ## الانتقالات
 /// - «عرفتها»: صندوق + 1 (الصندوق 5 يبقى 5)، والموعد = **تاريخ المراجعة الفعلي** + فاصل الصندوق الجديد.
-/// - «ما زلت أتعلم»: عودة للصندوق 1 مهما كان صندوقها السابق، والموعد = اليوم (تُعاد في نفس الجلسة،
-///   وإن أُغلق التطبيق تبقى مستحقة فوراً في الجلسة القادمة).
+///   المتأخرة لا تُعاقَب: تترقى عادي ويُحسب موعدها من يوم المراجعة.
+/// - «ما زلت أتعلم»: عودة للصندوق 1 مهما كان صندوقها السابق، والموعد = اليوم.
+/// - «ذاكر المجموعة كاملة» (Study Anyway): «عرفتها» لا ترفع أي بطاقة أبداً (انظر [afterGotItStudyAnyway]).
 /// - المعروف = الصناديق 3/4/5، وغير المعروف = 1/2، و«المتقن» (شريط تقدم المجموعة) = 4/5.
 class FlashcardLeitner {
   FlashcardLeitner._();
 
   static const int boxCount = 5;
-
-  /// الهدف اليومي الافتراضي: حجم دفعة (هدف مرن وليس حداً صارماً — «مراجعة المزيد» تحمّل دفعة أخرى).
-  static const int dailyReviewTarget = 30;
 
   /// فاصل كل صندوق بالأيام (الفهرس = رقم الصندوق؛ الصندوق 1 = نفس الجلسة = 0).
   static const List<int> _intervals = [0, 0, 1, 3, 7, 14];
@@ -39,6 +53,7 @@ class FlashcardLeitner {
   /// الصندوق بعد «عرفتها»: خطوة واحدة فقط للأعلى، والصندوق 5 يبقى 5.
   static int boxAfterGotIt(int box) => clampBox(clampBox(box) + 1);
 
+  static bool isWrongBox(int box) => box <= 1;
   static bool isKnownBox(int box) => box >= 3;
   static bool isMasteredBox(int box) => box >= 4;
 
@@ -99,6 +114,20 @@ class FlashcardLeitner {
     return FlashcardCardProgress(cardId: cardId, box: 1, dueDate: dateKey(today));
   }
 
+  /// «عرفتها» داخل «ذاكر المجموعة كاملة»: لا تُرفع أي بطاقة بسبب المذاكرة المبكرة.
+  ///  - بطاقة جديدة (لا سجل) أو في الصندوق 1 ⇒ الصندوق 2 وموعدها غداً.
+  ///  - بطاقة في الصندوق 2 أو أعلى ⇒ يُرجَع سجلها كما هو بلا أي تغيير (لا صندوق ولا موعد).
+  static FlashcardCardProgress afterGotItStudyAnyway(
+    int cardId,
+    FlashcardCardProgress? existing,
+    DateTime today,
+  ) {
+    if (existing == null || isWrongBox(existing.box)) {
+      return afterGotIt(cardId, existing?.box, today);
+    }
+    return existing;
+  }
+
   /// سجل بطاقة هاجرناها من قائمة «المعروفة» القديمة.
   static FlashcardCardProgress migratedKnown(int cardId, DateTime today) {
     return FlashcardCardProgress(
@@ -108,7 +137,7 @@ class FlashcardLeitner {
     );
   }
 
-  // ───────────────────────── الاستحقاق ─────────────────────────
+  // ───────────────────────── الاستحقاق والاختيار ─────────────────────────
 
   /// مستحقة حين: لا سجل لها (بطاقة جديدة لم تُدرَس)، أو `dueDate <= today`.
   static bool isDue(FlashcardCardProgress? p, DateTime today) {
@@ -116,80 +145,145 @@ class FlashcardLeitner {
     return p.dueDayNumber(today) <= dayNumber(today);
   }
 
-  /// يختار البطاقات المستحقة للجلسة بالأولوية:
-  ///  1) التي عُلّمت «ما زلت أتعلم» سابقاً (الصندوق 1 ولها سجل)،
-  ///  2) الأقدم تأخراً (أقدم موعد أولاً)،
-  ///  3) باقي المستحقة اليوم،
-  ///  4) الجديدة التي لم تُدرَس أبداً.
-  ///
-  /// لا يغيّر أي موعد: ما لم يدخل الدفعة يبقى متأخراً بموعده الأصلي.
-  /// [exclude] تُستبعد (مثلاً بطاقات «ما زلت أتعلم» المعلّقة في الجلسة الحالية).
-  /// [limit] حجم الدفعة (null = الكل).
-  static List<FlashcardModel> selectDue({
+  /// **الجديدة**: كل بطاقة بلا سجل، بترتيب المجموعة. بلا حد.
+  static List<FlashcardModel> selectNew({
     required List<FlashcardModel> cards,
     required Map<int, FlashcardCardProgress> progress,
-    required DateTime today,
-    Set<int> exclude = const <int>{},
-    int? limit,
   }) {
-    final todayN = dayNumber(today);
-    final learning = <_Ranked>[];
-    final overdue = <_Ranked>[];
-    final dueToday = <_Ranked>[];
-    final fresh = <FlashcardModel>[];
-
-    for (var i = 0; i < cards.length; i++) {
-      final c = cards[i];
-      if (exclude.contains(c.id)) continue;
-      final p = progress[c.id];
-      if (p == null) {
-        fresh.add(c);
-        continue;
-      }
-      final dn = p.dueDayNumber(today);
-      if (dn > todayN) continue; // غير مستحقة بعد
-      final entry = _Ranked(c, dn, i);
-      if (p.box <= 1) {
-        learning.add(entry);
-      } else if (dn < todayN) {
-        overdue.add(entry);
-      } else {
-        dueToday.add(entry);
-      }
-    }
-
-    int byDueThenOrder(_Ranked a, _Ranked b) {
-      final c = a.dueDay.compareTo(b.dueDay);
-      return c != 0 ? c : a.index.compareTo(b.index);
-    }
-
-    learning.sort(byDueThenOrder);
-    overdue.sort(byDueThenOrder);
-    dueToday.sort((a, b) => a.index.compareTo(b.index));
-
-    final result = <FlashcardModel>[
-      ...learning.map((e) => e.card),
-      ...overdue.map((e) => e.card),
-      ...dueToday.map((e) => e.card),
-      ...fresh,
-    ];
-    if (limit != null && result.length > limit) return result.sublist(0, limit);
-    return result;
+    return cards.where((c) => !progress.containsKey(c.id)).toList();
   }
 
-  /// عدد البطاقات المستحقة في [cards] (يشمل الجديدة) مع استبعاد [exclude].
-  static int countDue({
+  /// **الغلط**: كل بطاقة لها سجل وهي في الصندوق 1 (في المجموعة كلها)،
+  /// الأقدم موعداً أولاً، وعند التساوي ترتيب المجموعة.
+  static List<FlashcardModel> selectWrong({
     required List<FlashcardModel> cards,
     required Map<int, FlashcardCardProgress> progress,
     required DateTime today,
-    Set<int> exclude = const <int>{},
+  }) {
+    final wrong = <_Ranked>[];
+    for (var i = 0; i < cards.length; i++) {
+      final p = progress[cards[i].id];
+      if (p == null || !isWrongBox(p.box)) continue;
+      wrong.add(_Ranked(cards[i], p.dueDayNumber(today), i));
+    }
+    wrong.sort(_byDueThenOrder);
+    return wrong.map((e) => e.card).toList();
+  }
+
+  /// **المراجعة**: الغلط أولاً (يدخل دائماً حتى لو موعده غير واضح)، ثم باقي السجلات المستحقة
+  /// (`dueDate <= today`) بالأقدم موعداً ثم ترتيب المجموعة. لا تشمل الجديدة. بلا حد.
+  ///
+  /// لا يغيّر أي موعد: ما لم تُقيَّم بطاقة يبقى موعدها الأصلي.
+  static List<FlashcardModel> selectReview({
+    required List<FlashcardModel> cards,
+    required Map<int, FlashcardCardProgress> progress,
+    required DateTime today,
+  }) {
+    final todayN = dayNumber(today);
+    final wrong = <_Ranked>[];
+    final rest = <_Ranked>[];
+    for (var i = 0; i < cards.length; i++) {
+      final p = progress[cards[i].id];
+      if (p == null) continue; // الجديدة لها تبويبها
+      final dn = p.dueDayNumber(today);
+      if (isWrongBox(p.box)) {
+        wrong.add(_Ranked(cards[i], dn, i));
+      } else if (dn <= todayN) {
+        rest.add(_Ranked(cards[i], dn, i));
+      }
+    }
+    wrong.sort(_byDueThenOrder);
+    rest.sort(_byDueThenOrder);
+    return [...wrong.map((e) => e.card), ...rest.map((e) => e.card)];
+  }
+
+  /// طابور الجلسة حسب الوضع. «ذاكر المجموعة كاملة» = كل البطاقات بترتيب المجموعة.
+  static List<FlashcardModel> buildQueue({
+    required FlashcardStudyMode mode,
+    required List<FlashcardModel> cards,
+    required Map<int, FlashcardCardProgress> progress,
+    required DateTime today,
+  }) {
+    switch (mode) {
+      case FlashcardStudyMode.newCards:
+        return selectNew(cards: cards, progress: progress);
+      case FlashcardStudyMode.review:
+        return selectReview(cards: cards, progress: progress, today: today);
+      case FlashcardStudyMode.repeatWrong:
+        return selectWrong(cards: cards, progress: progress, today: today);
+      case FlashcardStudyMode.studyAnyway:
+        return List<FlashcardModel>.of(cards);
+    }
+  }
+
+  static int countNew({
+    required List<FlashcardModel> cards,
+    required Map<int, FlashcardCardProgress> progress,
+  }) =>
+      selectNew(cards: cards, progress: progress).length;
+
+  static int countWrong({
+    required List<FlashcardModel> cards,
+    required Map<int, FlashcardCardProgress> progress,
   }) {
     var n = 0;
     for (final c in cards) {
-      if (exclude.contains(c.id)) continue;
-      if (isDue(progress[c.id], today)) n++;
+      final p = progress[c.id];
+      if (p != null && isWrongBox(p.box)) n++;
     }
     return n;
+  }
+
+  /// المستحق من غير الغلط (الصندوق 2 فما فوق وموعده ≤ اليوم).
+  static int countDueNonWrong({
+    required List<FlashcardModel> cards,
+    required Map<int, FlashcardCardProgress> progress,
+    required DateTime today,
+  }) {
+    final todayN = dayNumber(today);
+    var n = 0;
+    for (final c in cards) {
+      final p = progress[c.id];
+      if (p == null || isWrongBox(p.box)) continue;
+      if (p.dueDayNumber(today) <= todayN) n++;
+    }
+    return n;
+  }
+
+  /// عدد كروت المراجعة = الغلط + المستحق من غير الغلط.
+  static int countReview({
+    required List<FlashcardModel> cards,
+    required Map<int, FlashcardCardProgress> progress,
+    required DateTime today,
+  }) =>
+      countWrong(cards: cards, progress: progress) +
+      countDueNonWrong(cards: cards, progress: progress, today: today);
+
+  /// تفصيل تبويب المراجعة: غلط / متأخرة / مستحقة اليوم.
+  static FlashcardReviewBreakdown reviewBreakdown({
+    required List<FlashcardModel> cards,
+    required Map<int, FlashcardCardProgress> progress,
+    required DateTime today,
+  }) {
+    final todayN = dayNumber(today);
+    var wrong = 0;
+    var overdue = 0;
+    var dueToday = 0;
+    for (final c in cards) {
+      final p = progress[c.id];
+      if (p == null) continue;
+      if (isWrongBox(p.box)) {
+        wrong++;
+        continue;
+      }
+      final dn = p.dueDayNumber(today);
+      if (dn < todayN) {
+        overdue++;
+      } else if (dn == todayN) {
+        dueToday++;
+      }
+    }
+    return FlashcardReviewBreakdown(wrong: wrong, overdue: overdue, dueToday: dueToday);
   }
 
   /// جدول المراجعات القادمة: عدد البطاقات لكل «بعد كم يوم» (من الغد فصاعداً)، الأقرب أولاً.
@@ -229,6 +323,32 @@ class _Ranked {
   final int dueDay;
   final int index;
   const _Ranked(this.card, this.dueDay, this.index);
+}
+
+/// الأقدم موعداً أولاً، وعند التساوي ترتيب المجموعة.
+int _byDueThenOrder(_Ranked a, _Ranked b) {
+  final c = a.dueDay.compareTo(b.dueDay);
+  return c != 0 ? c : a.index.compareTo(b.index);
+}
+
+/// تفصيل كروت المراجعة (للعرض في صفحة المجموعة).
+class FlashcardReviewBreakdown {
+  /// بطاقات الصندوق 1.
+  final int wrong;
+
+  /// مستحقة وموعدها قبل اليوم (الصندوق 2 فما فوق).
+  final int overdue;
+
+  /// مستحقة اليوم (الصندوق 2 فما فوق).
+  final int dueToday;
+
+  const FlashcardReviewBreakdown({
+    required this.wrong,
+    required this.overdue,
+    required this.dueToday,
+  });
+
+  int get total => wrong + overdue + dueToday;
 }
 
 /// سجل تقدم بطاقة واحدة: مستقل تماماً عن بقية البطاقات.
@@ -293,8 +413,14 @@ class FlashcardScheduleEntry {
 class FlashcardDeckStats {
   final int total;
 
-  /// المستحقة اليوم (تشمل الجديدة والمتأخرة و«ما زلت أتعلم»).
-  final int due;
+  /// الجديدة: بلا سجل (لم تُجب أبداً).
+  final int newCount;
+
+  /// كروت المراجعة: الغلط + المستحق من غير الغلط.
+  final int reviewCount;
+
+  /// الغلط: بطاقات الصندوق 1 (جزء من [reviewCount]).
+  final int wrongCount;
 
   /// المتقنة (الصندوق 4 أو 5) — شريط التقدم.
   final int mastered;
@@ -302,15 +428,17 @@ class FlashcardDeckStats {
   /// المعروفة (الصناديق 3 و4 و5).
   final int known;
 
-  /// وجود أي تقدم محفوظ (لإظهار زر إعادة الضبط).
+  /// وجود أي تقدم محفوظ (لإظهار «إعادة الضبط»).
   final bool hasProgress;
 
-  /// إن لم يوجد مستحق: بعد كم يوم أقرب مراجعة (null إن لا يوجد).
+  /// إن لم يوجد جديد ولا مراجعة: بعد كم يوم أقرب مراجعة (null إن لا يوجد).
   final int? nextReviewInDays;
 
   const FlashcardDeckStats({
     required this.total,
-    required this.due,
+    required this.newCount,
+    required this.reviewCount,
+    required this.wrongCount,
     required this.mastered,
     required this.known,
     required this.hasProgress,
@@ -319,7 +447,9 @@ class FlashcardDeckStats {
 
   static const FlashcardDeckStats empty = FlashcardDeckStats(
     total: 0,
-    due: 0,
+    newCount: 0,
+    reviewCount: 0,
+    wrongCount: 0,
     mastered: 0,
     known: 0,
     hasProgress: false,

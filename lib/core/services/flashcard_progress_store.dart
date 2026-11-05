@@ -158,15 +158,12 @@ class FlashcardProgressStore {
         return records;
       });
 
-  /// معرّفات البطاقات «المعروفة» (الصناديق 3/4/5) — تبقي «غير المعروفة فقط» وملخص الجولة يعملان.
-  static Future<Set<int>> getKnownIds(int deckId) async {
-    final records = await loadProgress(deckId);
-    return records.values.where((p) => p.isKnown).map((p) => p.cardId).toSet();
-  }
-
   /// أرقام بطاقة المجموعة. [cardCount] من السيرفر (مصدر الحقيقة للعدد الكلي).
   /// [validCardIds] إن توفرت (من الكاش المحدّث) تُستبعد سجلات البطاقات المحذوفة بدقة؛
   /// وإلا نكتفي بسقف [cardCount] حتى تُنظَّف السجلات عند فتح المجموعة.
+  ///
+  /// - الجديدة = العدد الكلي − عدد السجلات (بطاقة بلا سجل).
+  /// - المراجعة = الغلط (الصندوق 1) + المستحق من غير الغلط.
   static Future<FlashcardDeckStats> deckStats(
     int deckId,
     int cardCount, {
@@ -180,18 +177,24 @@ class FlashcardProgressStore {
     final today = FlashcardLeitner.today();
 
     final newCount = cardCount > records.length ? cardCount - records.length : 0;
-    final dueRecords = records.where((p) => FlashcardLeitner.isDue(p, today)).length;
-    final due = (newCount + dueRecords).clamp(0, cardCount).toInt();
+    final wrong = records.where((p) => FlashcardLeitner.isWrongBox(p.box)).length;
+    final dueNonWrong = records
+        .where((p) => !FlashcardLeitner.isWrongBox(p.box) && FlashcardLeitner.isDue(p, today))
+        .length;
+    final review = (wrong + dueNonWrong).clamp(0, cardCount - newCount).toInt();
     final mastered = records.where((p) => p.isMastered).length.clamp(0, cardCount).toInt();
     final known = records.where((p) => p.isKnown).length.clamp(0, cardCount).toInt();
 
     return FlashcardDeckStats(
       total: cardCount,
-      due: due,
+      newCount: newCount,
+      reviewCount: review,
+      wrongCount: wrong.clamp(0, cardCount).toInt(),
       mastered: mastered,
       known: known,
       hasProgress: records.isNotEmpty,
-      nextReviewInDays: due == 0 ? FlashcardLeitner.nextReviewInDays(records, today) : null,
+      nextReviewInDays:
+          (newCount + review) == 0 ? FlashcardLeitner.nextReviewInDays(records, today) : null,
     );
   }
 
