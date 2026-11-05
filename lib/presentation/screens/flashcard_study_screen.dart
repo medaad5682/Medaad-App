@@ -330,8 +330,9 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  /// زر «إنهاء» في الملخص: يغلق المذاكرة ويرجع بنتيجة true ليغلق صفحة المجموعة أيضاً
-  /// فيصل الطالب لشاشة المواد (X وزر الرجوع يظلان يرجعان لصفحة المجموعة).
+  /// «إنهاء» في الملخص (وكذلك ✕ في الملخص وزر الرجوع): يغلق المذاكرة ويرجع بنتيجة
+  /// true ليغلق صفحة المجموعة أيضاً فيصل الطالب لشاشة المواد.
+  /// أما ✕ أثناء المذاكرة نفسها فيستخدم [_exit] ويرجع لصفحة المجموعة فقط.
   Future<void> _finish() async {
     await _saveChain;
     if (mounted) Navigator.of(context).pop(true);
@@ -462,7 +463,8 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     final canStartReview = _startedFromNew && dueNonWrong > 0;
     return Column(
       children: [
-        _buildHeader(showControls: false),
+        // ✕ في الملخص = نفس «إنهاء»: يتخطى صفحة المجموعة ويرجع لشاشة المواد.
+        _buildHeader(showControls: false, onClose: _finish),
         Expanded(
           child: Center(
             child: FlashcardRoundSummary(
@@ -499,14 +501,15 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     }
   }
 
-  Widget _buildHeader({required bool showControls}) {
+  /// [onClose]: ما يفعله زر ✕ (الافتراضي [_exit] = الرجوع لصفحة المجموعة).
+  Widget _buildHeader({required bool showControls, VoidCallback? onClose}) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
       child: Row(
         children: [
           IconButton(
             tooltip: AppLocalizations.of(context)!.flashcardClose,
-            onPressed: _exit,
+            onPressed: onClose ?? _exit,
             icon: Icon(LucideIcons.x, color: AppColors.textPrimary),
           ),
           Expanded(
