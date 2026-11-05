@@ -744,5 +744,6 @@
   "flashcardOverallProgress": "التقدم في المجموعة: {known} من {total}",
   "flashcardRepeatUnknown": "كرّر التي لم أعرفها ({count})",
   "flashcardStartOver": "ابدأ من جديد",
-  "flashcardFinish": "إنهاء"
+  "flashcardFinish": "إنهاء",
+  "notInAccountNote": "المتاح لك هو المحتوى المُفعّل على حسابك فقط."
 }

@@ -3137,5 +3137,9 @@
   "flashcardFinish": "Finish",
   "@flashcardFinish": {
     "description": "Summary button that closes the study screen"
+  },
+  "notInAccountNote": "Only content activated on your account is available.",
+  "@notInAccountNote": {
+    "description": "Neutral note on the Course Details screen for a course that is not yet part of the student's account. Must not mention buying, prices or payment."
   }
 }
