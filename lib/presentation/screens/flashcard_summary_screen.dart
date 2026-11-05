@@ -62,8 +62,8 @@ class FlashcardRoundSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = AppColors.flashcardAccent;
     final allKnown = totalCards > 0 && allDone;
-    final roundTotal = roundKnown + roundLearning;
-    final ratio = roundTotal == 0 ? 0.0 : roundKnown / roundTotal;
+    // الشريط يمثل التقدم في المجموعة كلها (نفس رقم النص تحته)، وليس نسبة هذه الجولة
+    final ratio = totalCards == 0 ? 0.0 : (totalKnown / totalCards).clamp(0.0, 1.0).toDouble();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),

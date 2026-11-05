@@ -60,12 +60,18 @@ class _FlashcardDeckHubScreenState extends State<FlashcardDeckHubScreen> {
   }
 
   Future<void> _start(FlashcardStudyMode mode) async {
-    await Navigator.of(context).push(
+    final finished = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => FlashcardStudyScreen(deck: widget.deck, mode: mode),
       ),
     );
-    if (mounted) await _reload();
+    if (!mounted) return;
+    // «إنهاء» من ملخص الجلسة ⇒ نخرج من صفحة المجموعة أيضاً (شاشة المواد تحدّث الأعداد عند عودتها)
+    if (finished == true) {
+      Navigator.of(context).pop();
+      return;
+    }
+    await _reload();
   }
 
   @override

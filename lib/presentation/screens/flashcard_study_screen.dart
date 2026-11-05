@@ -92,8 +92,12 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
 
   List<FlashcardModel> get _cards => widget.deck.cards;
   DateTime get _today => FlashcardLeitner.today();
-  int get _knownCount =>
-      math.min(_progress.values.where((p) => p.isKnown).length, _cards.length);
+  /// عدد البطاقات التي أجاب عنها الطالب «عرفتها» ولم تعد غلطاً (الصندوق 2 فما فوق).
+  /// كان يُعدّ الصندوق 3+ فقط، فكانت أول جلسة تعرض 0 دائماً لأن «عرفتها» الأولى تنقل البطاقة للصندوق 2.
+  int get _knownCount => math.min(
+        _progress.values.where((p) => !FlashcardLeitner.isWrongBox(p.box)).length,
+        _cards.length,
+      );
 
   @override
   void dispose() {
@@ -326,6 +330,13 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  /// زر «إنهاء» في الملخص: يغلق المذاكرة ويرجع بنتيجة true ليغلق صفحة المجموعة أيضاً
+  /// فيصل الطالب لشاشة المواد (X وزر الرجوع يظلان يرجعان لصفحة المجموعة).
+  Future<void> _finish() async {
+    await _saveChain;
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
   // ───────────────────────── الصور ─────────────────────────
 
   String _imageUrl(String fileId) =>
@@ -402,7 +413,8 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
         canPop: false,
         onPopInvokedWithResult: (didPop, result) async {
           if (didPop) return;
-          await _exit();
+          // زر الرجوع في الموبايل = نفس «إنهاء»: يتخطى صفحة المجموعة ويرجع لشاشة المواد
+          await _finish();
         },
         child: Scaffold(
           backgroundColor: AppColors.backgroundPrimary,
@@ -465,7 +477,7 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
               dueReviewCount: dueNonWrong,
               onRepeatWrong: wrong > 0 ? _repeatWrong : null,
               onStartDueReview: canStartReview ? _startDueReview : null,
-              onFinish: _exit,
+              onFinish: _finish,
             ),
           ),
         ),
