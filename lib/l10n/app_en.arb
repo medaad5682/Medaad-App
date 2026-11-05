@@ -3097,7 +3097,7 @@
   "@flashcardAllKnownTitle": {
     "description": "Summary title when every card in the deck is known"
   },
-  "flashcardAllKnownMessage": "Every card is on schedule. Come back when your next reviews are due, or study anyway.",
+  "flashcardAllKnownMessage": "Nothing is due right now. Come back when your next reviews are due.",
   "@flashcardAllKnownMessage": {
     "description": "Summary message when every card in the deck is known"
   },
@@ -3121,40 +3121,9 @@
       }
     }
   },
-  "flashcardRepeatUnknown": "Repeat the ones I didn't know ({count})",
-  "@flashcardRepeatUnknown": {
-    "description": "Summary button that starts a new round with only the unknown cards",
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "flashcardStartOver": "Start over",
-  "@flashcardStartOver": {
-    "description": "Summary button that resets progress and restarts the deck"
-  },
   "flashcardFinish": "Finish",
   "@flashcardFinish": {
     "description": "Summary button that closes the study screen"
-  },
-  "flashcardDueToday": "{count} due today",
-  "@flashcardDueToday": {
-    "description": "Purple badge on a deck card: number of cards due for review today",
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "flashcardDueTodayHeader": "Due today: {count}",
-  "@flashcardDueTodayHeader": {
-    "description": "Chip in the study screen header: number of cards still due today",
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
   },
   "flashcardAllCaughtUp": "All caught up ✓",
   "@flashcardAllCaughtUp": {
@@ -3168,10 +3137,6 @@
         "type": "int"
       }
     }
-  },
-  "flashcardStudyDue": "Study due cards",
-  "@flashcardStudyDue": {
-    "description": "Deck button label when there are cards due today"
   },
   "flashcardMasteredCount": "{count} mastered",
   "@flashcardMasteredCount": {
@@ -3195,18 +3160,116 @@
       }
     }
   },
-  "flashcardReviewMore": "Review more ({count})",
-  "@flashcardReviewMore": {
-    "description": "Summary button that loads another batch of due cards",
+  "flashcardStudyAnyway": "Study anyway",
+  "@flashcardStudyAnyway": {
+    "description": "Button (deck page and deck card menu) that studies the whole deck without promoting cards"
+  },
+  "flashcardTabNew": "New",
+  "@flashcardTabNew": {
+    "description": "Deck page tab: cards never answered before"
+  },
+  "flashcardTabReview": "Review",
+  "@flashcardTabReview": {
+    "description": "Deck page tab: wrong cards and cards due for review"
+  },
+  "flashcardNewCount": "{count} new",
+  "@flashcardNewCount": {
+    "description": "Badge on a deck card: number of new cards",
     "placeholders": {
       "count": {
         "type": "int"
       }
     }
   },
-  "flashcardStudyAnyway": "Study anyway",
-  "@flashcardStudyAnyway": {
-    "description": "Summary button that studies the whole deck even when no cards are due"
+  "flashcardReviewCount": "{count} to review",
+  "@flashcardReviewCount": {
+    "description": "Badge on a deck card: number of cards to review",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardOpenDeck": "Open",
+  "@flashcardOpenDeck": {
+    "description": "Deck card button label when nothing is new or due"
+  },
+  "flashcardNewTabHint": "Cards you have not answered yet.",
+  "@flashcardNewTabHint": {
+    "description": "Hint under the count in the New tab"
+  },
+  "flashcardReviewTabHint": "Wrong cards first, then the oldest due.",
+  "@flashcardReviewTabHint": {
+    "description": "Hint under the count in the Review tab"
+  },
+  "flashcardBreakdownWrong": "Wrong: {count}",
+  "@flashcardBreakdownWrong": {
+    "description": "Review tab breakdown chip: cards in box 1",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardBreakdownOverdue": "Overdue: {count}",
+  "@flashcardBreakdownOverdue": {
+    "description": "Review tab breakdown chip: cards past their due date",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardBreakdownToday": "Due today: {count}",
+  "@flashcardBreakdownToday": {
+    "description": "Review tab breakdown chip: cards due today",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardStudyAnywayHint": "Go through every card. Correct answers will not move cards up a box.",
+  "@flashcardStudyAnywayHint": {
+    "description": "Hint above the Study anyway button"
+  },
+  "flashcardMenuTooltip": "Deck options",
+  "@flashcardMenuTooltip": {
+    "description": "Tooltip of the three-dots menu on a deck card"
+  },
+  "flashcardRepeatWrong": "Repeat wrong ({count})",
+  "@flashcardRepeatWrong": {
+    "description": "Button that repeats every wrong card in the deck",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardStartDueReview": "Start due review ({count})",
+  "@flashcardStartDueReview": {
+    "description": "Summary button that starts the review of due cards",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flashcardModeNew": "New cards",
+  "@flashcardModeNew": {
+    "description": "Study header chip for the new cards session"
+  },
+  "flashcardModeReview": "Review",
+  "@flashcardModeReview": {
+    "description": "Study header chip for the review session"
+  },
+  "flashcardModeRepeatWrong": "Repeat wrong",
+  "@flashcardModeRepeatWrong": {
+    "description": "Study header chip for the repeat wrong session"
+  },
+  "flashcardModeStudyAnyway": "Full study",
+  "@flashcardModeStudyAnyway": {
+    "description": "Study header chip for the study anyway session"
   },
   "notInAccountNote": "Only content activated on your account is available.",
   "@notInAccountNote": {
