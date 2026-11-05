@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart'; // ✅ إضافة مكتبة Hi
 import 'package:Medaad/l10n/generated/app_localizations.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/payment_config.dart';
 import '../../data/models/course_model.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
@@ -209,6 +210,8 @@ class CourseCard extends StatelessWidget {
                                 fontSize: 14,
                               ),
                             )
+                          : !kShowPaymentUI
+                          ? const SizedBox.shrink() // 🙈 السعر مخفي
                           : Text(
                               "${course.fullPrice.toInt()} EGP",
                               style: TextStyle(
