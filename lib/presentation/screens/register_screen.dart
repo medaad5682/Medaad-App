@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'dart:math' show sin, pi;
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import '../../core/constants/app_colors.dart';
@@ -17,7 +20,8 @@ class RegisterScreen extends StatefulWidget {
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _RegisterScreenState extends State<RegisterScreen> {
+class _RegisterScreenState extends State<RegisterScreen>
+    with SingleTickerProviderStateMixin {
   // Controllers
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -38,9 +42,97 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // ── زر الدعم الفني (واتساب) ─────────────────────────────────────────────
+  /// رقم الدعم بالصيغة الدولية بلا صفر أو "+" (مصر: 01559725404 → 201559725404).
+  static const String _supportPhone = '201559725404';
+  static const Color _whatsappGreen = Color(0xFF25D366);
+
+  /// قطر الزر.
+  static const double _supportButtonSize = 46;
+
+  /// يحرّك اهتزاز الزر. يُشغَّل عند أي خطأ يرجع من السيرفر (انظر
+  /// [_shakeSupportButton]) ليلفت نظر المستخدم لوجود دعم فني.
+  late final AnimationController _supportShake;
+
+  /// شعار واتساب (Simple Icons، CC0) مضمَّن كنص كي لا نحتاج ملف asset.
+  static const String _whatsappLogoSvg =
+      '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+      '<path fill="#FFFFFF" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>'
+      '</svg>';
+
+  /// اهتزاز الزر (يمين/يسار مع ميلان خفيف، يخفت تدريجياً). آمن للاستدعاء
+  /// المتكرر: كل خطأ جديد يعيد الاهتزاز من البداية.
+  void _shakeSupportButton() {
+    if (!mounted) return;
+    _supportShake.forward(from: 0);
+  }
+
+  Future<void> _openSupportWhatsApp() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final errorText = AppLocalizations.of(context)!.couldNotOpenWhatsapp;
+    final uri = Uri.parse('https://wa.me/$_supportPhone');
+    try {
+      final launched =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched) throw 'Could not launch $uri';
+    } catch (_) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(errorText), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Widget _buildSupportButton() {
+    final label = AppLocalizations.of(context)!.contactSupport;
+    return Semantics(
+      button: true,
+      label: label,
+      child: AnimatedBuilder(
+        animation: _supportShake,
+        builder: (context, child) {
+          // 4 ذبذبات كاملة خلال مدة الأنيميشن، تتضاءل سعتها مع الزمن.
+          final t = _supportShake.value;
+          final wave = sin(t * pi * 8) * (1 - t);
+          return Transform.translate(
+            offset: Offset(wave * 9, 0),
+            child: Transform.rotate(angle: wave * 0.14, child: child),
+          );
+        },
+        child: Tooltip(
+          message: label,
+          child: Material(
+            color: _whatsappGreen,
+            shape: const CircleBorder(),
+            elevation: 4,
+            shadowColor: Colors.black54,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _openSupportWhatsApp,
+              child: SizedBox(
+                width: _supportButtonSize,
+                height: _supportButtonSize,
+                child: Center(
+                  child: SvgPicture.string(
+                    _whatsappLogoSvg,
+                    width: _supportButtonSize * 0.55,
+                    height: _supportButtonSize * 0.55,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _supportShake = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
     FirebaseCrashlytics.instance.log("Entered Register Screen");
     // تحديث الواجهة عند تغيير التركيز
     for (var node in [
@@ -69,6 +161,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailFocus.dispose();
     _passFocus.dispose();
     _confirmPassFocus.dispose();
+    _supportShake.dispose();
     super.dispose();
   }
 
@@ -164,10 +257,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       } else {
         setState(
             () => _errorMessage = data['message'] ?? AppLocalizations.of(context)!.otpSendFailedDefault);
+        _shakeSupportButton(); // السيرفر رجّع خطأ
       }
     } catch (e, stack) {
       FirebaseCrashlytics.instance.recordError(e, stack);
       setState(() => _errorMessage = AppLocalizations.of(context)!.connectionError);
+      _shakeSupportButton(); // فشل الاتصال أو خطأ 5xx من السيرفر
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -178,220 +273,231 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 16),
+        // Stack: الزر عائم فوق المحتوى وثابت مكانه أثناء التمرير.
+        child: Stack(
+          fit: StackFit.expand, // نفس قيود الـ body الأصلية للـ scroll
+          children: [
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(32.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 16),
 
-              // Back Button
-              GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: AppColors.backgroundSecondary,
-                    borderRadius: BorderRadius.circular(50),
-                    border: Border.all(
-                        color: AppColors.textSecondary.withOpacity(0.1)),
-                  ),
-                  child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
-                      color: AppColors.accentYellow, size: 20)),
-                ),
-              ),
-
-              // Header
-              Text(
-                AppLocalizations.of(context)!.createAccount,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                AppLocalizations.of(context)!.registerSubtitle,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.accentYellow,
-                  letterSpacing: 2.0,
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              // Error Display
-              if (_errorMessage != null)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: AppColors.error.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.error.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(LucideIcons.alertCircle,
-                          color: AppColors.error, size: 16),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style:
-                              TextStyle(color: AppColors.error, fontSize: 12),
-                        ),
+                  // Back Button
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: AppColors.backgroundSecondary,
+                        borderRadius: BorderRadius.circular(50),
+                        border: Border.all(
+                            color: AppColors.textSecondary.withOpacity(0.1)),
                       ),
-                    ],
-                  ),
-                ),
-
-              // --- Form Fields ---
-
-              _buildInputLabel(AppLocalizations.of(context)!.fullNameLabel),
-              const SizedBox(height: 4),
-              _buildTextField(
-                controller: _nameController,
-                focusNode: _nameFocus,
-                hint: AppLocalizations.of(context)!.fullNameHint,
-                icon: LucideIcons.user,
-              ),
-              const SizedBox(height: 16),
-
-              _buildInputLabel(AppLocalizations.of(context)!.phoneNumberOptionalLabel),
-              const SizedBox(height: 4),
-              _buildTextField(
-                controller: _phoneController,
-                focusNode: _phoneFocus,
-                hint: AppLocalizations.of(context)!.phoneNumberHint,
-                icon: LucideIcons.phone,
-                inputType: TextInputType.phone,
-              ),
-              const SizedBox(height: 16),
-
-              _buildInputLabel(AppLocalizations.of(context)!.usernameEnglishOnlyLabel),
-              const SizedBox(height: 4),
-              _buildTextField(
-                controller: _usernameController,
-                focusNode: _userFocus,
-                hint: AppLocalizations.of(context)!.usernameHint,
-                icon: LucideIcons.atSign,
-              ),
-              const SizedBox(height: 16),
-
-              _buildInputLabel(AppLocalizations.of(context)!.emailLabel),
-              const SizedBox(height: 4),
-              _buildTextField(
-                controller: _emailController,
-                focusNode: _emailFocus,
-                hint: AppLocalizations.of(context)!.emailHint,
-                icon: LucideIcons.mail,
-                inputType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 16),
-
-              _buildInputLabel(AppLocalizations.of(context)!.passwordLabel),
-              const SizedBox(height: 4),
-              _buildTextField(
-                controller: _passwordController,
-                focusNode: _passFocus,
-                hint: "••••••",
-                icon: LucideIcons.lock,
-                isPassword: true,
-              ),
-              const SizedBox(height: 16),
-
-              _buildInputLabel(AppLocalizations.of(context)!.confirmPasswordLabel),
-              const SizedBox(height: 4),
-              _buildTextField(
-                controller: _confirmPasswordController,
-                focusNode: _confirmPassFocus,
-                hint: "••••••",
-                icon: LucideIcons.lock,
-                isPassword: true,
-              ),
-              const SizedBox(height: 32),
-
-              // Submit Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _handleRegister,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.accentYellow,
-                    foregroundColor: AppColors.backgroundPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
+                      child: DirectionalFlip(child: Icon(LucideIcons.arrowLeft,
+                          color: AppColors.accentYellow, size: 20)),
                     ),
-                    elevation: 10,
                   ),
-                  child: _isLoading
-                      ? SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.backgroundPrimary))
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              AppLocalizations.of(context)!.createAccount,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                                letterSpacing: 1.0,
-                              ),
+
+                  // Header
+                  Text(
+                    AppLocalizations.of(context)!.createAccount,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    AppLocalizations.of(context)!.registerSubtitle,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.accentYellow,
+                      letterSpacing: 2.0,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Error Display
+                  if (_errorMessage != null)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.error.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(LucideIcons.alertCircle,
+                              color: AppColors.error, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style:
+                                  TextStyle(color: AppColors.error, fontSize: 12),
                             ),
-                            const SizedBox(width: 12),
-                            DirectionalFlip(child: Icon(LucideIcons.arrowRight, size: 18)),
-                          ],
-                        ),
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // Footer
-              Center(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      AppLocalizations.of(context)!.alreadyHaveAccount,
-                      style: TextStyle(
-                          color: AppColors.textSecondary, fontSize: 12),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => const LoginScreen()),
-                        );
-                      },
-                      child: Text(
-                        AppLocalizations.of(context)!.signIn,
-                        style: TextStyle(
-                          color: AppColors.accentYellow,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                          decoration: TextDecoration.underline,
-                          decorationColor: AppColors.accentYellow,
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+
+                  // --- Form Fields ---
+
+                  _buildInputLabel(AppLocalizations.of(context)!.fullNameLabel),
+                  const SizedBox(height: 4),
+                  _buildTextField(
+                    controller: _nameController,
+                    focusNode: _nameFocus,
+                    hint: AppLocalizations.of(context)!.fullNameHint,
+                    icon: LucideIcons.user,
+                  ),
+                  const SizedBox(height: 16),
+
+                  _buildInputLabel(AppLocalizations.of(context)!.phoneNumberOptionalLabel),
+                  const SizedBox(height: 4),
+                  _buildTextField(
+                    controller: _phoneController,
+                    focusNode: _phoneFocus,
+                    hint: AppLocalizations.of(context)!.phoneNumberHint,
+                    icon: LucideIcons.phone,
+                    inputType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 16),
+
+                  _buildInputLabel(AppLocalizations.of(context)!.usernameEnglishOnlyLabel),
+                  const SizedBox(height: 4),
+                  _buildTextField(
+                    controller: _usernameController,
+                    focusNode: _userFocus,
+                    hint: AppLocalizations.of(context)!.usernameHint,
+                    icon: LucideIcons.atSign,
+                  ),
+                  const SizedBox(height: 16),
+
+                  _buildInputLabel(AppLocalizations.of(context)!.emailLabel),
+                  const SizedBox(height: 4),
+                  _buildTextField(
+                    controller: _emailController,
+                    focusNode: _emailFocus,
+                    hint: AppLocalizations.of(context)!.emailHint,
+                    icon: LucideIcons.mail,
+                    inputType: TextInputType.emailAddress,
+                  ),
+                  const SizedBox(height: 16),
+
+                  _buildInputLabel(AppLocalizations.of(context)!.passwordLabel),
+                  const SizedBox(height: 4),
+                  _buildTextField(
+                    controller: _passwordController,
+                    focusNode: _passFocus,
+                    hint: "••••••",
+                    icon: LucideIcons.lock,
+                    isPassword: true,
+                  ),
+                  const SizedBox(height: 16),
+
+                  _buildInputLabel(AppLocalizations.of(context)!.confirmPasswordLabel),
+                  const SizedBox(height: 4),
+                  _buildTextField(
+                    controller: _confirmPasswordController,
+                    focusNode: _confirmPassFocus,
+                    hint: "••••••",
+                    icon: LucideIcons.lock,
+                    isPassword: true,
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Submit Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _handleRegister,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accentYellow,
+                        foregroundColor: AppColors.backgroundPrimary,
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        elevation: 10,
+                      ),
+                      child: _isLoading
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.backgroundPrimary))
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  AppLocalizations.of(context)!.createAccount,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                    letterSpacing: 1.0,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                DirectionalFlip(child: Icon(LucideIcons.arrowRight, size: 18)),
+                              ],
+                            ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Footer
+                  Center(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          AppLocalizations.of(context)!.alreadyHaveAccount,
+                          style: TextStyle(
+                              color: AppColors.textSecondary, fontSize: 12),
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) => const LoginScreen()),
+                            );
+                          },
+                          child: Text(
+                            AppLocalizations.of(context)!.signIn,
+                            style: TextStyle(
+                              color: AppColors.accentYellow,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              decoration: TextDecoration.underline,
+                              decorationColor: AppColors.accentYellow,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
               ),
-              const SizedBox(height: 24),
-            ],
-          ),
+            ),
+            PositionedDirectional(
+              top: 48,
+              end: 16,
+              child: _buildSupportButton(),
+            ),
+          ],
         ),
       ),
     );
