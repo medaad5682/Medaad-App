@@ -20,7 +20,7 @@ import 'screen_protect_wrapper.dart';
 /// - بطاقة قابلة للقلب؛ أزرار «عرفتها» / «ما زلت أتعلم» تظهر **بعد القلب فقط** وهي التحكم الأساسي.
 /// - السحب (يمين=عرفتها، يسار=ما زلت أتعلم) اختصار اختياري يعمل بعد القلب ويظهر بتلوين ونص توضيحي.
 /// - تلميح السحب يظهر مرة واحدة فقط (يُحفظ محلياً) عند أول قلب لأول بطاقة.
-/// - الرأس: شريط تقدم وعداد، خلط، ووضع «غير المعروفة فقط».
+/// - الرأس: شريط تقدم وعداد، وزر خلط يعيد ترتيب البطاقات المتبقية فوراً عند كل ضغطة.
 /// - كل تقييم يُحفظ فوراً في Hive، فالخروج في منتصف الجلسة لا يضيّع شيئاً.
 /// - نهاية الجولة ⇒ [FlashcardRoundSummary] (تكرار غير المعروفة / ابدأ من جديد / إنهاء).
 /// - محمية بنفس طبقة الحماية المستخدمة في بقية الشاشات الحساسة ([ScreenProtectWrapper]).
@@ -54,7 +54,8 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   bool _showSummary = false;
 
   // الإعدادات
-  bool _shuffle = false;
+  // «غير المعروفة فقط» لم يعد زراً؛ يُفعَّل داخلياً فقط عند استئناف مجموعة مذاكَرة جزئياً
+  // أو عند «تكرار غير المعروفة» في نهاية الجولة.
   bool _onlyUnknown = false;
 
   // حالة البطاقة الحالية
@@ -110,11 +111,7 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
 
   // ───────────────────────── بناء الجولة ─────────────────────────
 
-  List<FlashcardModel> _ordered(Iterable<FlashcardModel> source) {
-    final list = source.toList();
-    if (_shuffle) list.shuffle(_random);
-    return list;
-  }
+  List<FlashcardModel> _ordered(Iterable<FlashcardModel> source) => source.toList();
 
   List<FlashcardModel> _buildQueue() {
     final base = _onlyUnknown ? _cards.where((c) => !_known.contains(c.id)) : _cards;
@@ -200,41 +197,26 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
 
   // ───────────────────────── الإعدادات ─────────────────────────
 
-  void _toggleShuffle() {
-    setState(() {
-      _shuffle = !_shuffle;
-      // نعيد ترتيب المتبقي فقط ونترك ما أُنجز في مكانه
-      if (!_showSummary && _index < _queue.length) {
-        final done = _queue.sublist(0, _index);
-        final remaining = _queue.sublist(_index);
-        if (_shuffle) {
-          // البطاقة الحالية تبقى كما هي كي لا تتغير تحت يد الطالب
-          final current = remaining.first;
-          final rest = remaining.sublist(1)..shuffle(_random);
-          _queue = [...done, current, ...rest];
-        } else {
-          remaining.sort((a, b) {
-            final c = a.sortOrder.compareTo(b.sortOrder);
-            return c != 0 ? c : a.id.compareTo(b.id);
-          });
-          // البطاقة الحالية تبقى أولاً
-          final current = _queue[_index];
-          remaining.remove(current);
-          _queue = [...done, current, ...remaining];
-        }
-      }
-    });
-  }
+  /// خلط فوري: كل ضغطة تعيد ترتيب البطاقات المتبقية عشوائياً (بما فيها الحالية)
+  /// وتعرض الطالب بطاقة جديدة مباشرة. ما أُنجز في هذه الجولة يبقى في مكانه.
+  void _shuffleRemaining() {
+    if (_rating || _showSummary) return; // البطاقة الحالية تخرج الآن
+    final remaining = _queue.sublist(_index);
+    if (remaining.length < 2) return; // لا شيء يُخلط
 
-  void _toggleOnlyUnknown() {
-    final turningOn = !_onlyUnknown;
-    if (turningOn && _known.length >= _cards.length) {
-      _snack(AppLocalizations.of(context)!.flashcardNoUnknown);
-      return;
+    final before = List<FlashcardModel>.of(remaining);
+    final shuffled = List<FlashcardModel>.of(remaining);
+    // نتأكد أن الترتيب تغيّر فعلاً (احتمال التطابق ضئيل لكن غير معدوم)
+    for (var attempt = 0; attempt < 5; attempt++) {
+      shuffled.shuffle(_random);
+      final same = List.generate(shuffled.length, (i) => shuffled[i].id == before[i].id)
+          .every((e) => e);
+      if (!same) break;
     }
+
     setState(() {
-      _onlyUnknown = turningOn;
-      _startRound(_buildQueue(), keepRoundNumber: true);
+      _queue = [..._queue.sublist(0, _index), ...shuffled];
+      _resetCardState(); // بطاقة جديدة تظهر من وجهها الأمامي
     });
     _prefetchUpcoming();
   }
@@ -417,7 +399,6 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   }
 
   Widget _buildHeader({required bool showControls}) {
-    final accent = AppColors.flashcardAccent;
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
       child: Row(
@@ -439,30 +420,17 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
               ),
             ),
           ),
-          if (showControls) ...[
-            IconButton(
-              tooltip: AppLocalizations.of(context)!.flashcardOnlyUnknownTooltip,
-              onPressed: _toggleOnlyUnknown,
-              icon: Icon(
-                LucideIcons.listFilter,
-                color: _onlyUnknown ? accent : AppColors.textSecondary,
-              ),
-              style: IconButton.styleFrom(
-                backgroundColor: _onlyUnknown ? accent.withOpacity(0.15) : Colors.transparent,
-              ),
-            ),
+          if (showControls)
             IconButton(
               tooltip: AppLocalizations.of(context)!.flashcardShuffleTooltip,
-              onPressed: _toggleShuffle,
+              onPressed: (_queue.length - _index) > 1 ? _shuffleRemaining : null,
               icon: Icon(
                 LucideIcons.shuffle,
-                color: _shuffle ? accent : AppColors.textSecondary,
-              ),
-              style: IconButton.styleFrom(
-                backgroundColor: _shuffle ? accent.withOpacity(0.15) : Colors.transparent,
+                color: (_queue.length - _index) > 1
+                    ? AppColors.textSecondary
+                    : AppColors.textSecondary.withOpacity(0.35),
               ),
             ),
-          ],
         ],
       ),
     );
