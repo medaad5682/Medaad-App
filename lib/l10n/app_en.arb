@@ -599,15 +599,9 @@
   "@chaptersTabLabel": {
     "description": "Tab label for the chapters list on the Subject Materials screen"
   },
-  "examsTabLabel": "Exams & Flashcards ({count})",
+  "examsTabLabel": "Exams",
   "@examsTabLabel": {
-    "description": "Tab label for the exams list on the Subject Materials screen, showing the exam count",
-    "placeholders": {
-      "count": {
-        "type": "int",
-        "example": "3"
-      }
-    }
+    "description": "Tab label for the exams tab on the Subject Materials screen, and the divider title above the exams list"
   },
   "noExamsAvailable": "No exams available yet",
   "@noExamsAvailable": {
@@ -2946,7 +2940,7 @@
   "@deleteScreenshotConfirmBody": {
     "description": "Confirmation dialog body when deleting a video screenshot"
   },
-  "flashcardsSectionTitle": "🗂️ Flashcards",
+  "flashcardsSectionTitle": "Flashcards",
   "@flashcardsSectionTitle": {
     "description": "Divider title above the flashcard decks in the subject Exams tab"
   },
