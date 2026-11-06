@@ -657,13 +657,9 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                         _buildTab(
                             AppLocalizations.of(context)!.chaptersTabLabel,
                             'chapters'),
-                        // «الامتحانات وبطاقات الفلاش (N)»: العدد = الامتحانات + مجموعات الفلاش كاردس
+                        // «Exams» فقط (بدون عداد)
                         _buildTab(
-                            AppLocalizations.of(context)!.examsTabLabel(
-                                exams.length +
-                                    FlashcardDeckSummary.listFrom(
-                                            _content?['flashcard_decks'])
-                                        .length),
+                            AppLocalizations.of(context)!.examsTabLabel,
                             'exams'),
                       ],
                     ),
@@ -709,12 +705,20 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      // الامتحانات ثم (إن وُجدت مجموعات) فاصل «الفلاش كاردس» ثم المجموعات
-      itemCount: visibleExams.length + (decks.isEmpty ? 0 : decks.length + 1),
-      itemBuilder: (context, index) {
-        if (index >= visibleExams.length) {
-          final deckIndex = index - visibleExams.length;
-          if (deckIndex == 0) return const FlashcardSectionDivider();
+      // [فاصل «Exams» + الامتحانات] ثم [فاصل «Flashcards» + المجموعات] — كل فاصل يظهر فقط إن وُجد قسمه
+      itemCount: (visibleExams.isEmpty ? 0 : visibleExams.length + 1) +
+          (decks.isEmpty ? 0 : decks.length + 1),
+      itemBuilder: (context, rawIndex) {
+        final int examsBlock = visibleExams.isEmpty ? 0 : visibleExams.length + 1;
+        if (rawIndex == 0 && visibleExams.isNotEmpty) {
+          return SectionDivider(title: AppLocalizations.of(context)!.examsTabLabel);
+        }
+        if (rawIndex >= examsBlock) {
+          final deckIndex = rawIndex - examsBlock;
+          if (deckIndex == 0) {
+            return SectionDivider(
+                title: AppLocalizations.of(context)!.flashcardsSectionTitle);
+          }
           final deck = decks[deckIndex - 1];
           return FlashcardDeckCard(
             key: ValueKey('flashcard_deck_${deck.id}'),
@@ -726,6 +730,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
             onRepeatWrong: () => _openFlashcardDeck(deck, mode: FlashcardStudyMode.repeatWrong),
           );
         }
+        final index = rawIndex - 1; // بعد فاصل «Exams»
         final exam = visibleExams[index];
         final bool isCompleted = exam['isCompleted'] ?? false;
         final bool isExpired = exam['isExpired'] ?? false;
@@ -1465,7 +1470,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
                 ? [const BoxShadow(color: Colors.black12, blurRadius: 4)]
                 : [],
           ),
-          // الاسم الأطول («Exams & Flashcards») يتصغّر ليبقى في سطر واحد بدل أن يلتف
+          // يتصغّر النص عند الحاجة ليبقى في سطر واحد بدل أن يلتف
           child: FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(

@@ -325,14 +325,8 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
 
   // ───────────────────────── الخروج ─────────────────────────
 
-  Future<void> _exit() async {
-    await _saveChain; // التقدم يُحفظ عند كل تقييم؛ ننتظر آخر كتابة قبل الإغلاق
-    if (mounted) Navigator.of(context).pop();
-  }
-
-  /// «إنهاء» في الملخص (وكذلك ✕ في الملخص وزر الرجوع): يغلق المذاكرة ويرجع بنتيجة
-  /// true ليغلق صفحة المجموعة أيضاً فيصل الطالب لشاشة المواد.
-  /// أما ✕ أثناء المذاكرة نفسها فيستخدم [_exit] ويرجع لصفحة المجموعة فقط.
+  /// «إنهاء» في الملخص وزر ✕ (في المذاكرة والملخص) وزر الرجوع: يغلق المذاكرة ويرجع بنتيجة
+  /// true ليغلق صفحة المجموعة أيضاً فيصل الطالب لشاشة المواد مرة واحدة.
   Future<void> _finish() async {
     await _saveChain;
     if (mounted) Navigator.of(context).pop(true);
@@ -501,7 +495,7 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     }
   }
 
-  /// [onClose]: ما يفعله زر ✕ (الافتراضي [_exit] = الرجوع لصفحة المجموعة).
+  /// [onClose]: ما يفعله زر ✕ (الافتراضي [_finish] = الرجوع لشاشة المواد مباشرة).
   Widget _buildHeader({required bool showControls, VoidCallback? onClose}) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
@@ -509,7 +503,7 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
         children: [
           IconButton(
             tooltip: AppLocalizations.of(context)!.flashcardClose,
-            onPressed: onClose ?? _exit,
+            onPressed: onClose ?? _finish,
             icon: Icon(LucideIcons.x, color: AppColors.textPrimary),
           ),
           Expanded(
