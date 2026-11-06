@@ -31,13 +31,15 @@ String flashcardErrorMessage(AppLocalizations l, FlashcardFailure f) {
   }
 }
 
-/// عنوان فاصل قسم الفلاش كاردس أسفل بطاقات الامتحانات (مصغّر).
-class FlashcardSectionDivider extends StatelessWidget {
-  const FlashcardSectionDivider({super.key});
+/// عنوان فاصل قسم داخل تبويب Exams («Exams» قبل الامتحانات، «Flashcards» قبل المجموعات).
+/// خط - عنوان نصي بلا إيموجي - خط، بلون تمييز التطبيق.
+class SectionDivider extends StatelessWidget {
+  final String title;
+  const SectionDivider({super.key, required this.title});
 
   @override
   Widget build(BuildContext context) {
-    final accent = AppColors.flashcardAccent;
+    final accent = AppColors.accentYellow;
     return Padding(
       padding: const EdgeInsets.only(top: 2, bottom: 8),
       child: Row(
@@ -46,7 +48,7 @@ class FlashcardSectionDivider extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Text(
-              AppLocalizations.of(context)!.flashcardsSectionTitle,
+              title,
               style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: FontWeight.bold,
@@ -381,7 +383,7 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                     child: widget.isLoading
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 16,
                             height: 16,
                             child: CircularProgressIndicator(
@@ -411,7 +413,7 @@ class _FlashcardDeckCardState extends State<FlashcardDeckCard> {
   }
 }
 
-/// الشارة البنفسجية («N جديدة» / «M مراجعة»).
+/// شارة «N جديدة» / «M مراجعة» (بلون تمييز التطبيق).
 class _CountBadge extends StatelessWidget {
   final String label;
   const _CountBadge({required this.label});
