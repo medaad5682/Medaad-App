@@ -3268,5 +3268,69 @@
   "notInAccountNote": "Only content activated on your account is available.",
   "@notInAccountNote": {
     "description": "Neutral note on the Course Details screen for a course that is not yet part of the student's account. Must not mention buying, prices or payment."
+  },
+  "offlineEntryRemainingMessage": "No internet. You have {remaining} of {maxEntries} offline entries left. After that you must connect to the internet once to reset the limit.",
+  "@offlineEntryRemainingMessage": {
+    "description": "Snackbar shown on each offline app entry. {remaining} = offline entries left after this one, {maxEntries} = total allowed",
+    "placeholders": {
+      "remaining": {
+        "type": "int",
+        "example": "3"
+      },
+      "maxEntries": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "offlineEntryLastMessage": "No internet. This is your last offline entry; you must connect to the internet before next time to reset the limit.",
+  "@offlineEntryLastMessage": {
+    "description": "Snackbar shown when the user just used their last allowed offline entry"
+  },
+  "offlineLimitTitle": "Offline Access Limit Reached",
+  "@offlineLimitTitle": {
+    "description": "Title of the blocking screen shown when all offline entries are used"
+  },
+  "offlineLimitBody": "You have used {maxEntries} of {maxEntries} offline entries. To continue, connect to the internet once so your account can be verified.",
+  "@offlineLimitBody": {
+    "description": "Body of the blocking screen shown when all offline entries are used",
+    "placeholders": {
+      "maxEntries": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "offlineLimitHowTitle": "How it works",
+  "@offlineLimitHowTitle": {
+    "description": "Heading of the explanation card on the blocking screen"
+  },
+  "offlineLimitRule1": "You can open the app offline up to {maxEntries} times.",
+  "@offlineLimitRule1": {
+    "description": "Rule 1 on the blocking screen",
+    "placeholders": {
+      "maxEntries": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "offlineLimitRule2": "After that, you must connect to the internet at least once so your account and access can be verified.",
+  "@offlineLimitRule2": {
+    "description": "Rule 2 on the blocking screen"
+  },
+  "offlineLimitRule3": "Every successful connection resets the count back to {maxEntries}, so you need to connect once every {maxEntries} offline entries.",
+  "@offlineLimitRule3": {
+    "description": "Rule 3 on the blocking screen",
+    "placeholders": {
+      "maxEntries": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "offlineLimitStillOffline": "Still no internet connection. Check your connection and try again.",
+  "@offlineLimitStillOffline": {
+    "description": "Snackbar shown when the user taps retry on the blocking screen but there is still no connection"
   }
 }

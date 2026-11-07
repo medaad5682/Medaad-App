@@ -767,5 +767,14 @@
   "flashcardModeReview": "مراجعة",
   "flashcardModeRepeatWrong": "تكرار الغلط",
   "flashcardModeStudyAnyway": "مذاكرة كاملة",
-  "notInAccountNote": "المتاح لك هو المحتوى المُفعّل على حسابك فقط."
+  "notInAccountNote": "المتاح لك هو المحتوى المُفعّل على حسابك فقط.",
+  "offlineEntryRemainingMessage": "لا يوجد اتصال بالإنترنت. المتبقي لك {remaining} من {maxEntries} مرات دخول بدون إنترنت، ثم يلزم الاتصال بالإنترنت مرة واحدة لإعادة تعيين الحد.",
+  "offlineEntryLastMessage": "لا يوجد اتصال بالإنترنت. هذا آخر دخول متاح بدون إنترنت، ويجب الاتصال بالإنترنت قبل المرة القادمة لإعادة تعيين الحد.",
+  "offlineLimitTitle": "انتهى حد الدخول بدون إنترنت",
+  "offlineLimitBody": "استخدمت {maxEntries} من {maxEntries} مرات دخول بدون إنترنت. للمتابعة، اتصل بالإنترنت مرة واحدة ليتم التحقق من حسابك.",
+  "offlineLimitHowTitle": "كيف يعمل النظام؟",
+  "offlineLimitRule1": "يمكنك فتح التطبيق بدون إنترنت حتى {maxEntries} مرات.",
+  "offlineLimitRule2": "بعد ذلك يجب الاتصال بالإنترنت مرة واحدة على الأقل للتحقق من حسابك وتحديث صلاحياتك.",
+  "offlineLimitRule3": "كل اتصال ناجح بالإنترنت يعيد العدّاد إلى {maxEntries} من جديد، أي يلزم الاتصال بالإنترنت مرة كل {maxEntries} مرات دخول بدون إنترنت.",
+  "offlineLimitStillOffline": "لا يوجد اتصال بالإنترنت حتى الآن. تأكد من اتصالك ثم حاول مرة أخرى."
 }
