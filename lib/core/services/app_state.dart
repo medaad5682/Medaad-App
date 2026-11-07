@@ -12,6 +12,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
 import '../constants/api_constants.dart';
 import 'download_manager.dart'; // 👈 ✅ تم استيراد مدير التحميل
+import 'offline_access_guard.dart'; // 🔒 حدّ الدخول بدون إنترنت
 
 class AppState {
   // Singleton Pattern
@@ -586,6 +587,12 @@ class AppState {
 
       if (response.statusCode == 200) {
         final data = response.data;
+
+        // 🔒 رد ناجح من السيرفر (حتى لو حدث وأنت داخل التطبيق بعد عودة الاتصال)
+        // → إعادة تعيين حد الدخول بدون إنترنت للحد الكامل.
+        if (data is Map && data['success'] == true) {
+          await OfflineAccessGuard.instance.resetOnSuccessfulSync();
+        }
 
         // 1. تحديث الذاكرة الحية (RAM)
         updateFromInitData(data);
