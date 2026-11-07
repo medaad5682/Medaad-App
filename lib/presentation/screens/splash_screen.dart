@@ -19,6 +19,8 @@ import '../../core/services/video_screenshot_service.dart';
 import '../../core/services/api_client.dart';
 // ✅ 1. استيراد خدمة الإشعارات
 import '../../core/services/notification_service.dart';
+// 🔒 حدّ الدخول بدون إنترنت
+import '../../core/services/offline_access_guard.dart';
 // 🆕 هيدرز تسجيل الإشعارات (FCM / HMS)
 import '../../core/services/push/push_service.dart';
 // ✅ [FIX] استيراد AppReadySignal لتبليغ main.dart أن SplashScreen وصلت
@@ -27,6 +29,7 @@ import '../../core/services/push/push_service.dart';
 import '../../main.dart';
 import 'login_screen.dart';
 import 'main_wrapper.dart';
+import 'offline_limit_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'terms_conditions_screen.dart';
 import '../../core/constants/api_constants.dart';
@@ -458,6 +461,10 @@ class _SplashScreenState extends State<SplashScreen>
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
+        // 🔒 رد ناجح من السيرفر → إعادة تعيين حد الدخول أوفلاين للحد الكامل.
+        // (updateFromInitData أدناه تنظّف أيضاً أي تحميلات صلاحيتها ملغاة.)
+        await OfflineAccessGuard.instance.resetOnSuccessfulSync();
+
         AppState().updateFromInitData(response.data);
 
         bool serverFreeMode = response.data['freeModeV11'] ?? false;
@@ -519,25 +526,56 @@ class _SplashScreenState extends State<SplashScreen>
     } catch (serverError) {
       FirebaseCrashlytics.instance.log("Splash Offline Mode: $serverError");
 
+      // 🔒 حدّ الدخول بدون إنترنت: نحتسب هذا الدخول *قبل* تحميل أي بيانات
+      // مخبأة. إن استُنفد الحد لا نُحمّل شيئاً ونعرض شاشة اشتراط الاتصال.
+      final OfflineEntryResult entry =
+          await OfflineAccessGuard.instance.consumeEntry();
+      if (!entry.allowed) {
+        await _navigateToFinalDestination(const OfflineLimitScreen());
+        return;
+      }
+
       bool offlineSuccess = await AppState().loadOfflineData();
+
+      // 🔒 رسالة "المتبقي من حد الدخول بدون إنترنت" — تُعرض في كل دخول
+      // أوفلاين (سواء وُجد كاش أم لا) على شكل توست فقط.
+      String? countMessage;
+      if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        final int? remaining = entry.remaining;
+        if (remaining != null) {
+          countMessage = remaining == 0
+              ? l10n.offlineEntryLastMessage
+              : l10n.offlineEntryRemainingMessage(remaining, entry.max);
+        }
+      }
+      final bool isLastEntry = entry.isLastEntry;
 
       if (offlineSuccess) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(AppLocalizations.of(context)!.offlineModeEnteredMessage),
-              backgroundColor: AppColors.accentOrange,
-              duration: const Duration(seconds: 3),
+              content: Text(countMessage ??
+                  AppLocalizations.of(context)!.offlineModeEnteredMessage),
+              // آخر دخول → لون تحذير أقوى
+              backgroundColor:
+                  isLastEntry ? AppColors.error : AppColors.accentOrange,
+              duration: const Duration(seconds: 5),
             ),
           );
         }
         await _navigateToFinalDestination(const MainWrapper());
       } else {
         if (mounted) {
+          final limited =
+              AppLocalizations.of(context)!.offlineModeLimitedMessage;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-                content: Text(AppLocalizations.of(context)!.offlineModeLimitedMessage),
-                backgroundColor: Colors.grey),
+              content: Text(
+                  countMessage == null ? limited : '$limited\n$countMessage'),
+              backgroundColor: isLastEntry ? AppColors.error : Colors.grey,
+              duration: const Duration(seconds: 5),
+            ),
           );
         }
         await _navigateToFinalDestination(const MainWrapper());
