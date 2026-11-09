@@ -119,6 +119,10 @@ import UIKit
                 secureLog("🔍 Amr AI: iOS Jailbreak Check -> \(isJailbroken)")
                 result(isJailbroken)
 
+            // ✅ كشف تشغيل التطبيق على Mac (تطبيق iPhone/iPad على Apple silicon)
+            case "isRunningOnMac":
+                result(self.macEnvironmentInfo())
+
             default:
                 result(FlutterMethodNotImplemented)
             }
@@ -310,6 +314,39 @@ extension AppDelegate {
             "isScreenCaptured": UIScreen.main.isCaptured,
             "hasExternalDisplay": UIScreen.screens.count > 1,
         ]
+    }
+
+    // ✅ كشف تشغيل التطبيق على Mac (iPhone/iPad app على Apple silicon أو Mac Catalyst).
+    // إشارتين مستقلتين:
+    //   1) ProcessInfo.isiOSAppOnMac / isMacCatalystApp (الـ API الرسمي من Apple)
+    //   2) اسم الموديل من sysctl (hw.model): على الماك بيبدأ بـ Mac/iMac/VirtualMac،
+    //      وعلى iPhone/iPad بيكون كود لوحة زي "D74AP" (فمفيش false positive).
+    // الـ Simulator مستثنى: بيفضل على مسار SafeDevice.isRealDevice زي ما كان.
+    private func macEnvironmentInfo() -> [String: Any] {
+        #if targetEnvironment(simulator)
+            return ["is_mac": false, "reason": "simulator"]
+        #else
+            let onMac = ProcessInfo.processInfo.isiOSAppOnMac
+            let catalyst = ProcessInfo.processInfo.isMacCatalystApp
+            let model = sysctlString("hw.model")
+            let modelLooksMac =
+                model.hasPrefix("Mac") || model.hasPrefix("iMac") || model.hasPrefix("VirtualMac")
+            return [
+                "is_mac": onMac || catalyst || modelLooksMac,
+                "ios_app_on_mac": onMac,
+                "mac_catalyst": catalyst,
+                "hw_model": model,
+                "hw_model_looks_mac": modelLooksMac,
+            ]
+        #endif
+    }
+
+    private func sysctlString(_ name: String) -> String {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return "" }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return "" }
+        return String(cString: buffer)
     }
 
     private func isDeviceJailbroken() -> Bool {
