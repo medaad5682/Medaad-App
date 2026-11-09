@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:safe_device/safe_device.dart';
 import 'package:screen_protector/screen_protector.dart';
-import 'package:battery_plus/battery_plus.dart';
-import 'package:sensors_plus/sensors_plus.dart';
 
 // =========================================================
 // 🛡️ كلاس إدارة الحماية (Security Manager)
@@ -28,7 +26,7 @@ enum BreachType {
 class _HardwareResult {
   final bool isReal;
 
-  /// اسم الاختبار الذي فشل (native_root / battery / accelerometer) أو null
+  /// اسم الاختبار الذي فشل (native_root / emulator_signals) أو null
   final String? failedStep;
 
   /// تفاصيل ما حدث في الاختبار
@@ -53,6 +51,10 @@ class SecurityManager {
 
   // نتيجة فحص الهاردوير (Cache) لعدم تكراره عند العودة من الخلفية
   bool? _cachedIsHardwareReal;
+
+  /// الحد الأدنى لمجموع نقاط مؤشرات المحاكي (الأوزان في MainActivity.getEmulatorSignals):
+  /// 3 = دليل قاطع واحد أو (إشارتين قويتين) أو (قوية + ضعيفة مضاعفة).
+  static const int _emulatorScoreThreshold = 3;
 
   void initListeners() {
     _audioProtection.startMonitoring();
@@ -134,64 +136,59 @@ class SecurityManager {
       steps['native_root'] = 'channel_error: ${e.runtimeType}';
     }
 
-    // 2. Battery presence — emulators return 0 / -1 or throw
+    // 2. مؤشرات المحاكي (native) — نظام نقاط حتمي بدون أي اعتماد على توقيت.
+    // (استبدل فحص البطارية والأكسيليرومتر القديمين اللي كانوا بيعتمدوا على
+    //  انتظار events وبيدّوا false positives على أجهزة حقيقية.)
+    Map<String, String> sig = const {};
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      sig = await _nativeMap('getEmulatorSignals');
+      if (sig['score'] != null) break;
+    }
+    final score = int.tryParse(sig['score'] ?? '');
+    steps['emulator_score'] = '${score ?? 'unavailable'}/$_emulatorScoreThreshold';
+    steps['emulator_signals'] = sig['signals'] ?? 'none';
+    steps['gl_renderer'] = sig['gl_renderer'] ?? '';
+    steps['abis'] = sig['abis'] ?? '';
+    steps['is_arc'] = sig['is_arc'] ?? '';
+
+    if (score == null) {
+      // الـ MethodChannel داخل نفس العملية (in-process) ونادراً جداً يفشل.
+      // لو حصل: نسجله كخطأ بنية تحتية، ومانخزنش نتيجة "حقيقي" في الـ cache
+      // فيتعاد الفحص في المرة الجاية.
+      steps['emulator_signals_error'] =
+          sig['diag_error'] ?? sig['error'] ?? 'no score';
+      unawaited(_safeRecord(
+        StateError('getEmulatorSignals unavailable: ${steps['emulator_signals_error']}'),
+        StackTrace.current,
+        reason: 'SecurityCheck emulator signals unavailable',
+      ));
+      return _HardwareResult(true, null, null, steps);
+    }
+
     try {
-      final battery = Battery();
-      final level = await battery.batteryLevel;
-      steps['battery_level'] = level.toString();
-      if (level <= 0) {
-        return _HardwareResult(
-          false,
-          'battery',
-          'مستوى البطارية = $level (المحاكي عادة يرجّع 0 أو -1)',
-          steps,
-        );
-      }
-    } catch (e) {
-      steps['battery_level'] = 'exception: ${e.runtimeType}';
+      unawaited(FirebaseCrashlytics.instance.setCustomKey('sec_emu_score', score));
+    } catch (_) {}
+
+    if (score >= _emulatorScoreThreshold) {
       return _HardwareResult(
         false,
-        'battery',
-        'تعذّر قراءة البطارية (${e.runtimeType}: $e) → اعتُبر محاكي',
+        'emulator_signals',
+        'مجموع مؤشرات المحاكي = $score (الحد = $_emulatorScoreThreshold): ${sig['signals']}',
         steps,
       );
     }
 
-    // 3. Accelerometer availability
-    bool sensorPresent = false;
-    String? sensorError;
-    int sensorEvents = 0;
-    try {
-      final sub = accelerometerEventStream(
-              samplingPeriod: SensorInterval.normalInterval)
-          .timeout(const Duration(milliseconds: 500))
-          .listen(
-        (_) {
-          sensorPresent = true;
-          sensorEvents++;
-        },
-        onError: (error) {
-          sensorPresent = false;
-          sensorError = '${error.runtimeType}: $error';
-        },
-      );
-      await Future.delayed(const Duration(milliseconds: 600));
-      await sub.cancel();
-    } catch (e) {
-      sensorError = '${e.runtimeType}: $e';
-    }
-    steps['accelerometer'] =
-        'events=$sensorEvents, error=${sensorError ?? 'none'}';
-
-    if (!sensorPresent) {
-      return _HardwareResult(
-        false,
-        'accelerometer',
-        sensorError != null
-            ? 'الحساس رمى خطأ: $sensorError'
-            : 'لم تصل أي قراءة من الأكسيليرومتر خلال 600ms (لا يوجد حساس حقيقي)',
-        steps,
-      );
+    // "شبه خرق": الجهاز عدّى لكن عنده نقاط (2..حد-1). (نقطة واحدة = ضوضاء متوقعة، بتظهر في sec_emu_score بس). ده مش بيغيّر أي قرار —
+    // بس بيسجّل non-fatal مرة واحدة لكل تشغيل (النتيجة بتتخزن في الـ cache)
+    // عشان تشوف في Crashlytics هواتف حقيقية بتقرّب من الحد قبل ما تتقفل.
+    if (score >= 2) {
+      unawaited(_safeRecord(
+        SecurityNearMissException(score, sig['signals'] ?? '', sig['gl_renderer'] ?? '', sig['abis'] ?? ''),
+        StackTrace.fromString(
+            '#0      SecurityNearMiss.emulatorScore (package:Medaad/core/services/security_manager.dart:1:1)\n'
+            '#1      SecurityManager._hardwareCheck (package:Medaad/core/services/security_manager.dart:1:1)\n'),
+        reason: 'SecurityNearMiss score=$score',
+      ));
     }
 
     _cachedIsHardwareReal = true;
@@ -545,4 +542,19 @@ class SecurityBreachException implements Exception {
   @override
   String toString() =>
       'SecurityBreachException(${type.name}): $uiMessage\n$details';
+}
+
+/// يظهر في Crashlytics باسم SecurityNearMissException: جهاز عدّى الفحص لكن
+/// عنده مؤشرات محاكي (للمراقبة وضبط الأوزان فقط).
+class SecurityNearMissException implements Exception {
+  final int score;
+  final String signals;
+  final String glRenderer;
+  final String abis;
+
+  SecurityNearMissException(this.score, this.signals, this.glRenderer, this.abis);
+
+  @override
+  String toString() =>
+      'SecurityNearMissException(score=$score): $signals | gl=$glRenderer | abis=$abis';
 }
