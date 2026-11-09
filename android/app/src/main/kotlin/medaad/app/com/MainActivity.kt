@@ -6,6 +6,12 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.media.AudioRecordingConfiguration
+import android.hardware.Sensor
+import android.hardware.SensorManager
+import android.opengl.EGL14
+import android.opengl.GLES20
+import android.os.BatteryManager
+import android.content.IntentFilter
 import android.os.Build
 import android.view.MotionEvent
 import android.view.WindowManager
@@ -98,6 +104,19 @@ class MainActivity: FlutterActivity() {
                 "isDeviceRooted" -> {
                     result.success(isDeviceRooted())
                 }
+                // كشف المحاكي بنظام نقاط (يشتغل على thread خلفي لأن فيه EGL)
+                "getEmulatorSignals" -> {
+                    Thread {
+                        val m: Map<String, Any> = try {
+                            getEmulatorSignals()
+                        } catch (e: Throwable) {
+                            mapOf("error" to (e.message ?: e.javaClass.simpleName))
+                        }
+                        runOnUiThread {
+                            try { result.success(m) } catch (e: Throwable) { /* engine/activity انتهى */ }
+                        }
+                    }.start()
+                }
                 // تشخيص تفصيلي: أي فحص بالظبط فشل (يُرسل لـ Crashlytics)
                 "getSecurityDiagnostics" -> {
                     result.success(getSecurityDiagnostics())
@@ -182,6 +201,212 @@ class MainActivity: FlutterActivity() {
             e.printStackTrace()
         }
         return false
+    }
+
+    // =====================================================================
+    // 🔬 كشف المحاكي بنظام نقاط حتمي (Deterministic scoring)
+    // كل إشارة لها وزن، والمجموع >= 3 (ثابت في Dart) = محاكي.
+    //  - وزن 3 : دليل قاطع لوحده (qemu / ملفات محاكيات / حساس افتراضي / GPU برمجي ...)
+    //  - وزن 2 : إشارة قوية لكن مش كافية لوحدها (x86 / ARM-translation / GPU كمبيوتر)
+    //  - وزن 1 : إشارة ضعيفة تكمّل غيرها
+    // مفيش أي إشارة معتمدة على توقيت أو انتظار events، فنفس الجهاز بيدي
+    // نفس النتيجة كل مرة.
+    // =====================================================================
+    private fun sysProp(key: String): String = try {
+        val c = Class.forName("android.os.SystemProperties")
+        (c.getMethod("get", String::class.java).invoke(null, key) as? String) ?: ""
+    } catch (e: Throwable) { "" }
+
+    private fun fileContains(path: String, needles: List<String>): Boolean = try {
+        val f = File(path)
+        if (!f.exists() || !f.canRead()) false
+        else {
+            val text = f.readText().lowercase()
+            needles.any { text.contains(it) }
+        }
+    } catch (e: Throwable) { false }
+
+    // قراءة GL_RENDERER من EGL context مؤقت (على thread خلفي).
+    // مهم: لا نستدعي eglTerminate أبداً لأن الـ display مشترك مع Flutter.
+    private fun readGlRenderer(): String {
+        var display: android.opengl.EGLDisplay? = null
+        var ctx: android.opengl.EGLContext? = null
+        var surf: android.opengl.EGLSurface? = null
+        try {
+            display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+            if (display == null || display == EGL14.EGL_NO_DISPLAY) return ""
+            val ver = IntArray(2)
+            if (!EGL14.eglInitialize(display, ver, 0, ver, 1)) return ""
+            val cfgAttrs = intArrayOf(
+                EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+                EGL14.EGL_NONE
+            )
+            val configs = arrayOfNulls<android.opengl.EGLConfig>(1)
+            val num = IntArray(1)
+            if (!EGL14.eglChooseConfig(display, cfgAttrs, 0, configs, 0, 1, num, 0) || num[0] <= 0) return ""
+            val ctxAttrs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+            ctx = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT, ctxAttrs, 0)
+            val surfAttrs = intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE)
+            surf = EGL14.eglCreatePbufferSurface(display, configs[0], surfAttrs, 0)
+            if (!EGL14.eglMakeCurrent(display, surf, surf, ctx)) return ""
+            val renderer = GLES20.glGetString(GLES20.GL_RENDERER) ?: ""
+            val vendor = GLES20.glGetString(GLES20.GL_VENDOR) ?: ""
+            return "$renderer | $vendor"
+        } catch (e: Throwable) {
+            return ""
+        } finally {
+            try {
+                if (display != null && display != EGL14.EGL_NO_DISPLAY) {
+                    EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                    if (surf != null) EGL14.eglDestroySurface(display, surf)
+                    if (ctx != null) EGL14.eglDestroyContext(display, ctx)
+                }
+            } catch (e: Throwable) { /* ignore */ }
+        }
+    }
+
+    private fun getEmulatorSignals(): Map<String, Any> {
+        val signals = ArrayList<String>()
+        var score = 0
+        fun add(name: String, weight: Int) {
+            signals.add("$name(+$weight)")
+            score += weight
+        }
+
+        // ChromeOS (ARC) أجهزة حقيقية بمعالج x86 وبترجمة ARM — نستثنيها من إشارات x86/GPU
+        val isArc = try {
+            packageManager.hasSystemFeature("org.chromium.arc") ||
+                packageManager.hasSystemFeature("org.chromium.arc.device_management")
+        } catch (e: Throwable) { false }
+
+        // ---- (3) بيانات الـ Build ----
+        val fp = (Build.FINGERPRINT ?: "").lowercase()
+        val hw = (Build.HARDWARE ?: "").lowercase()
+        val prod = (Build.PRODUCT ?: "").lowercase()
+        val model = (Build.MODEL ?: "").lowercase()
+        val manu = (Build.MANUFACTURER ?: "").lowercase()
+        val brand = (Build.BRAND ?: "").lowercase()
+        val device = (Build.DEVICE ?: "").lowercase()
+        val vendorNames = listOf("genymotion", "bluestacks", "droid4x", "ldplayer", "memu")
+        val buildHit =
+            fp.startsWith("generic") || fp.contains("vbox") || fp.contains("emulator") ||
+            hw.contains("goldfish") || hw.contains("ranchu") || hw.contains("vbox") ||
+            prod.contains("sdk_gphone") || prod.contains("google_sdk") ||
+            prod.contains("emulator") || prod.contains("vbox") ||
+            model.contains("sdk_gphone") || model.contains("emulator") ||
+            model.contains("android sdk built for") ||
+            device.startsWith("generic") ||
+            vendorNames.any { manu.contains(it) || brand.contains(it) || model.contains(it) }
+        if (buildHit) add("build_props", 3)
+
+        // ---- (3) qemu system properties ----
+        val bootHw = sysProp("ro.boot.hardware").lowercase()
+        if (sysProp("ro.kernel.qemu") == "1" || sysProp("ro.boot.qemu") == "1" ||
+            bootHw.contains("goldfish") || bootHw.contains("ranchu")) {
+            add("qemu_props", 3)
+        }
+
+        // ---- (3) ملفات/devices خاصة بالمحاكيات (قائمة best-effort) ----
+        val emuFiles = listOf(
+            "/dev/socket/qemud", "/dev/qemu_pipe", "/dev/goldfish_pipe",
+            "/sys/qemu_trace", "/system/bin/qemu-props",
+            "/dev/socket/genyd", "/dev/socket/baseband_genyd",
+            "/dev/vboxguest", "/dev/vboxuser", "/system/lib/vboxguest.ko",
+            "/ueventd.android_x86.rc", "/x86.prop", "/ueventd.ttVM_x86.rc",
+            "/init.ttVM_x86.rc", "/fstab.ttVM_x86", "/fstab.vbox86",
+            "/init.vbox86.rc", "/ueventd.vbox86.rc",
+            "/fstab.andy", "/ueventd.andy.rc",
+            "/fstab.nox", "/init.nox.rc", "/ueventd.nox.rc",
+            "/BigNoxGameHD", "/YSLauncher",
+            "/data/.bluestacks.prop", "/mnt/windows/BstSharedFolder"
+        )
+        val foundEmuFiles = emuFiles.filter {
+            try { File(it).exists() } catch (e: Throwable) { false }
+        }
+        if (foundEmuFiles.isNotEmpty()) add("emu_files[" + foundEmuFiles.joinToString(",") + "]", 3)
+
+        if (fileContains("/proc/tty/drivers", listOf("goldfish")) ||
+            fileContains("/proc/cpuinfo", listOf("goldfish", "ranchu"))) {
+            add("proc_goldfish", 3)
+        }
+
+        // ---- الحساسات (حتمي: بنسأل SensorManager، مش بننتظر events) ----
+        try {
+            val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            val acc = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            if (acc == null) {
+                add("no_accelerometer", 3)
+            } else {
+                val sn = ((acc.name ?: "") + " " + (acc.vendor ?: "")).lowercase()
+                if (listOf("goldfish", "ranchu", "genymotion", "bluestacks", "vbox", "emulator").any { sn.contains(it) }) {
+                    add("virtual_accelerometer", 3)
+                } else if (sn.contains("android open source project")) {
+                    add("aosp_accelerometer_vendor", 1)
+                }
+            }
+        } catch (e: Throwable) { /* لا إشارة */ }
+
+        // ---- (2) معمارية x86 / ترجمة ARM ----
+        if (!isArc) {
+            val abis = Build.SUPPORTED_ABIS ?: emptyArray<String>()
+            if (abis.any { it.startsWith("x86") }) add("x86_abi", 2)
+            val translation = listOf(
+                "/system/lib/libhoudini.so", "/system/lib64/libhoudini.so",
+                "/system/lib/libndk_translation.so", "/system/lib64/libndk_translation.so"
+            )
+            if (translation.any { try { File(it).exists() } catch (e: Throwable) { false } }) {
+                add("arm_translation_lib", 2)
+            }
+        }
+
+        // ---- كارت الشاشة (GL_RENDERER) ----
+        val gl = readGlRenderer()
+        val glLower = gl.lowercase()
+        if (glLower.isNotEmpty()) {
+            val softwareGl = listOf("android emulator", "swiftshader", "llvmpipe",
+                "virtualbox", "vmware", "gdi generic")
+            val pcGpu = listOf("geforce", "radeon", "intel(r)", "intel hd", "intel uhd",
+                "intel iris", "amd ")
+            // استثناء ضيق: Samsung Exynos بكارت Xclipse (معمارية AMD RDNA) —
+            // لازم الشروط التلاتة مع بعض: الاسم فيه xclipse + المصنّع samsung + مفيش x86.
+            // فحص الكروت البرمجية (software_gpu) بيتقيّم قبله ومش بيتأثر.
+            val hasX86Abi = (Build.SUPPORTED_ABIS ?: emptyArray<String>()).any { it.startsWith("x86") }
+            val samsungXclipse = glLower.contains("xclipse") && manu.contains("samsung") && !hasX86Abi
+            if (softwareGl.any { glLower.contains(it) }) {
+                add("software_gpu", 3)
+            } else if (!isArc && !glLower.contains("tegra") &&
+                (pcGpu.any { glLower.contains(it) } || glLower.contains("nvidia"))) {
+                if (samsungXclipse) {
+                    signals.add("pc_gpu_exempt_samsung_xclipse(+0)")
+                } else {
+                    add("pc_gpu", 2)
+                }
+            }
+        }
+
+        // ---- البطارية (قراءة native فورية بدون انتظار) ----
+        try {
+            val b = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            if (b != null) {
+                val present = b.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true)
+                val voltage = b.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
+                val temp = b.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
+                // 5000mV و25.0°C = القيم الافتراضية لبطارية الـ AVD (Li-ion الحقيقية أقصاها ~4.45V)
+                if (voltage == 5000 && temp == 250) add("avd_battery_signature", 2)
+                if (!present) add("no_battery_present", 1)
+            }
+        } catch (e: Throwable) { /* لا إشارة */ }
+
+        if (Runtime.getRuntime().availableProcessors() < 2) add("cpu_cores_lt2", 1)
+
+        val d = HashMap<String, Any>()
+        d["score"] = score
+        d["signals"] = if (signals.isEmpty()) "none" else signals.joinToString(" | ")
+        d["is_arc"] = isArc
+        d["gl_renderer"] = gl
+        d["abis"] = (Build.SUPPORTED_ABIS ?: emptyArray<String>()).joinToString(",")
+        return d
     }
 
     // ✅ تشخيص تفصيلي لكل فحص native على حدة + بيانات الجهاز (Build).
