@@ -20,6 +20,7 @@ enum BreachType {
   developerOptions,
   screenRecording,
   screenshot,
+  macDevice,
   unknown,
 }
 
@@ -222,17 +223,59 @@ class SecurityManager {
     final isDevMode = await SafeDevice.isDevelopmentModeEnable;
     final isRealDeviceSafe = await SafeDevice.isRealDevice;
     final hw = await _hardwareCheck();
+    final mac = await _macCheck();
     return _ScanResult(
       isJailBroken: isJailBroken,
       isDevMode: isDevMode,
       isRealDeviceSafe: isRealDeviceSafe,
       hardware: hw,
+      isMac: mac.isMac,
+      macInfo: mac.info,
     );
+  }
+
+  _MacResult? _cachedMac;
+
+  /// كشف صريح لتشغيل تطبيق iPhone/iPad على Mac (Apple silicon).
+  /// Android: دايماً false. النتيجة بتتخزن (البيئة ما بتتغيرش في نفس العملية).
+  Future<_MacResult> _macCheck() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) {
+      return const _MacResult(false, {'mac_check': 'skipped (non-ios)'});
+    }
+    final cached = _cachedMac;
+    if (cached != null) return cached;
+
+    final info = await _nativeMap('isRunningOnMac');
+    if (info['is_mac'] == null) {
+      // فشل استدعاء native (نادر: القناة داخل نفس العملية): fail-open + تسجيل،
+      // ومانخزنش النتيجة عشان الفحص يتعاد في المرة الجاية.
+      unawaited(_safeRecord(
+        StateError('isRunningOnMac unavailable: ${info['diag_error'] ?? info}'),
+        StackTrace.current,
+        reason: 'SecurityCheck mac signal unavailable',
+      ));
+      return _MacResult(false, {...info, 'mac_check': 'unavailable'});
+    }
+    final result = _MacResult(info['is_mac'] == 'true', info);
+    _cachedMac = result;
+    return result;
   }
 
   Future<bool> _runCheck() async {
     try {
       final scan = await _scan();
+
+      // Mac أولاً: على الماك فحوصات الجيلبريك/الهاردوير ممكن تفشل بالصدفة وتظهر
+      // رسالة "محاكي" مضللة، فنقدّم الرسالة الصريحة.
+      if (scan.isMac) {
+        _triggerBreach(
+          "غير مسموح بتشغيل التطبيق على أجهزة Mac",
+          type: BreachType.macDevice,
+          source: 'periodic_or_startup_check',
+          scan: scan,
+        );
+        return false;
+      }
 
       if (!scan.isRealDeviceSafe || !scan.hardware.isReal) {
         _triggerBreach(
@@ -379,8 +422,16 @@ class SecurityManager {
           lines.add('  hw.$k = $v');
         });
 
+        // فحص Mac (iOS فقط)
+        if (scan.macInfo['mac_check'] != 'skipped (non-ios)') {
+          keys['sec_is_mac'] = scan.isMac;
+          scan.macInfo.forEach((k, v) => keys['sec_mac_$k'] = v);
+          lines.add('فحص Mac: isMac=${scan.isMac} | ${scan.macInfo}');
+        }
+
         // أسباب مفصلة لكل نوع
         final failed = <String>[
+          if (scan.isMac) 'mac_environment',
           if (!scan.isRealDeviceSafe) 'safedevice_isRealDevice',
           if (!scan.hardware.isReal) 'hardware:${scan.hardware.failedStep}',
           if (scan.isJailBroken) 'safedevice_isJailBroken',
@@ -490,6 +541,7 @@ class SecurityManager {
     final scan = await _scan();
 
     if (!isRecording &&
+        !scan.isMac &&
         !scan.isDevMode &&
         !scan.isJailBroken &&
         scan.isRealDeviceSafe &&
@@ -503,6 +555,9 @@ class SecurityManager {
     if (isRecording) {
       type = BreachType.screenRecording;
       message = "لا يزال تسجيل الشاشة قيد العمل!";
+    } else if (scan.isMac) {
+      type = BreachType.macDevice;
+      message = "لا يمكنك استخدام التطبيق على جهاز Mac، استخدم هاتفاً حقيقياً!";
     } else if (!scan.isRealDeviceSafe || !scan.hardware.isReal) {
       type = BreachType.emulator;
       message = "لا يمكنك استخدام المحاكي، استخدم هاتف حقيقي!";
@@ -534,12 +589,24 @@ class _ScanResult {
   final bool isRealDeviceSafe;
   final _HardwareResult hardware;
 
+  /// تشغيل التطبيق على Mac (iPhone/iPad app على Apple silicon)
+  final bool isMac;
+  final Map<String, String> macInfo;
+
   const _ScanResult({
     required this.isJailBroken,
     required this.isDevMode,
     required this.isRealDeviceSafe,
     required this.hardware,
+    required this.isMac,
+    required this.macInfo,
   });
+}
+
+class _MacResult {
+  final bool isMac;
+  final Map<String, String> info;
+  const _MacResult(this.isMac, this.info);
 }
 
 /// استثناء مخصص يظهر في Crashlytics باسم واضح ومعه كل التفاصيل
