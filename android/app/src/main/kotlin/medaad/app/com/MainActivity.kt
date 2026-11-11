@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.media.AudioRecordingConfiguration
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.opengl.EGL14
@@ -334,9 +335,26 @@ class MainActivity: FlutterActivity() {
         // ---- الحساسات (حتمي: بنسأل SensorManager، مش بننتظر events) ----
         try {
             val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-            val acc = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            var acc = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            // بعض الأجهزة الحقيقية بترجّع null من getDefaultSensor رغم وجود الحساس
+            // (أو بيكون موجود كنسخة wake-up/uncalibrated فقط) — فنسأل بطرق تانية.
             if (acc == null) {
-                add("no_accelerometer", 3)
+                acc = sm.getSensorList(Sensor.TYPE_ACCELEROMETER).firstOrNull()
+            }
+            val allSensors = try { sm.getSensorList(Sensor.TYPE_ALL) } catch (e: Throwable) { emptyList<Sensor>() }
+            val hasAccFeature = try {
+                packageManager.hasSystemFeature(PackageManager.FEATURE_SENSOR_ACCELEROMETER)
+            } catch (e: Throwable) { false }
+            signals.add("sensors_total=" + allSensors.size + ",acc_feature=" + hasAccFeature)
+            if (acc == null) {
+                when {
+                    // مفيش ولا حساس خالص = نمط محاكي حقيقي
+                    allSensors.isEmpty() -> add("no_sensors_at_all", 3)
+                    // النظام نفسه معلن إن الجهاز فيه accelerometer → مش محاكي
+                    hasAccFeature -> signals.add("acc_missing_but_feature_declared(+0)")
+                    // غياب لوحده ضعيف: جهاز اقتصادي ممكن ناقصه الحساس
+                    else -> add("no_accelerometer", 1)
+                }
             } else {
                 val sn = ((acc.name ?: "") + " " + (acc.vendor ?: "")).lowercase()
                 if (listOf("goldfish", "ranchu", "genymotion", "bluestacks", "vbox", "emulator").any { sn.contains(it) }) {
