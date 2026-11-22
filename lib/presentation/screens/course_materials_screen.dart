@@ -93,6 +93,13 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
     }
   }
 
+  // 🔄 السحب للتحديث: يعيد تحميل بيانات التطبيق (لتظهر أي اشتراكات جديدة) ثم قائمة المواد.
+  // (مدمج معه حد أدنى 5 ثوانٍ بين كل سحب وآخر).
+  Future<void> _onPullToRefresh() async {
+    await AppState().reloadAppInitFromPull();
+    await _fetchSubjects();
+  }
+
   @override
   Widget build(BuildContext context) {
     final String displayInstructor = widget.instructorName ??
@@ -235,8 +242,17 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                     ? Center(
                         child: CircularProgressIndicator(
                             color: AppColors.accentYellow))
-                    : _ownedSubjects.isEmpty
-                        ? Center(
+                    : RefreshIndicator(
+                        color: AppColors.accentYellow,
+                        backgroundColor: AppColors.backgroundSecondary,
+                        onRefresh: _onPullToRefresh,
+                        child: _ownedSubjects.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                          SizedBox(
+                            height: MediaQuery.of(context).size.height * 0.4,
+                            child: Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -258,8 +274,12 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                                 )
                               ],
                             ),
+                          ),
+                          ),
+                            ],
                           )
                         : GridView.builder(
+                            physics: const AlwaysScrollableScrollPhysics(),
                             padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
                             gridDelegate:
                                 SliverGridDelegateWithFixedCrossAxisCount(
@@ -435,6 +455,7 @@ class _CourseMaterialsScreenState extends State<CourseMaterialsScreen> {
                               );
                             },
                           ),
+                      ),
               ),
             ],
           ),

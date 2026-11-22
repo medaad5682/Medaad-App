@@ -102,6 +102,23 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
     );
   }
 
+  // 🔄 السحب للتحديث: إعادة جلب محتوى المادة بصمت (بدون شاشة تحميل كاملة).
+  // لو فشل التحديث (مثلاً انقطع الإنترنت) نُبقي المحتوى المعروض بدل استبداله بشاشة
+  // الخطأ — إلا إذا كان الرفض بسبب الصلاحية (منتهي/غير مشترك) فيُعرض كما هو.
+  Future<void> _onPullToRefresh() async {
+    final previousContent = _content;
+    await _fetchContent();
+    if (mounted &&
+        _error != null &&
+        _accessDenialReason == null &&
+        previousContent != null) {
+      setState(() {
+        _content = previousContent;
+        _error = null;
+      });
+    }
+  }
+
   Future<void> _fetchContent() async {
     try {
       final res = await ApiClient.instance.get(
@@ -670,9 +687,14 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
             // Content List
             Expanded(
-              child: _activeTab == 'chapters'
-                  ? _buildChaptersList(chapters)
-                  : _buildExamsList(exams),
+              child: RefreshIndicator(
+                color: AppColors.accentYellow,
+                backgroundColor: AppColors.backgroundSecondary,
+                onRefresh: _onPullToRefresh,
+                child: _activeTab == 'chapters'
+                    ? _buildChaptersList(chapters)
+                    : _buildExamsList(exams),
+              ),
             ),
           ],
         ),
@@ -704,6 +726,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
     }
 
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 24),
       // [فاصل «Exams» + الامتحانات] ثم [فاصل «Flashcards» + المجموعات] — كل فاصل يظهر فقط إن وُجد قسمه
       itemCount: (visibleExams.isEmpty ? 0 : visibleExams.length + 1) +
@@ -1124,6 +1147,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
 
     if (!hasAnyFolder) {
       return ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 24),
         itemCount: chapters.length,
         itemBuilder: (context, index) =>
@@ -1159,6 +1183,7 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
     }
 
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 24),
       itemCount: entries.length,
       itemBuilder: (context, i) {
@@ -1492,24 +1517,37 @@ class _SubjectMaterialsScreenState extends State<SubjectMaterialsScreen> {
   }
 
   Widget _buildEmptyState(IconData icon, String message) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 48, color: AppColors.textSecondary.withOpacity(0.3)),
-          const SizedBox(height: 16),
-          Text(
-            message.toUpperCase(),
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 2.0,
-              color: AppColors.textSecondary.withOpacity(0.5),
+    // 🔄 قابلة للسحب للتحديث حتى لو القائمة فاضية (RefreshIndicator يحتاج عنصراً قابلاً للتمرير)
+    return LayoutBuilder(builder: (context, constraints) {
+      final double minHeight =
+          constraints.hasBoundedHeight ? constraints.maxHeight : 0;
+      return SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: minHeight),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon,
+                    size: 48,
+                    color: AppColors.textSecondary.withOpacity(0.3)),
+                const SizedBox(height: 16),
+                Text(
+                  message.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2.0,
+                    color: AppColors.textSecondary.withOpacity(0.5),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
-    );
+        ),
+      );
+    });
   }
 }
 

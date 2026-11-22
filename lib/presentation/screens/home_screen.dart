@@ -31,7 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final PageController _pageController = PageController();
 
   // جلب البيانات من مدير الحالة المركزي
-  final _allCourses = AppState().allCourses;
+  List<CourseModel> _allCourses = AppState().allCourses; // ✅ غير final حتى يتحدّث بعد السحب للتحديث
   final _user = AppState().userData;
     
   // قائمة لتخزين الكورسات العشوائية
@@ -92,6 +92,17 @@ class _HomeScreenState extends State<HomeScreen> {
         _isTeacher = role == 'teacher';
       });
     }
+  }
+
+  // 🔄 السحب للتحديث: يعيد تحميل بيانات التطبيق من السيرفر (get-app-init-data)
+  // ثم يحدّث قائمة الكورسات المعروضة. (مدمج معه حد أدنى 5 ثوانٍ بين كل سحب وآخر).
+  Future<void> _onPullToRefresh() async {
+    await AppState().reloadAppInitFromPull();
+    if (!mounted) return;
+    setState(() {
+      _allCourses = AppState().allCourses;
+    });
+    _generateRandomCourses();
   }
 
   @override
@@ -337,7 +348,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // --- Scrollable Content ---
             Expanded(
-              child: SingleChildScrollView(
+              child: RefreshIndicator(
+                color: AppColors.accentYellow,
+                backgroundColor: AppColors.backgroundSecondary,
+                onRefresh: _onPullToRefresh,
+                child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   children: [
@@ -568,6 +584,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                   ],
                 ),
+              ),
               ),
             ),
           ],

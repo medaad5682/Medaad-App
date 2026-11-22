@@ -111,8 +111,10 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
   }
 
 
-  Future<void> _refreshChapterData() async {
-    setState(() => _isLoading = true);
+  // showLoader=false (السحب للتحديث): لا نستبدل القائمة بدائرة تحميل لأن RefreshIndicator
+  // يعرض مؤشره الخاص. لو فشل التحديث تبقى البيانات الحالية معروضة كما هي.
+  Future<void> _refreshChapterData({bool showLoader = true}) async {
+    if (showLoader) setState(() => _isLoading = true);
     try {
       final res = await ApiClient.instance.get(
         '$_baseUrl/api/secure/get-subject-content',
@@ -137,6 +139,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  // 🔄 السحب للتحديث: يعيد جلب محتوى المادة بصمت ويحدّث بيانات هذا الفصل فقط.
+  Future<void> _onPullToRefresh() => _refreshChapterData(showLoader: false);
 
   void _handleReturnData(dynamic result) {
     if (result == true) {
@@ -888,9 +893,14 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                     ? Center(
                         child: CircularProgressIndicator(
                             color: AppColors.accentYellow))
-                    : activeTab == 'videos'
-                        ? _buildVideosList(videos)
-                        : _buildPdfsList(pdfs),
+                    : RefreshIndicator(
+                        color: AppColors.accentYellow,
+                        backgroundColor: AppColors.backgroundSecondary,
+                        onRefresh: _onPullToRefresh,
+                        child: activeTab == 'videos'
+                            ? _buildVideosList(videos)
+                            : _buildPdfsList(pdfs),
+                      ),
               ),
             ],
           ),
@@ -935,6 +945,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       return _buildEmptyState(LucideIcons.monitorPlay, AppLocalizations.of(context)!.noVideoLessonsMessage);
 
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(24),
       itemCount: videos.length,
       itemBuilder: (context, index) {
@@ -1272,6 +1283,7 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
       return _buildEmptyState(LucideIcons.fileText, AppLocalizations.of(context)!.noPdfFilesMessage);
 
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(24),
       itemCount: pdfs.length,
       itemBuilder: (context, index) {
@@ -1514,21 +1526,34 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
   }
 
   Widget _buildEmptyState(IconData icon, String message) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 48, color: AppColors.textSecondary.withOpacity(0.3)),
-          const SizedBox(height: 16),
-          Text(message.toUpperCase(),
-              style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 2.0,
-                  color: AppColors.textSecondary.withOpacity(0.5))),
-        ],
-      ),
-    );
+    // 🔄 قابلة للسحب للتحديث حتى لو القائمة فاضية (RefreshIndicator يحتاج عنصراً قابلاً للتمرير)
+    return LayoutBuilder(builder: (context, constraints) {
+      final double minHeight =
+          constraints.hasBoundedHeight ? constraints.maxHeight : 0;
+      return SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: minHeight),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon,
+                    size: 48,
+                    color: AppColors.textSecondary.withOpacity(0.3)),
+                const SizedBox(height: 16),
+                Text(message.toUpperCase(),
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2.0,
+                        color: AppColors.textSecondary.withOpacity(0.5))),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
   }
 
   void _showErrorSnackBar(String message) {

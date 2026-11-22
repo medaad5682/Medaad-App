@@ -76,8 +76,10 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
   }
 
   // ✅ منطق التحديث المعدل (الحل الجذري للمشكلة)
-  Future<void> _refreshData() async {
-    if (mounted) setState(() => _isUpdating = true); // إظهار التحميل فوراً
+  // showLoader=false (السحب للتحديث): لا نستبدل القائمة بدائرة تحميل، لأن
+  // RefreshIndicator يعرض مؤشره الخاص. fromPull=true يطبّق حداً أدنى 5 ثوانٍ بين كل سحب وآخر.
+  Future<void> _refreshData({bool showLoader = true, bool fromPull = false}) async {
+    if (showLoader && mounted) setState(() => _isUpdating = true); // إظهار التحميل فوراً
 
     try {
       // 1. إذا كان المستخدم مدرساً، نجبر التطبيق على جلب أحدث محتوى له من السيرفر وتحديث الكاش
@@ -92,7 +94,11 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
       }
 
       // 2. إعادة تحميل حالة التطبيق العامة (والتي ستقرأ الآن الكاش المحدث)
-      await AppState().reloadAppInit();
+      if (fromPull) {
+        await AppState().reloadAppInitFromPull();
+      } else {
+        await AppState().reloadAppInit();
+      }
     } catch (e) {
       debugPrint("Error refreshing data: $e");
     } finally {
@@ -339,8 +345,17 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
               )
             else
               Expanded(
-                child: libraryItems.isEmpty
-                    ? Center(
+                child: RefreshIndicator(
+                  color: AppColors.accentYellow,
+                  backgroundColor: AppColors.backgroundSecondary,
+                  onRefresh: () => _refreshData(showLoader: false, fromPull: true),
+                  child: libraryItems.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          SizedBox(
+                            height: MediaQuery.of(context).size.height * 0.4,
+                            child: Center(
                         child: Text(
                           AppLocalizations.of(context)!.noActiveCourses,
                           style: TextStyle(
@@ -350,6 +365,9 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                             letterSpacing: 2.0,
                           ),
                         ),
+                            ),
+                          ),
+                        ],
                       )
                     : Builder(builder: (context) {
                         // 📦 نبني قائمة "مسطّحة": كل عنصر مجلد باقة يتبعه
@@ -359,6 +377,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                         final rows = _flattenLibraryRows(libraryItems);
 
                         return ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.symmetric(horizontal: 24),
                           itemCount: rows.length,
                           itemBuilder: (context, index) {
@@ -380,6 +399,7 @@ class _MyCoursesScreenState extends State<MyCoursesScreen> {
                           },
                         );
                       }),
+                ),
               ),
           ],
         ),
