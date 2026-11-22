@@ -440,11 +440,11 @@ class AppState {
         List<String> allAuthSubjects = _getAllAuthorizedSubjectIds();
         DownloadManager().validateAndCleanRevokedDownloads(allAuthSubjects);
 
-        // ⏳ [Feature B] جلب عدّاد انتهاء الصلاحية لعناصر المكتبة (fire-and-forget:
-        // لا ننتظرها هنا حتى لا نُبطئ فتح التطبيق/تسجيل الدخول؛ إن فشلت لأي
-        // سبب فالمكتبة تبقى تعمل بشكل طبيعي بدون عدّاد فقط). راجع تعريفها
-        // أسفل الملف لشرح كامل.
-        unawaited(fetchAccessExpiryDetails());
+        // ⏳ [Feature B] تم إلغاء طلب /api/student/my-access هنا (كان يُرسل بعد كل
+        // get-app-init-data بدون أن تستخدم أي شاشة نتيجته، فكان يضيف طلباً زائداً
+        // على السيرفر في كل فتح للتطبيق). الدالة fetchAccessExpiryDetails() ما زالت
+        // موجودة أسفل الملف لو أردت إعادة تفعيل عدّاد الانتهاء مستقبلاً (بدل
+        // الطلب المنفصل يُفضّل بناؤه من بيانات library في get-app-init-data).
 
       } else {
         // إذا كان ضيفاً، نجعل المكتبة فارغة دائماً
@@ -565,6 +565,20 @@ class AppState {
       if (kDebugMode) print("❌ Offline Load Error: $e");
     }
     return false; // فشل التحميل أو لا توجد بيانات
+  }
+
+  // 🔄 [Pull-to-Refresh] نفس reloadAppInit() لكن مع حد أدنى بين كل سحب وآخر
+  // (افتراضياً 5 ثوانٍ) لحماية السيرفر من تكرار السحب المتتالي؛ أي سحب أثناء هذه
+  // الفترة يعود فوراً دون طلب. reloadAppInit() نفسها (المستدعاة بعد تعديل
+  // كورس/مادة) لا تتأثر ولا يوجد عليها أي حد.
+  DateTime? _lastPullRefreshAt;
+  Future<void> reloadAppInitFromPull(
+      {Duration minInterval = const Duration(seconds: 5)}) async {
+    final now = DateTime.now();
+    final last = _lastPullRefreshAt;
+    if (last != null && now.difference(last) < minInterval) return;
+    _lastPullRefreshAt = now;
+    await reloadAppInit();
   }
 
   // 🟢 دالة جديدة: تحديث بيانات التطبيق بالكامل من السيرفر
