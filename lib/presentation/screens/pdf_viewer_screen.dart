@@ -31,6 +31,7 @@ import '../../core/models/pdf_tool_settings.dart';
 import '../../core/pdf_viewer/pdf_tool.dart';
 import '../../core/pdf_viewer/pdf_load_failure.dart';
 import '../../core/pdf_viewer/pdf_layout_engine.dart';
+import '../../core/pdf_viewer/pdf_zoom_policy.dart';
 import '../../core/pdf_viewer/pdf_page_text_cache.dart';
 import '../../core/pdf_viewer/pdf_highlight_controller.dart';
 import '../../core/pdf_viewer/pdf_shape_controller.dart';
@@ -46,11 +47,6 @@ import '../widgets/pdf_tools/pdf_annotation_toolbar.dart';
 import '../widgets/pdf_tools/movable_text_note.dart';
 import '../widgets/pdf_tools/movable_resizable_image.dart';
 import '../widgets/pdf_tools/color_palette_row.dart';
-
-/// أصغر مستوى تكبير مسموح (1.0 = 72dpi) على الهواتف والأجهزة اللوحية. منخفض
-/// بما يكفي ليتيح التصغير أكثر من عرض الصفحة، ومرتفع بما يكفي كي لا تصبح
-/// الصفحة نقطة.
-const double _kPdfMinScale = 0.25;
 
 class PdfViewerScreen extends StatefulWidget {
   final String pdfId;
@@ -1183,20 +1179,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       scrollHorizontallyByMouseWheel:
           PdfLayoutEngine.scrollHorizontallyByMouseWheel,
       scrollPhysics: PdfLayoutEngine.scrollPhysics,
-      // ── Fix (محدَّث): تمت إزالة الإجبار على minScale ثابت.
-      // بعد إصلاح layoutPages (كل صفحة أصبحت بعرض موحّد)، لم تعد هناك
-      // حاجة لتعطيل alternativeFitScale — احتسابه التلقائي الآن صحيح
-      // لأنه مبني على هندسة تخطيط سليمة، وهو ما يسمح برؤية الصفحة
-      // كاملة (التصغير الكامل) بشكل طبيعي لكل صفحة.
-      maxScale: 8.0,
-      // ── الهواتف والأجهزة اللوحية: السماح بالتصغير أكثر من عرض الصفحة.
-      // الافتتاح الأول يبقى كما هو (عرض الصفحة)، لكن بدل أن يعيد pdfrx
-      // الصفحة إلى حدّ "ملاءمة الصفحة" عند رفع الأصابع، نعطّل استخدام
-      // alternativeFitScale كحدّ أدنى ونعتمد [_kPdfMinScale] بدلاً منه.
-      // أثناء التكبير يبقى التحريك الأفقي مقيّداً بعرض الصفحة (السلوك
-      // الافتراضي)، وعند التصغير أكثر من العرض تبقى الصفحة متوسّطة.
-      useAlternativeFitScaleAsMinScale: false,
-      minScale: _kPdfMinScale,
+      // ── Fix (الزوم يُقصّ غصباً إلى وضع ثابت في ملفات دون غيرها): كان
+      // minScale = 0.25 مطلقاً، وفي الملفات ذات الصفحات الكبيرة بالنقاط يكون
+      // عرض الصفحة < 0.25 فيقصّ العارض الزوم إلى 0.25 بعد أي pinch. الآن الحدّ
+      // الأدنى نسبي لزوم الفتح (عرض الصفحة) لكل ملف، مع بقاء التصغير أكثر من
+      // عرض الصفحة ممكناً. maxScale/minScale تُضبط داخل المزوّد (لا يجوز الجمع
+      // بينها وبين sizeDelegateProvider). التفاصيل في pdf_zoom_policy.dart.
+      sizeDelegateProvider: const RelativeMinScaleSizeDelegateProvider(
+        maxScale: 8.0,
+        minScaleFactor: 0.35,
+      ),
       // ✅ تحديد النص: يُفعَّل دائماً في وضع الهايلايتر/التسطير مع إتاحة الوقت
       // للمستخدم لضبط نقطتَي البداية والنهاية قبل تطبيق التمييز.
       textSelectionParams: PdfTextSelectionParams(
