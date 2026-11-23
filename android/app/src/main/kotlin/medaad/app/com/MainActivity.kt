@@ -303,7 +303,12 @@ class MainActivity: FlutterActivity() {
         "com.kaopu001.tiantianserver", "com.kpzs.helpercenter",
         "com.genymotion.genyd", "com.genymotion.superuser",
         "com.google.android.launcher.layouts.genymotion",
-        "com.mumu.launcher", "com.mumu.store", "com.netease.mumu.cloner",
+        // مؤكدة من توثيق MuMu 12 (Android 15). الـ launcher عندهم app.lawnchair (فورك) —
+        // مش بنضيفه لأن Lawnchair بيتثبّت على أجهزة حقيقية.
+        // مش بنضيف sogou.chuizi (Smartisan حقيقي) ولا advertising.id.ccpa.gdpr (تطبيق Play).
+        "com.mumu.store", "com.mumu.shared.sdk", "com.mumu.acc",
+        "com.nemu.oaidmanager", "com.nemu.nlp", "com.nemu.googleinstaller",
+        "com.netease.mumu.cloner",
         "com.android.emulator.smoketests", "com.android.emulator.multidisplay"
     )
 
@@ -321,6 +326,52 @@ class MainActivity: FlutterActivity() {
         "intel hd", "intel uhd", "intel iris", "intel arc", "iris xe", "uhd graphics",
         "hd graphics", "direct3d", "d3d11", "d3d12", "apple m", "apple gpu"
     )
+
+    // =====================================================================
+    // 🔓 كشف الروت: مدراء الروت + mounts + مسارات su (best-effort)
+    // مؤكد من توثيق MuMu 12: me.weishu.kernelsu و Magisk (مدمجين في المحاكي).
+    // أسماء فورك KernelSU (ksunext / sukisu) وأطر الـ hook من الذاكرة — لو غلط
+    // مش بتدّي أي إشارة. Magisk ممكن يغيّر اسم تطبيقه، فالـ mounts إشارة مكمّلة.
+    // =====================================================================
+    private val ROOT_PACKAGES = listOf(
+        "me.weishu.kernelsu", "com.rifsxd.ksunext", "com.sukisu.ultra",
+        "com.topjohnwu.magisk", "io.github.vvb2060.magisk", "io.github.huskydg.magisk",
+        "eu.chainfire.supersu", "com.noshufou.android.su", "com.noshufou.android.su.elite",
+        "com.koushikdutta.superuser", "com.thirdparty.superuser", "com.yellowes.su",
+        "me.phh.superuser", "com.kingroot.kinguser", "com.kingo.root",
+        "com.zhiqupk.root.global", "com.alephzain.framaroot",
+        // أطر الـ hook
+        "org.lsposed.manager", "io.github.lsposed.manager", "de.robv.android.xposed.installer"
+    )
+
+    private val ROOT_PATHS = listOf(
+        "/system/app/Superuser.apk", "/system/app/SuperSU.apk", "/sbin/su",
+        "/system/bin/su", "/system/xbin/su", "/data/local/su",
+        "/data/local/bin/su", "/data/local/xbin/su", "/system/sd/xbin/su",
+        "/system/bin/failsafe/su", "/dev/com.koushikdutta.superuser.daemon/",
+        // إضافات
+        "/sbin/.magisk", "/sbin/.core", "/system/xbin/daemonsu", "/system/xbin/mu",
+        "/system/.ext/.su", "/system/bin/.ext/.su", "/system/usr/we-need-root/su-backup",
+        "/system/etc/init.d/99SuperSUDaemon", "/data/adb/magisk", "/data/adb/ksu",
+        "/data/adb/modules"
+    )
+
+    private fun findRootPackages(): List<String> = ROOT_PACKAGES.filter {
+        try { packageManager.getPackageInfo(it, 0); true } catch (e: Throwable) { false }
+    }
+
+    // mounts: Magisk / KernelSU / overlayfs على scratch (MuMu بيركّب /system كده، وadb remount برضه)
+    private fun findRootMounts(): List<String> {
+        val hits = LinkedHashSet<String>()
+        try {
+            val text = File("/proc/self/mountinfo").readText().lowercase()
+            if (text.contains("magisk")) hits.add("magisk")
+            if (text.contains("kernelsu") || Regex("(^|[\\s/])ksu([\\s/]|$)").containsMatchIn(text)) hits.add("ksu")
+            if (text.contains("/data/adb/")) hits.add("data_adb")
+            if (text.contains("upperdir=/mnt/scratch")) hits.add("overlay_scratch")
+        } catch (e: Throwable) { /* لا إشارة */ }
+        return hits.toList()
+    }
 
     private fun containsAny(s: String, tokens: List<String>): Boolean = tokens.any { s.contains(it) }
 
@@ -569,16 +620,13 @@ class MainActivity: FlutterActivity() {
         val d = HashMap<String, Any>()
 
         // 1. مسارات ملفات الروت المعروفة
-        val rootPaths = arrayOf(
-            "/system/app/Superuser.apk", "/system/app/SuperSU.apk", "/sbin/su",
-            "/system/bin/su", "/system/xbin/su", "/data/local/su",
-            "/data/local/bin/su", "/data/local/xbin/su", "/system/sd/xbin/su",
-            "/system/bin/failsafe/su", "/dev/com.koushikdutta.superuser.daemon/"
-        )
+        val rootPaths = ROOT_PATHS
         val foundPaths = rootPaths.filter {
             try { File(it).exists() } catch (e: Exception) { false }
         }
         d["su_paths_found"] = if (foundPaths.isEmpty()) "none" else foundPaths.joinToString(",")
+        d["root_packages_found"] = findRootPackages().joinToString(",").ifEmpty { "none" }
+        d["root_mounts_found"] = findRootMounts().joinToString(",").ifEmpty { "none" }
 
         // 2. الكتابة على /system
         d["system_writable"] = try {
@@ -680,20 +728,12 @@ class MainActivity: FlutterActivity() {
     //   4. Build tag check (production builds are always "release-keys")
     private fun isDeviceRooted(): Boolean {
         // 1. Known root binary / app paths
-        val rootPaths = arrayOf(
-            "/system/app/Superuser.apk",
-            "/system/app/SuperSU.apk",
-            "/sbin/su",
-            "/system/bin/su",
-            "/system/xbin/su",
-            "/data/local/su",
-            "/data/local/bin/su",
-            "/data/local/xbin/su",
-            "/system/sd/xbin/su",
-            "/system/bin/failsafe/su",
-            "/dev/com.koushikdutta.superuser.daemon/"
-        )
+        val rootPaths = ROOT_PATHS
         if (rootPaths.any { File(it).exists() }) return true
+
+        // 1b. مدراء الروت / أطر الـ hook المثبّتة + mounts الروت (Magisk / KernelSU / overlay scratch)
+        if (findRootPackages().isNotEmpty()) return true
+        if (findRootMounts().isNotEmpty()) return true
 
         // 2. Attempt to write to /system (succeeds only on rooted devices)
         val canWriteSystem = try {
