@@ -114,11 +114,36 @@
         <package android:name="com.genymotion.genyd" />
         <package android:name="com.genymotion.superuser" />
         <package android:name="com.google.android.launcher.layouts.genymotion" />
-        <package android:name="com.mumu.launcher" />
         <package android:name="com.mumu.store" />
+        <package android:name="com.mumu.shared.sdk" />
+        <package android:name="com.mumu.acc" />
+        <package android:name="com.nemu.oaidmanager" />
+        <package android:name="com.nemu.nlp" />
+        <package android:name="com.nemu.googleinstaller" />
         <package android:name="com.netease.mumu.cloner" />
         <package android:name="com.android.emulator.smoketests" />
         <package android:name="com.android.emulator.multidisplay" />
+        <!-- كشف الروت وأطر الـ hook (MainActivity.findRootPackages) -->
+        <package android:name="me.weishu.kernelsu" />
+        <package android:name="com.rifsxd.ksunext" />
+        <package android:name="com.sukisu.ultra" />
+        <package android:name="com.topjohnwu.magisk" />
+        <package android:name="io.github.vvb2060.magisk" />
+        <package android:name="io.github.huskydg.magisk" />
+        <package android:name="eu.chainfire.supersu" />
+        <package android:name="com.noshufou.android.su" />
+        <package android:name="com.noshufou.android.su.elite" />
+        <package android:name="com.koushikdutta.superuser" />
+        <package android:name="com.thirdparty.superuser" />
+        <package android:name="com.yellowes.su" />
+        <package android:name="me.phh.superuser" />
+        <package android:name="com.kingroot.kinguser" />
+        <package android:name="com.kingo.root" />
+        <package android:name="com.zhiqupk.root.global" />
+        <package android:name="com.alephzain.framaroot" />
+        <package android:name="org.lsposed.manager" />
+        <package android:name="io.github.lsposed.manager" />
+        <package android:name="de.robv.android.xposed.installer" />
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
