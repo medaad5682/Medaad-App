@@ -219,6 +219,32 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   int _activePage = 0;
   int _totalPages = 0;
 
+  // ── استئناف القراءة: آخر صفحة وقف عندها الطالب في هذا الملف ──
+  // تُحمَّل في _preparePdf قبل بناء العارض، وتُحفظ (بتأخير قصير) عند كل
+  // تغيّر للصفحة وعند مغادرة الشاشة/الذهاب للخلفية.
+  int _resumePage = 1;
+  bool _trackLastPage = false; // لا نحفظ قبل أن يستقر العارض على الصفحة المستعادة
+  int _lastSavedPage = 0;
+  Timer? _lastPageSaveTimer;
+
+  void _scheduleLastPageSave() {
+    _lastPageSaveTimer?.cancel();
+    _lastPageSaveTimer =
+        Timer(const Duration(milliseconds: 700), _flushLastPage);
+  }
+
+  Future<void> _flushLastPage() async {
+    _lastPageSaveTimer?.cancel();
+    final page = _activePage;
+    if (!_trackLastPage || page <= 0 || page == _lastSavedPage) return;
+    _lastSavedPage = page;
+    try {
+      await _store.saveLastPage(page);
+    } catch (e) {
+      debugPrint('saveLastPage failed: $e');
+    }
+  }
+
   // ── Fix: مشكلة عدم ظهور التمييز/التسطير على بعض الصفحات ──
   // نستمع لتغييرات حالة صفحات الوثيقة (PdfDocumentPageStatusChangedEvent)
   // التي يُصدرها pdfrx داخلياً كل مرة يستبدل فيها صفحة "placeholder" مؤقتة
@@ -286,6 +312,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
     WidgetsBinding.instance.removeObserver(this);
     if (_isDrawingMode) _setUnbufferedInput(false);
     // الحفظ المؤجّل لا يجوز أن يضيع عند مغادرة الشاشة.
+    unawaited(_flushLastPage());
+    _lastPageSaveTimer?.cancel();
     if (_isOffline) {
       _saveAnnotationsToHive();
     } else {
@@ -309,6 +337,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // التطبيق ذاهب للخلفية (قد يُقتل): ثبّت أي رسم ما زال بانتظار الحفظ المؤجّل.
     if (state != AppLifecycleState.resumed) {
+      unawaited(_flushLastPage());
       _flushDirtyDrawings();
       // قد يضيع حدث الرفع عند الذهاب للخلفية: لا نترك الشريط مخفياً للأبد.
       _resetToolbarTouchState();
@@ -517,6 +546,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
 
     try {
       await FileCryptoService.init();
+
+      // آخر صفحة محفوظة لهذا الملف (تفشل بأمان إلى الصفحة 1).
+      try {
+        _resumePage = await _store.loadLastPage();
+      } catch (_) {
+        _resumePage = 1;
+      }
+      _lastSavedPage = _resumePage;
+      _trackLastPage = false;
 
       final downloadsBox = await StorageService.openBox('downloads_box');
       final downloadItem = downloadsBox.get('pdf_${widget.pdfId}');
@@ -798,9 +836,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
           _buildWatermark(),
           if (_isDrawingMode)
             Positioned(
-              bottom: 12,
-              left: 0,
-              right: 0,
+              // ارفع الشريط فوق أزرار/شريط تنقّل النظام (رجوع/هوم/التطبيقات)
+              // على الهواتف التي يرسم فيها التطبيق خلف شريط النظام (edge-to-edge).
+              bottom: 12 + MediaQuery.paddingOf(context).bottom,
+              left: MediaQuery.paddingOf(context).left,
+              right: MediaQuery.paddingOf(context).right,
               // يختفي الشريط (انزلاق للأسفل + تلاشٍ) أثناء لمس الشاشة، ولا يلتقط
               // أي لمسة وهو مخفي فتمرّ للعارض كالمعتاد.
               child: ValueListenableBuilder<bool>(
@@ -1127,6 +1167,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       // with ours. A tear-off, not an inline closure: instance-method tear-offs
       // are equal across rebuilds, so PdfViewerParams stays == between frames.
       errorBannerBuilder: _viewerErrorBannerBuilder,
+      // افتح على آخر صفحة كان عندها الطالب (ضمن حدود عدد صفحات الملف).
+      calculateInitialPageNumber: (document, controller) {
+        final total = document.pages.length;
+        if (total <= 0) return null;
+        return _resumePage.clamp(1, total);
+      },
+      onViewerReady: (document, controller) {
+        // من الآن فصاعداً أي تغيّر للصفحة هو من المستخدم فعلاً فنحفظه.
+        _trackLastPage = true;
+      },
       layoutPages: PdfLayoutEngine.layout,
       pageAnchor: PdfLayoutEngine.anchorStart,
       pageAnchorEnd: PdfLayoutEngine.anchorEnd,
@@ -1278,6 +1328,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       onPageChanged: (pageNumber) {
         if (pageNumber != null) {
           _activePage = pageNumber;
+          if (_trackLastPage) _scheduleLastPageSave();
           // ── Fix (highlight/underline): pre-warm text cache for the new page
           // and its immediate neighbours so getSelectedTextRanges never races
           // against an empty cache on any page.
@@ -1803,7 +1854,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+            16, 16, 16, 16 + MediaQuery.paddingOf(ctx).bottom),
         decoration: BoxDecoration(
           color: AppColors.backgroundSecondary,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -1864,7 +1916,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setSheetState) => Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.fromLTRB(
+              16, 16, 16, 16 + MediaQuery.paddingOf(context).bottom),
           decoration: BoxDecoration(
             color: AppColors.backgroundSecondary,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -2525,7 +2578,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen>
           padding:
               EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
           child: Container(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.fromLTRB(
+                16, 16, 16, 16 + MediaQuery.paddingOf(ctx).bottom),
             decoration: BoxDecoration(
               color: AppColors.backgroundSecondary,
               borderRadius:
