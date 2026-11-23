@@ -38,6 +38,19 @@ class PdfAnnotationStore {
     await box.put(_settingsKey, settings.toJson());
   }
 
+  // ------------------------------ آخر صفحة مقروءة ------------------------------
+
+  Future<int> loadLastPage() async {
+    final box = await StorageService.openBox(_drawingsBox);
+    final v = box.get(_k('last_page'));
+    return (v is int && v >= 1) ? v : 1;
+  }
+
+  Future<void> saveLastPage(int page) async {
+    final box = await StorageService.openBox(_drawingsBox);
+    await box.put(_k('last_page'), page);
+  }
+
   // ------------------------------ الرسومات (القلم) ------------------------------
 
   Future<List<DrawingLine>> loadDrawings(int page) async {
