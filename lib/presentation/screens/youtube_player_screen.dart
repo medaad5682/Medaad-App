@@ -14,6 +14,7 @@ import '../../core/services/audio_protection_service.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/recording_alert_overlay.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
 
 class YoutubePlayerScreen extends StatefulWidget {
@@ -39,6 +40,8 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
   final AudioProtectionService _protectionService = AudioProtectionService();
   StreamSubscription? _recordingSubscription;
   bool _isRecordingDetected = false;
+  // ✅ [RECORDING-RETRY] true أثناء فحص «إعادة المحاولة» بعد تنبيه التسجيل.
+  bool _isCheckingRecording = false;
 
   // متغيرات العلامة المائية
   Timer? _watermarkTimer;
@@ -130,6 +133,49 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
 
     FirebaseCrashlytics.instance.log(
         "🚨 Security: Screen Recording Detected on YouTube Player! Muted & Paused.");
+  }
+
+  /// ✅ [RECORDING-RETRY] زر «إعادة المحاولة» في شاشة التنبيه الأمني.
+  /// بيعيد فحص حالة التسجيل الفعلية (مكالمة / تسجيل واتساب / تسجيل شاشة)؛
+  /// لو خلص يشيل التنبيه ويرجّع الصوت ويكمّل الفيديو من نفس المكان، ولو
+  /// لسه شغّال بيفضل التنبيه ظاهر. قبل كده كان التنبيه يفضل للأبد حتى بعد
+  /// انتهاء التسجيل (المشغّل كان بيتجاهل إشارة «التسجيل وقف»).
+  Future<void> _retryAfterRecording() async {
+    if (!mounted || _isCheckingRecording) return;
+    setState(() => _isCheckingRecording = true);
+
+    bool stillRecording = true;
+    try {
+      stillRecording = await _protectionService.checkRecordingStatus();
+      // تأخير بسيط عشان المستخدم يشوف الـ spinner ونتجنب سباق مع النداء الدوري.
+      await Future.delayed(const Duration(milliseconds: 600));
+    } catch (_) {
+      stillRecording = true;
+    }
+
+    if (!mounted) return;
+
+    if (stillRecording) {
+      setState(() => _isCheckingRecording = false);
+      return;
+    }
+
+    // مهم: نصفّر العلم *قبل* play() عشان _playerListener (الحارس الإضافي)
+    // ما يوقف الفيديو تاني فور تشغيله.
+    setState(() {
+      _isRecordingDetected = false;
+      _isCheckingRecording = false;
+    });
+    FirebaseCrashlytics.instance.log(
+        "✅ Security: Recording ended — user retried, YouTube playback resumed.");
+
+    try {
+      _controller.unMute();
+      _controller.play();
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(e, stack,
+          reason: 'Youtube Resume After Recording Retry Error');
+    }
   }
 
   // ✅ إعادة تفعيل الحماية عند العودة للتطبيق
@@ -361,43 +407,14 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
             ),
 
             // 4. ✅ شاشة التحذير الحمراء عند اكتشاف التسجيل (فوق كل شيء)
+            // ودجت مشتركة: SafeArea + scroll (تشتغل في الوضع الأفقي) +
+            // زر إعادة المحاولة + زر الإغلاق.
             if (_isRecordingDetected)
-              Container(
-                color: Colors.red.shade900,
-                width: double.infinity,
-                height: double.infinity,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.block, color: Colors.white, size: 80),
-                    const SizedBox(height: 24),
-                    Text(
-                      AppLocalizations.of(context)!.securityAlertTitle,
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 2.0),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      AppLocalizations.of(context)!.screenRecordingDetectedMessage,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white70, fontSize: 16),
-                    ),
-                    const SizedBox(height: 32),
-                    ElevatedButton(
-                      onPressed: () => _safeExit(), // ✅ استدعاء الرجوع الآمن
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.red.shade900,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 32, vertical: 12),
-                      ),
-                      child: Text(AppLocalizations.of(context)!.closePlayer,
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                    )
-                  ],
+              Positioned.fill(
+                child: RecordingAlertOverlay(
+                  isChecking: _isCheckingRecording,
+                  onRetry: _retryAfterRecording,
+                  onClose: () => _safeExit(),
                 ),
               ),
           ],

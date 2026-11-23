@@ -16,6 +16,7 @@ import 'package:dio/dio.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../core/services/audio_protection_service.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/recording_alert_overlay.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/api_constants.dart';
@@ -67,6 +68,8 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   final AudioProtectionService _protectionService = AudioProtectionService();
   StreamSubscription? _recordingSubscription;
   bool _isRecordingDetected = false;
+  // ✅ [RECORDING-RETRY] true أثناء فحص «إعادة المحاولة» بعد تنبيه التسجيل.
+  bool _isCheckingRecording = false;
 
   // ✅ نسخة قابلة للتعديل من widget.streams. تبدأ بنفس القيم الممرَّرة من
   // الشاشة السابقة، لكن _retryCurrentQuality() قد يستبدلها بروابط جديدة
@@ -314,6 +317,47 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _betterPlayerController?.pause();
     FirebaseCrashlytics.instance.log(
         "🚨 Security: Screen Recording Detected! Native Player Muted & Paused.");
+  }
+
+  /// ✅ [RECORDING-RETRY] زر «إعادة المحاولة» في شاشة التنبيه الأمني.
+  /// بيعيد فحص حالة التسجيل الفعلية (مكالمة / تسجيل واتساب / تسجيل شاشة)؛
+  /// لو خلص يشيل التنبيه ويرجّع الصوت ويكمّل الفيديو من نفس المكان، ولو
+  /// لسه شغّال بيفضل التنبيه ظاهر. قبل كده كان التنبيه يفضل للأبد حتى بعد
+  /// انتهاء التسجيل (المشغّل كان بيتجاهل إشارة «التسجيل وقف»).
+  Future<void> _retryAfterRecording() async {
+    if (!mounted || _isDisposing || _isCheckingRecording) return;
+    setState(() => _isCheckingRecording = true);
+
+    bool stillRecording = true;
+    try {
+      stillRecording = await _protectionService.checkRecordingStatus();
+      // تأخير بسيط عشان المستخدم يشوف الـ spinner ونتجنب سباق مع النداء الدوري.
+      await Future.delayed(const Duration(milliseconds: 600));
+    } catch (_) {
+      stillRecording = true;
+    }
+
+    if (!mounted || _isDisposing) return;
+
+    if (stillRecording) {
+      setState(() => _isCheckingRecording = false);
+      return;
+    }
+
+    setState(() {
+      _isRecordingDetected = false;
+      _isCheckingRecording = false;
+    });
+    FirebaseCrashlytics.instance.log(
+        "✅ Security: Recording ended — user retried, native playback resumed.");
+
+    try {
+      await _betterPlayerController?.setVolume(1.0);
+      await _betterPlayerController?.play();
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(e, stack,
+          reason: 'Native Player Resume After Recording Retry Error');
+    }
   }
 
   @override
@@ -1989,45 +2033,12 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   }
 
   Widget _buildSecurityAlert() {
-    return Container(
-      color: Colors.red.shade900,
-      width: double.infinity,
-      height: double.infinity,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.block, color: Colors.white, size: 80),
-          const SizedBox(height: 24),
-          Text(
-            AppLocalizations.of(context)?.securityAlertTitle ?? 'SECURITY ALERT',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 2.0,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            AppLocalizations.of(context)?.screenRecordingDetectedMessage ?? '',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white70, fontSize: 16),
-          ),
-          const SizedBox(height: 32),
-          ElevatedButton(
-            onPressed: _safeExit,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.red.shade900,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-            ),
-            child: Text(
-              AppLocalizations.of(context)?.closePlayer ?? 'Close',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
+    // ✅ ودجت مشتركة: SafeArea + scroll (تشتغل في الوضع الأفقي) +
+    // زر إعادة المحاولة + زر الإغلاق.
+    return RecordingAlertOverlay(
+      isChecking: _isCheckingRecording,
+      onRetry: _retryAfterRecording,
+      onClose: _safeExit,
     );
   }
 }

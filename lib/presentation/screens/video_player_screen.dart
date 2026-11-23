@@ -15,6 +15,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import '../../core/services/audio_protection_service.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
+import 'package:Medaad/presentation/widgets/recording_alert_overlay.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/api_constants.dart';
@@ -78,6 +79,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   final AudioProtectionService _protectionService = AudioProtectionService();
   StreamSubscription? _recordingSubscription;
   bool _isRecordingDetected = false;
+  // ✅ [RECORDING-RETRY] true أثناء فحص «إعادة المحاولة» بعد تنبيه التسجيل.
+  bool _isCheckingRecording = false;
+  // ✅ [RECORDING-RETRY] true لو التسجيل اتكشف في نص تهيئة/فتح المصدر فالمصدر
+  // ما اتجهّزش بالكامل — يعني لازم نعيد فتحه بدل play() بس عند إعادة المحاولة.
+  bool _needsReopenAfterRecording = false;
 
   String _currentQuality = "";
   List<String> _sortedQualities = [];
@@ -208,6 +214,55 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _player.pause();
     FirebaseCrashlytics.instance
         .log("🚨 Security: Screen Recording Detected! Player Muted & Paused.");
+  }
+
+  /// ✅ [RECORDING-RETRY] زر «إعادة المحاولة» في شاشة التنبيه الأمني.
+  /// بيعيد فحص حالة التسجيل الفعلية (مكالمة / تسجيل واتساب / تسجيل شاشة)؛
+  /// لو خلص يشيل التنبيه ويرجّع الصوت ويكمّل الفيديو من نفس المكان، ولو
+  /// لسه شغّال بيفضل التنبيه ظاهر. قبل كده كان التنبيه يفضل للأبد حتى بعد
+  /// انتهاء التسجيل (المشغّل كان بيتجاهل إشارة «التسجيل وقف»).
+  Future<void> _retryAfterRecording() async {
+    if (!mounted || _isDisposing || _isCheckingRecording) return;
+    setState(() => _isCheckingRecording = true);
+
+    bool stillRecording = true;
+    try {
+      stillRecording = await _protectionService.checkRecordingStatus();
+      // تأخير بسيط عشان المستخدم يشوف الـ spinner ونتجنب سباق مع النداء الدوري.
+      await Future.delayed(const Duration(milliseconds: 600));
+    } catch (_) {
+      stillRecording = true;
+    }
+
+    if (!mounted || _isDisposing) return;
+
+    if (stillRecording) {
+      setState(() => _isCheckingRecording = false);
+      return;
+    }
+
+    setState(() {
+      _isRecordingDetected = false;
+      _isCheckingRecording = false;
+    });
+    FirebaseCrashlytics.instance
+        .log("✅ Security: Recording ended — user retried, playback resumed.");
+
+    try {
+      await _player.setVolume(100.0);
+      if (_needsReopenAfterRecording) {
+        _needsReopenAfterRecording = false;
+        final url = _streamsMap[_currentQuality];
+        if (url != null) {
+          await _playVideo(url, startAt: _lastKnownPosition);
+          return;
+        }
+      }
+      await _player.play();
+    } catch (e, stack) {
+      FirebaseCrashlytics.instance.recordError(e, stack,
+          reason: 'MediaKit Resume After Recording Retry Error');
+    }
   }
 
   @override
@@ -357,6 +412,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           if (mounted && !_isDisposing) {
             setState(() => _isVideoLoading = false);
             if (_isRecordingDetected) {
+              if (_pendingResumePosition != null) {
+                _needsReopenAfterRecording = true;
+              }
               _player.setVolume(0.0);
               _player.pause();
               return;
@@ -492,6 +550,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       await _player.open(Media(playUrl, httpHeaders: headers), play: false);
 
       if (_isRecordingDetected) {
+        _needsReopenAfterRecording = true;
         await _player.setVolume(0.0);
         return;
       }
@@ -1465,64 +1524,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
             
             // ── Security alert overlay ────────────────────────────────────
+            // ✅ ودجت مشتركة: SafeArea + scroll (تشتغل في الوضع الأفقي) +
+            // زر إعادة المحاولة + زر الإغلاق.
             if (_isRecordingDetected)
-              Container(
-                color: Colors.red.shade900,
-                width: double.infinity,
-                height: double.infinity,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.block, color: Colors.white, size: 80),
-                    const SizedBox(height: 24),
-                    Text(AppLocalizations.of(context)!.securityAlertTitle,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2.0)),
-                    const SizedBox(height: 16),
-                    Text(
-                        AppLocalizations.of(context)!.screenRecordingDetectedMessage,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white70, fontSize: 16)),
-                    const SizedBox(height: 32),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 32),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.yellow, width: 2),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(AppLocalizations.of(context)!.finalWarningTitle,
-                              style: const TextStyle(
-                                  color: Colors.yellow,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 8),
-                          Text(
-                              AppLocalizations.of(context)!.contentRecordingViolationMessage,
-                              textAlign: TextAlign.center,
-                              style:
-                                  const TextStyle(color: Colors.white, fontSize: 14)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                    ElevatedButton(
-                      onPressed: () => _safeExit(),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.red.shade900,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 32, vertical: 12)),
-                      child: Text(AppLocalizations.of(context)!.closePlayer,
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                    )
-                  ],
+              Positioned.fill(
+                child: RecordingAlertOverlay(
+                  showFinalWarning: true,
+                  isChecking: _isCheckingRecording,
+                  onRetry: _retryAfterRecording,
+                  onClose: () => _safeExit(),
                 ),
               ),
           ],
