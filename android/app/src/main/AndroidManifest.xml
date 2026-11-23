@@ -91,6 +91,34 @@
     </application>
     
     <queries>
+        <!-- كشف المحاكيات (MainActivity.findEmuPackages): أندرويد 11+ بيخفي أي حزمة مش معلنة هنا -->
+        <package android:name="com.bluestacks.home" />
+        <package android:name="com.bluestacks.settings" />
+        <package android:name="com.bluestacks.appmart" />
+        <package android:name="com.bluestacks.bstfolder" />
+        <package android:name="com.bluestacks.BstCommandProcessor" />
+        <package android:name="com.bluestacks.help" />
+        <package android:name="com.bluestacks.s2p" />
+        <package android:name="com.bignox.app" />
+        <package android:name="com.bignox.app.store.hd" />
+        <package android:name="com.bignox.google.installer" />
+        <package android:name="com.vphone.launcher" />
+        <package android:name="com.microvirt.launcher" />
+        <package android:name="com.microvirt.memuime" />
+        <package android:name="com.microvirt.tools" />
+        <package android:name="com.ldmnq.launcher3" />
+        <package android:name="com.android.flysilkworm" />
+        <package android:name="com.android.ld.appstore" />
+        <package android:name="com.kaopu001.tiantianserver" />
+        <package android:name="com.kpzs.helpercenter" />
+        <package android:name="com.genymotion.genyd" />
+        <package android:name="com.genymotion.superuser" />
+        <package android:name="com.google.android.launcher.layouts.genymotion" />
+        <package android:name="com.mumu.launcher" />
+        <package android:name="com.mumu.store" />
+        <package android:name="com.netease.mumu.cloner" />
+        <package android:name="com.android.emulator.smoketests" />
+        <package android:name="com.android.emulator.multidisplay" />
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
