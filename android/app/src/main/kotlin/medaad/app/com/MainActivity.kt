@@ -213,6 +213,125 @@ class MainActivity: FlutterActivity() {
     // مفيش أي إشارة معتمدة على توقيت أو انتظار events، فنفس الجهاز بيدي
     // نفس النتيجة كل مرة.
     // =====================================================================
+    // =====================================================================
+    // 📚 قوايم المحاكيات (best-effort). القاعدة: أي تطابق = إشارة، والوزن في getEmulatorSignals.
+    // الأسماء اللي مش متأكد منها 100% (خصوصاً MuMu/NEMU) آمنة: لو مش موجودة على الجهاز
+    // مش بتدّي أي نقطة. الأسماء الحقيقية بتظهر في Crashlytics (sec_native_* / sec_hw_step_*).
+    // =====================================================================
+
+    // أسماء مميزة (substring) — بتتقارن على Build.* + خصائص الـ vendor/system partitions
+    private val EMU_NAME_TOKENS = listOf(
+        "genymotion", "genymobile", "bluestacks", "bstk", "droid4x", "ldplayer", "ldmnq",
+        "dnplayer", "memu", "microvirt", "mumu", "nemu", "netease", "bignox", "noxplayer",
+        "koplayer", "tiantian", "ttvm", "kaopu", "windroye", "youwave", "leapdroid",
+        "gameloop", "tencent gaming", "msi app player", "subsystem for android",
+        "windows subsystem", "waydroid", "anbox", "redfinger", "ldcloud", "vmware",
+        "virtualbox", "vbox", "qemu", "goldfish", "ranchu", "sdk_gphone", "google_sdk",
+        "emulator", "android sdk built for", "phoenixos", "phoenix os", "primeos",
+        "remixos", "remix os", "blissos", "bliss os"
+    )
+    // أسماء قصيرة لازم تتطابق ككلمة كاملة (عشان "knox"/"candy" ما تتحسبش)
+    private val EMU_NAME_WORDS = listOf("andy", "nox", "bst", "aow")
+
+    // خصائص نظام وجودها (غير فاضية) = محاكي
+    private val EMU_PROPS = listOf(
+        "ro.kernel.qemu.gles", "ro.boot.qemu.gltransport", "ro.boot.qemu.avd_name",
+        "ro.kernel.android.qemud", "qemu.sf.fake_camera",
+        "init.svc.qemu-props", "init.svc.goldfish-logcat", "init.svc.goldfish-setup",
+        "init.svc.droid4x", "init.svc.noxd", "init.svc.nox-vbox-sf", "init.svc.memud",
+        "init.svc.microvirt-prop", "init.svc.ttvm-prop", "init.svc.bstfolderd",
+        "init.svc.ldinit", "init.svc.nemud", "ro.genymotion.version", "ro.nemu.version"
+    )
+
+    private val EMU_FILES = listOf(
+        // QEMU / AVD / goldfish / ranchu
+        "/dev/socket/qemud", "/dev/qemu_pipe", "/dev/goldfish_pipe", "/dev/goldfish_sync",
+        "/sys/qemu_trace", "/system/bin/qemu-props", "/system/lib/libc_malloc_debug_qemu.so",
+        "/init.goldfish.rc", "/init.ranchu.rc", "/fstab.goldfish", "/fstab.ranchu",
+        "/ueventd.goldfish.rc", "/ueventd.ranchu.rc",
+        // Genymotion / VirtualBox / Andy / AndroVM
+        "/dev/socket/genyd", "/dev/socket/baseband_genyd",
+        "/dev/vboxguest", "/dev/vboxuser", "/system/lib/vboxguest.ko", "/system/lib/vboxsf.ko",
+        "/system/lib/hw/gps.vbox.so", "/system/lib/hw/sensors.vbox.so",
+        "/system/bin/androVM-prop", "/system/bin/androVM_setprop",
+        "/ueventd.android_x86.rc", "/x86.prop", "/fstab.vbox86", "/init.vbox86.rc",
+        "/ueventd.vbox86.rc", "/fstab.andy", "/ueventd.andy.rc",
+        // Tiantian / TTVM
+        "/ueventd.ttVM_x86.rc", "/init.ttVM_x86.rc", "/fstab.ttVM_x86", "/system/bin/ttVM-prop",
+        // Nox
+        "/fstab.nox", "/init.nox.rc", "/ueventd.nox.rc", "/BigNoxGameHD", "/YSLauncher",
+        "/system/bin/nox", "/system/bin/nox-prop", "/system/bin/noxd", "/system/bin/nox-vbox-sf",
+        "/system/lib/libnoxd.so", "/system/lib/libnoxspeedup.so",
+        // BlueStacks
+        "/data/.bluestacks.prop", "/data/bluestacks.prop", "/mnt/windows/BstSharedFolder",
+        "/system/bin/bstfolderd", "/system/bin/bstk", "/system/xbin/bstk",
+        // MEmu / Microvirt
+        "/system/bin/microvirt-prop", "/system/bin/memud", "/system/lib/libmemuhook.so",
+        // LDPlayer
+        "/system/bin/ldinit", "/system/bin/ldmountsf", "/system/lib/libldutils.so",
+        // Droid4X / Windroye
+        "/system/lib/libdroid4x.so", "/system/bin/droid4x-prop", "/system/bin/windroyed",
+        "/system/bin/windroye-prop",
+        // MuMu / NEMU (NetEase) — best-effort
+        "/system/bin/nemu-prop", "/system/bin/nemud", "/system/lib/libnemu.so",
+        "/system/bin/mumu-prop", "/system/bin/mumud",
+        // Anbox / Waydroid
+        "/dev/anbox-bridge", "/dev/anbox_bridge", "/dev/anbox-binder",
+        // Hyper-V / VM guest (Windows host)
+        "/sys/bus/vmbus", "/sys/class/dmi/id"
+    )
+
+    // مكتبات ترجمة ARM→x86
+    private val TRANSLATION_LIBS = listOf(
+        "/system/lib/libhoudini.so", "/system/lib64/libhoudini.so",
+        "/vendor/lib/libhoudini.so", "/vendor/lib64/libhoudini.so",
+        "/system/lib/libndk_translation.so", "/system/lib64/libndk_translation.so",
+        "/vendor/lib/libndk_translation.so", "/vendor/lib64/libndk_translation.so",
+        "/system/lib/libnb.so", "/system/lib64/libnb.so",
+        "/vendor/lib/libnb.so", "/vendor/lib64/libnb.so"
+    )
+
+    // تطبيقات بتيجي مع المحاكيات (لازم تتعلن في <queries> في الـ Manifest)
+    private val EMU_PACKAGES = listOf(
+        "com.bluestacks.home", "com.bluestacks.settings", "com.bluestacks.appmart",
+        "com.bluestacks.bstfolder", "com.bluestacks.BstCommandProcessor",
+        "com.bluestacks.help", "com.bluestacks.s2p",
+        "com.bignox.app", "com.bignox.app.store.hd", "com.bignox.google.installer",
+        "com.vphone.launcher",
+        "com.microvirt.launcher", "com.microvirt.memuime", "com.microvirt.tools",
+        "com.ldmnq.launcher3", "com.android.flysilkworm", "com.android.ld.appstore",
+        "com.kaopu001.tiantianserver", "com.kpzs.helpercenter",
+        "com.genymotion.genyd", "com.genymotion.superuser",
+        "com.google.android.launcher.layouts.genymotion",
+        "com.mumu.launcher", "com.mumu.store", "com.netease.mumu.cloner",
+        "com.android.emulator.smoketests", "com.android.emulator.multidisplay"
+    )
+
+    // كارت الشاشة: برمجي / افتراضي (+3)
+    private val SOFTWARE_GL = listOf(
+        "android emulator", "swiftshader", "llvmpipe", "softpipe", "virgl", "virtio",
+        "virtualbox", "vmware", "parallels", "qemu", "gdi generic", "microsoft basic render",
+        "microsoft corporation", "mesa", "bluestacks", "mumu", "nemu", "netease",
+        "genymotion", "ldplayer", "memu", "nox"
+    )
+
+    // كارت شاشة كمبيوتر (+2)
+    private val PC_GPU = listOf(
+        "geforce", "quadro", "nvidia", "gtx", "rtx", "radeon", "amd ", "intel(r)",
+        "intel hd", "intel uhd", "intel iris", "intel arc", "iris xe", "uhd graphics",
+        "hd graphics", "direct3d", "d3d11", "d3d12", "apple m", "apple gpu"
+    )
+
+    private fun containsAny(s: String, tokens: List<String>): Boolean = tokens.any { s.contains(it) }
+
+    private fun containsWord(s: String, words: List<String>): Boolean = words.any {
+        Regex("(^|[^a-z0-9])" + Regex.escape(it) + "($|[^a-z0-9])").containsMatchIn(s)
+    }
+
+    private fun findEmuPackages(): List<String> = EMU_PACKAGES.filter {
+        try { packageManager.getPackageInfo(it, 0); true } catch (e: Throwable) { false }
+    }
+
     private fun sysProp(key: String): String = try {
         val c = Class.forName("android.os.SystemProperties")
         (c.getMethod("get", String::class.java).invoke(null, key) as? String) ?: ""
@@ -275,11 +394,13 @@ class MainActivity: FlutterActivity() {
             score += weight
         }
 
-        // ChromeOS (ARC) أجهزة حقيقية بمعالج x86 وبترجمة ARM — نستثنيها من إشارات x86/GPU
+        // ✅ ChromeOS (ARC): اتشال الاستثناء. الإعلان عن org.chromium.arc ممكن يتزوّر،
+        // فبيتسجّل للتشخيص بس (is_arc) وكل إشارات x86/الترجمة/GPU بتتحسب عادي.
         val isArc = try {
             packageManager.hasSystemFeature("org.chromium.arc") ||
                 packageManager.hasSystemFeature("org.chromium.arc.device_management")
         } catch (e: Throwable) { false }
+        if (isArc) signals.add("arc_feature_declared(+0)")
 
         // ---- (3) بيانات الـ Build ----
         val fp = (Build.FINGERPRINT ?: "").lowercase()
@@ -289,7 +410,18 @@ class MainActivity: FlutterActivity() {
         val manu = (Build.MANUFACTURER ?: "").lowercase()
         val brand = (Build.BRAND ?: "").lowercase()
         val device = (Build.DEVICE ?: "").lowercase()
-        val vendorNames = listOf("genymotion", "bluestacks", "droid4x", "ldplayer", "memu")
+        val board = (Build.BOARD ?: "").lowercase()
+        // خصائص الـ vendor/system partitions: الأدوات اللي بتغيّر Build.* كتير بتنسى دول
+        val buildBlob = listOf(
+            fp, hw, prod, model, manu, brand, device, board,
+            sysProp("ro.product.vendor.model"), sysProp("ro.product.system.model"),
+            sysProp("ro.product.odm.model"), sysProp("ro.product.vendor.manufacturer"),
+            sysProp("ro.product.system.manufacturer"), sysProp("ro.product.vendor.brand"),
+            sysProp("ro.product.system.brand"), sysProp("ro.product.vendor.device"),
+            sysProp("ro.product.system.device"), sysProp("ro.product.vendor.name"),
+            sysProp("ro.product.system.name"), sysProp("ro.hardware"),
+            sysProp("ro.product.board"), sysProp("ro.board.platform")
+        ).joinToString("|").lowercase()
         val buildHit =
             fp.startsWith("generic") || fp.contains("vbox") || fp.contains("emulator") ||
             hw.contains("goldfish") || hw.contains("ranchu") || hw.contains("vbox") ||
@@ -298,7 +430,7 @@ class MainActivity: FlutterActivity() {
             model.contains("sdk_gphone") || model.contains("emulator") ||
             model.contains("android sdk built for") ||
             device.startsWith("generic") ||
-            vendorNames.any { manu.contains(it) || brand.contains(it) || model.contains(it) }
+            containsAny(buildBlob, EMU_NAME_TOKENS) || containsWord(buildBlob, EMU_NAME_WORDS)
         if (buildHit) add("build_props", 3)
 
         // ---- (3) qemu system properties ----
@@ -308,24 +440,19 @@ class MainActivity: FlutterActivity() {
             add("qemu_props", 3)
         }
 
+        // ---- (3) خصائص نظام خاصة بالمحاكيات ----
+        val foundEmuProps = EMU_PROPS.filter { sysProp(it).isNotEmpty() }
+        if (foundEmuProps.isNotEmpty()) add("emu_props[" + foundEmuProps.joinToString(",") + "]", 3)
+
         // ---- (3) ملفات/devices خاصة بالمحاكيات (قائمة best-effort) ----
-        val emuFiles = listOf(
-            "/dev/socket/qemud", "/dev/qemu_pipe", "/dev/goldfish_pipe",
-            "/sys/qemu_trace", "/system/bin/qemu-props",
-            "/dev/socket/genyd", "/dev/socket/baseband_genyd",
-            "/dev/vboxguest", "/dev/vboxuser", "/system/lib/vboxguest.ko",
-            "/ueventd.android_x86.rc", "/x86.prop", "/ueventd.ttVM_x86.rc",
-            "/init.ttVM_x86.rc", "/fstab.ttVM_x86", "/fstab.vbox86",
-            "/init.vbox86.rc", "/ueventd.vbox86.rc",
-            "/fstab.andy", "/ueventd.andy.rc",
-            "/fstab.nox", "/init.nox.rc", "/ueventd.nox.rc",
-            "/BigNoxGameHD", "/YSLauncher",
-            "/data/.bluestacks.prop", "/mnt/windows/BstSharedFolder"
-        )
+        val emuFiles = EMU_FILES
         val foundEmuFiles = emuFiles.filter {
             try { File(it).exists() } catch (e: Throwable) { false }
         }
         if (foundEmuFiles.isNotEmpty()) add("emu_files[" + foundEmuFiles.joinToString(",") + "]", 3)
+
+        val foundEmuPkgs = findEmuPackages()
+        if (foundEmuPkgs.isNotEmpty()) add("emu_packages[" + foundEmuPkgs.joinToString(",") + "]", 3)
 
         if (fileContains("/proc/tty/drivers", listOf("goldfish")) ||
             fileContains("/proc/cpuinfo", listOf("goldfish", "ranchu"))) {
@@ -357,7 +484,9 @@ class MainActivity: FlutterActivity() {
                 }
             } else {
                 val sn = ((acc.name ?: "") + " " + (acc.vendor ?: "")).lowercase()
-                if (listOf("goldfish", "ranchu", "genymotion", "bluestacks", "vbox", "emulator").any { sn.contains(it) }) {
+                if (listOf("goldfish", "ranchu", "genymotion", "bluestacks", "vbox", "emulator", "mumu", "nemu",
+                        "netease", "ldplayer", "memu", "microvirt", "tencent", "qemu", "droid4x",
+                        "tiantian", "kaopu", "windroye", "noxplayer", "bignox").any { sn.contains(it) }) {
                     add("virtual_accelerometer", 3)
                 } else if (sn.contains("android open source project")) {
                     add("aosp_accelerometer_vendor", 1)
@@ -365,36 +494,39 @@ class MainActivity: FlutterActivity() {
             }
         } catch (e: Throwable) { /* لا إشارة */ }
 
-        // ---- (2) معمارية x86 / ترجمة ARM ----
-        if (!isArc) {
-            val abis = Build.SUPPORTED_ABIS ?: emptyArray<String>()
-            if (abis.any { it.startsWith("x86") }) add("x86_abi", 2)
-            val translation = listOf(
-                "/system/lib/libhoudini.so", "/system/lib64/libhoudini.so",
-                "/system/lib/libndk_translation.so", "/system/lib64/libndk_translation.so"
-            )
-            if (translation.any { try { File(it).exists() } catch (e: Throwable) { false } }) {
-                add("arm_translation_lib", 2)
-            }
-        }
+        // ---- (2) معمارية x86 / ترجمة ARM (بدون أي استثناء) ----
+        val abis = Build.SUPPORTED_ABIS ?: emptyArray<String>()
+        val abiProp = (sysProp("ro.product.cpu.abilist") + "," + sysProp("ro.product.cpu.abi")).lowercase()
+        val osArch = (System.getProperty("os.arch") ?: "").lowercase()
+        val cpuInfo = try { File("/proc/cpuinfo").readText().lowercase() } catch (e: Throwable) { "" }
+        // أكتر من مصدر عشان لو واحد اتغيّر (Build.SUPPORTED_ABIS) التانيين يكشفوه
+        val isX86 = abis.any { it.startsWith("x86") } || abiProp.contains("x86") ||
+            osArch.contains("x86") || osArch.contains("i686") ||
+            cpuInfo.contains("genuineintel") || cpuInfo.contains("authenticamd")
+        if (isX86) add("x86_abi", 2)
+
+        // ترجمة ARM: native bridge (على الأجهزة الحقيقية قيمته "0") أو مكتبات الترجمة. مرة واحدة بس (+2)
+        val nativeBridge = sysProp("ro.dalvik.vm.native.bridge")
+        val bridgeActive = nativeBridge.isNotEmpty() && nativeBridge != "0"
+        val libsFound = TRANSLATION_LIBS.any { try { File(it).exists() } catch (e: Throwable) { false } }
+        if (bridgeActive || libsFound) add("arm_translation[bridge=" + nativeBridge + ",libs=" + libsFound + "]", 2)
+
+        // علم hypervisor في cpuinfo = الجهاز VM (Hyper-V/VT/KVM) — x86 Android حقيقي ما بيطلعوش بيه
+        if (Regex("\\bhypervisor\\b").containsMatchIn(cpuInfo)) add("cpuinfo_hypervisor", 3)
 
         // ---- كارت الشاشة (GL_RENDERER) ----
         val gl = readGlRenderer()
         val glLower = gl.lowercase()
         if (glLower.isNotEmpty()) {
-            val softwareGl = listOf("android emulator", "swiftshader", "llvmpipe",
-                "virtualbox", "vmware", "gdi generic")
-            val pcGpu = listOf("geforce", "radeon", "intel(r)", "intel hd", "intel uhd",
-                "intel iris", "amd ")
+            val softwareGl = SOFTWARE_GL
+            val pcGpu = PC_GPU
             // استثناء ضيق: Samsung Exynos بكارت Xclipse (معمارية AMD RDNA) —
             // لازم الشروط التلاتة مع بعض: الاسم فيه xclipse + المصنّع samsung + مفيش x86.
             // فحص الكروت البرمجية (software_gpu) بيتقيّم قبله ومش بيتأثر.
-            val hasX86Abi = (Build.SUPPORTED_ABIS ?: emptyArray<String>()).any { it.startsWith("x86") }
-            val samsungXclipse = glLower.contains("xclipse") && manu.contains("samsung") && !hasX86Abi
+            val samsungXclipse = glLower.contains("xclipse") && manu.contains("samsung") && !isX86
             if (softwareGl.any { glLower.contains(it) }) {
                 add("software_gpu", 3)
-            } else if (!isArc && !glLower.contains("tegra") &&
-                (pcGpu.any { glLower.contains(it) } || glLower.contains("nvidia"))) {
+            } else if (!glLower.contains("tegra") && pcGpu.any { glLower.contains(it) }) {
                 if (samsungXclipse) {
                     signals.add("pc_gpu_exempt_samsung_xclipse(+0)")
                 } else {
@@ -402,6 +534,9 @@ class MainActivity: FlutterActivity() {
                 }
             }
         }
+
+        // فشل قراءة GL_RENDERER (EGL pbuffer مش مدعوم) بيحصل في محاكيات — إشارة ضعيفة بس
+        if (glLower.isEmpty()) add("gl_renderer_unavailable", 1)
 
         // ---- البطارية (قراءة native فورية بدون انتظار) ----
         try {
@@ -479,6 +614,17 @@ class MainActivity: FlutterActivity() {
         d["emu_hint_fingerprint"] = fp.startsWith("generic") || fp.contains("emulator") || fp.contains("vbox")
         d["emu_hint_hardware"] = hw.contains("goldfish") || hw.contains("ranchu") || hw.contains("vbox")
         d["emu_hint_product"] = prod.contains("sdk") || prod.contains("emulator") || prod.contains("vbox")
+
+        // 5b. بيانات تساعدك تعرف الأسماء الحقيقية لأي محاكي جديد (من Crashlytics)
+        d["sys_abilist"] = sysProp("ro.product.cpu.abilist")
+        d["sys_native_bridge"] = sysProp("ro.dalvik.vm.native.bridge")
+        d["sys_hardware"] = sysProp("ro.hardware")
+        d["sys_vendor_model"] = sysProp("ro.product.vendor.model")
+        d["sys_misc"] = "board_platform=" + sysProp("ro.board.platform") +
+            "|characteristics=" + sysProp("ro.build.characteristics") +
+            "|system_model=" + sysProp("ro.product.system.model") +
+            "|os_arch=" + (System.getProperty("os.arch") ?: "null")
+        d["emu_packages_found"] = findEmuPackages().joinToString(",").ifEmpty { "none" }
 
         // 6. خيارات المطور / ADB (قراءة مباشرة من إعدادات النظام)
         try {
