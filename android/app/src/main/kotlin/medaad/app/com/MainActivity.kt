@@ -234,14 +234,23 @@ class MainActivity: FlutterActivity() {
     private val EMU_NAME_WORDS = listOf("andy", "nox", "bst", "aow")
 
     // خصائص نظام وجودها (غير فاضية) = محاكي
+    // ملاحظة: "ro.kernel.qemu.gles" اتشالت من هنا عمداً → راجع EMU_PROPS_WEAK.
     private val EMU_PROPS = listOf(
-        "ro.kernel.qemu.gles", "ro.boot.qemu.gltransport", "ro.boot.qemu.avd_name",
+        "ro.boot.qemu.gltransport", "ro.boot.qemu.avd_name",
         "ro.kernel.android.qemud", "qemu.sf.fake_camera",
         "init.svc.qemu-props", "init.svc.goldfish-logcat", "init.svc.goldfish-setup",
         "init.svc.droid4x", "init.svc.noxd", "init.svc.nox-vbox-sf", "init.svc.memud",
         "init.svc.microvirt-prop", "init.svc.ttvm-prop", "init.svc.bstfolderd",
         "init.svc.ldinit", "init.svc.nemud", "ro.genymotion.version", "ro.nemu.version"
     )
+
+    // خصائص "ضعيفة": وجودها لوحده مش دليل. بتظهر على أجهزة حقيقية (لوحظت على
+    // Samsung Galaxy Tab A SM-T585 / Exynos 7870 / Android 8.1) لأن الـ bootloader
+    // أو الـ firmware بيمرّر "qemu.gles" في kernel cmdline فـ init بيحوّلها لـ
+    // ro.kernel.qemu.gles حتى على جهاز حقيقي. المحاكي الحقيقي لازم تظهر معاه
+    // إشارات قوية تانية (ro.kernel.qemu=1 / ملفات goldfish / Build generic ...)
+    // فبنعدّها +1 (تأكيد داعم) بدل +3 (قاطعة) عشان ماتقفلش جهاز حقيقي لوحدها.
+    private val EMU_PROPS_WEAK = listOf("ro.kernel.qemu.gles")
 
     private val EMU_FILES = listOf(
         // QEMU / AVD / goldfish / ranchu
@@ -493,7 +502,16 @@ class MainActivity: FlutterActivity() {
 
         // ---- (3) خصائص نظام خاصة بالمحاكيات ----
         val foundEmuProps = EMU_PROPS.filter { sysProp(it).isNotEmpty() }
-        if (foundEmuProps.isNotEmpty()) add("emu_props[" + foundEmuProps.joinToString(",") + "]", 3)
+        // بنسجّل القيمة مع الاسم (name=value) عشان لو حصل false positive تاني نعرف
+        // القيمة الفعلية من Crashlytics مباشرة.
+        if (foundEmuProps.isNotEmpty()) {
+            add("emu_props[" + foundEmuProps.joinToString(",") { it + "=" + sysProp(it) } + "]", 3)
+        }
+        // الخصائص الضعيفة: +1 فقط (إشارة داعمة، مش كافية لوحدها).
+        val foundWeakProps = EMU_PROPS_WEAK.filter { sysProp(it).isNotEmpty() }
+        if (foundWeakProps.isNotEmpty()) {
+            add("emu_props_weak[" + foundWeakProps.joinToString(",") { it + "=" + sysProp(it) } + "]", 1)
+        }
 
         // ---- (3) ملفات/devices خاصة بالمحاكيات (قائمة best-effort) ----
         val emuFiles = EMU_FILES
