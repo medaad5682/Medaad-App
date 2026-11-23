@@ -36,6 +36,10 @@ class AudioProtectionService {
     });
 
     // فحص دوري إضافي من جانب Flutter
+    // ✅ إلغاء أي مؤقّت قديم أولاً: الخدمة Singleton وكل مشغّل يستدعي
+    // startMonitoring() عند فتحه، فكان كل فتح جديد يضيف Timer إضافي
+    // (تراكم مؤقتات) بدل استبدال القديم.
+    _monitoringTimer?.cancel();
     _monitoringTimer =
         Timer.periodic(const Duration(seconds: 3), (timer) async {
       await checkRecordingStatus();
