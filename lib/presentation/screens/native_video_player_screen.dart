@@ -519,6 +519,13 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
         fullScreenByDefault: false,
         allowedScreenSleep: true,
         autoDetectFullscreenDeviceOrientation: false,
+        // ✅ مهم: widget الـ BetterPlayer بيستدعي controller.dispose() لما يتشال من
+        // الشجرة. وإحنا بنشيله فعلاً أثناء التنبيه الأمني (_buildSecurityAlert بدل
+        // BetterPlayer)، فكان الـ controller بيتدمّر فعلياً، وبعد «إعادة المحاولة»
+        // بيتركّب widget جديد على controller ميت = فيديو متجمد/مختفي.
+        // false = الـ widget ميقدرش يدمّره، والتدمير بيتم بس من كودنا بـ
+        // dispose(forceDispose: true) (موجود فعلاً في كل مسارات الخروج/التبديل).
+        autoDispose: false,
         controlsConfiguration: BetterPlayerControlsConfiguration(
           showControls: false, // 🔴 تعطيل المتحكمات الافتراضية
           showControlsOnInitialize: false,
