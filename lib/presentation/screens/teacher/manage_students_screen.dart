@@ -126,7 +126,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   }
 
   // دالة المنح الجماعي
-  Future<void> _grantBulkAccess(Set<String> courses, Set<String> subjects) async {
+  Future<void> _grantBulkAccess(Set<String> courses, Set<String> subjects, String note) async {
     if (_studentData == null) return;
     
     setState(() => _isLoading = true);
@@ -136,13 +136,13 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
 
       // منح الكورسات
       for (var courseId in courses) {
-        await _teacherService.toggleAccess(_studentData!['id'].toString(), 'course', courseId, true);
+        await _teacherService.toggleAccess(_studentData!['id'].toString(), 'course', courseId, true, note: note);
         successCount++;
       }
 
       // منح المواد
       for (var subjectId in subjects) {
-        await _teacherService.toggleAccess(_studentData!['id'].toString(), 'subject', subjectId, true);
+        await _teacherService.toggleAccess(_studentData!['id'].toString(), 'subject', subjectId, true, note: note);
         successCount++;
       }
 
@@ -189,6 +189,8 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     // مجموعات لتخزين الاختيارات الجديدة
     Set<String> selectedCourses = {};
     Set<String> selectedSubjects = {};
+    // ملاحظة المدرس الاختيارية (تُرسل مع كل طلب تفعيل)
+    String teacherNote = '';
 
     showDialog(
       context: context,
@@ -198,6 +200,10 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
             title: Text(AppLocalizations.of(context)!.choosePermissionsToGrantTitle),
             content: SizedBox(
               width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
               child: ListView.builder(
                 shrinkWrap: true,
                 itemCount: _myContent.length,
@@ -280,6 +286,22 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                   );
                 },
               ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    maxLength: 200,
+                    maxLines: 2,
+                    minLines: 1,
+                    onChanged: (v) => teacherNote = v,
+                    decoration: InputDecoration(
+                      labelText: AppLocalizations.of(context)!.grantNoteLabel,
+                      hintText: AppLocalizations.of(context)!.grantNoteHint,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
@@ -291,7 +313,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                     ? null // تعطيل الزر إذا لم يتم اختيار شيء
                     : () {
                         Navigator.pop(ctx);
-                        _grantBulkAccess(selectedCourses, selectedSubjects);
+                        _grantBulkAccess(selectedCourses, selectedSubjects, teacherNote.trim());
                       },
                 child: Text(AppLocalizations.of(context)!.grantWithCountAction((selectedCourses.length + selectedSubjects.length).toString())),
               ),

@@ -99,6 +99,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
               questionType: qType,
               maxScore: (q['max_score'] is num) ? (q['max_score'] as num).toDouble() : 1,
               modelAnswer: q['model_answer']?.toString(),
+              explanation: q['explanation']?.toString(),
             );
           }).toList();
         }
@@ -297,6 +298,7 @@ imageUrl = uploadResult['url']; // استخراج الرابط فقط
             'questionType': 'mcq',
             'options': q.options,
             'correctIndex': q.correctOptionIndex,
+            'explanation': q.explanation,
             'image': imageUrl, 
           });
         }
@@ -567,6 +569,7 @@ class QuestionModel {
   String questionType; // 'mcq' أو 'essay'
   double maxScore; // الدرجة العظمى (تُستخدم فقط للأسئلة المقالية)
   String? modelAnswer; // الإجابة النموذجية (تُستخدم فقط للأسئلة المقالية)
+  String? explanation; // شرح الإجابة (اختياري - يُستخدم فقط للأسئلة الاختيارية)
 
   QuestionModel({
     required this.text,
@@ -577,6 +580,7 @@ class QuestionModel {
     this.questionType = 'mcq',
     this.maxScore = 1,
     this.modelAnswer,
+    this.explanation,
   });
 
   bool get isEssay => questionType == 'essay';
@@ -600,6 +604,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
   final TextEditingController _questionTextController = TextEditingController();
   final TextEditingController _maxScoreController = TextEditingController(text: '1');
   final TextEditingController _modelAnswerController = TextEditingController();
+  final TextEditingController _explanationController = TextEditingController();
    
   List<TextEditingController> _optionControllers = [];
    
@@ -616,6 +621,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
       _questionType = widget.initialQuestion!.questionType;
       _maxScoreController.text = _formatScore(widget.initialQuestion!.maxScore);
       _modelAnswerController.text = widget.initialQuestion!.modelAnswer ?? '';
+      _explanationController.text = widget.initialQuestion!.explanation ?? '';
       
       for (var option in widget.initialQuestion!.options) {
         _optionControllers.add(TextEditingController(text: option));
@@ -640,6 +646,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
     _questionTextController.dispose();
     _maxScoreController.dispose();
     _modelAnswerController.dispose();
+    _explanationController.dispose();
     for (var c in _optionControllers) {
       c.dispose();
     }
@@ -733,6 +740,7 @@ class _QuestionDialogState extends State<QuestionDialog> {
       imageUrl: _existingImageUrl, 
       questionType: 'mcq',
       maxScore: 1,
+      explanation: _explanationController.text.trim().isEmpty ? null : _explanationController.text.trim(),
     );
 
     widget.onSave(newQuestion);
@@ -915,6 +923,28 @@ class _QuestionDialogState extends State<QuestionDialog> {
                       ),
                     );
                   }),
+                  const SizedBox(height: 10),
+                  Text(AppLocalizations.of(context)!.explanationOptionalLabel, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _explanationController,
+                    style: TextStyle(color: AppColors.textPrimary),
+                    maxLines: 4,
+                    minLines: 3,
+                    maxLength: 2000,
+                    decoration: InputDecoration(
+                      hintText: AppLocalizations.of(context)!.explanationHint,
+                      hintStyle: TextStyle(color: AppColors.textSecondary.withOpacity(0.5)),
+                      counterStyle: TextStyle(color: AppColors.textSecondary),
+                      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.1))),
+                      focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppColors.accentYellow)),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    AppLocalizations.of(context)!.explanationInfoMessage,
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  ),
                 ],
               ],
             ),
