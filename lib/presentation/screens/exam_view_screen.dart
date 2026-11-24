@@ -12,6 +12,7 @@ import '../../core/services/api_client.dart';
 import '../../core/services/attestation_service.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../widgets/exam_explanation_box.dart';
 
 class ExamViewScreen extends StatefulWidget {
   final String examId;
@@ -871,6 +872,11 @@ class _ExamViewScreenState extends State<ExamViewScreen> {
                             ),
                           );
                         }),
+
+                      // شرح الإجابة (اختياري) - في وضع نموذج الإجابة بعد انتهاء الوقت فقط
+                      if (!isEssay && _isModelAnswerMode)
+                        ExamExplanationBox(
+                            text: questionData['explanation']?.toString()),
                     ],
                   ),
                 ),

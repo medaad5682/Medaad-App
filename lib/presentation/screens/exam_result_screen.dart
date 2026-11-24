@@ -12,6 +12,7 @@ import '../../core/services/api_client.dart';
 import '../../core/services/attestation_service.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../widgets/exam_explanation_box.dart';
 
 class ExamResultScreen extends StatefulWidget {
   final String attemptId;
@@ -827,6 +828,8 @@ class _ExamResultScreenState extends State<ExamResultScreen> {
                           ),
                         );
                       }),
+                      // شرح الإجابة (اختياري) - يظهر فقط لو المدرس كتبه
+                      ExamExplanationBox(text: q['explanation']?.toString()),
                     ],
                   ),
                 );

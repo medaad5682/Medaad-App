@@ -18,6 +18,7 @@ import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
+import '../../core/services/device_info_collector.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
@@ -190,6 +191,8 @@ class _LoginScreenState extends State<LoginScreen>
       var box = await StorageService.openBox('auth_box');
       // 1. جلب معرف الجهاز الحقيقي
       final deviceId = await _getAndSaveDeviceId(box);
+      // 1.1 تفاصيل الجهاز (الشركة المصنعة، الموديل، رقم البناء ...) لتسجيلها في السيرفر
+      final deviceInfo = await DeviceInfoCollector.collect();
 
       // 2. إرسال الطلب للباك اند بالاعتماد كلياً على ApiClient (بدون هيدرز يدوية)
       final response = await ApiClient.instance.post(
@@ -198,6 +201,7 @@ class _LoginScreenState extends State<LoginScreen>
           'identifier': identifier,
           'password': password,
           'deviceId': deviceId,
+          'deviceInfo': deviceInfo,
         },
         options: Options(
           validateStatus: (status) => status! < 500,
@@ -386,17 +390,17 @@ class _LoginScreenState extends State<LoginScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 64),
+                  const SizedBox(height: 40),
 
                   Center(
                     child: Image.asset(
                       'assets/images/logo.png',
-                      width: 120,
-                      height: 120,
+                      width: 96,
+                      height: 96,
                       fit: BoxFit.contain,
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
                   Center(
                     child: Text(
@@ -421,7 +425,7 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 28),
 
                   if (_errorMessage != null)
                     Container(
@@ -523,7 +527,51 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                   ),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
+
+                  // ✅ إنشاء حساب: زر واضح تحت زر الدخول مباشرة (بدل الرابط الصغير في آخر الصفحة)
+                  Center(
+                    child: Text(
+                      AppLocalizations.of(context)!.newStudentQuestion,
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _isLoading
+                          ? null
+                          : () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (context) => const RegisterScreen()),
+                              );
+                            },
+                      icon: const Icon(Icons.person_add_alt_1, size: 20),
+                      label: Text(
+                        AppLocalizations.of(context)!.createAccount,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.backgroundSecondary,
+                        foregroundColor: AppColors.accentYellow,
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        side: BorderSide(color: AppColors.accentYellow, width: 1.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
 
                   // Guest Login Button
                   SizedBox(
@@ -549,37 +597,7 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
                   ),
 
-                  const SizedBox(height: 48),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        AppLocalizations.of(context)!.newStudentQuestion,
-                        style:
-                            TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (context) => const RegisterScreen()),
-                          );
-                        },
-                        child: Text(
-                          AppLocalizations.of(context)!.createAccount,
-                          style: TextStyle(
-                            color: AppColors.accentYellow,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                            decoration: TextDecoration.underline,
-                            decorationColor: AppColors.accentYellow,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  const SizedBox(height: 16),
                 ],
               ),
             ),
