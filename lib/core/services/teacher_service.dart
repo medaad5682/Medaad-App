@@ -319,7 +319,8 @@ class TeacherService {
 
   // منح أو سحب صلاحية
   Future<void> toggleAccess(
-      String studentId, String type, String itemId, bool allow) async {
+      String studentId, String type, String itemId, bool allow,
+      {String? note}) async {
     await ApiClient.instance.post(
       '$baseUrl/teacher/students',
       data: {
@@ -328,7 +329,9 @@ class TeacherService {
           'studentId': studentId,
           'type': type,
           'itemId': itemId,
-          'allow': allow
+          'allow': allow,
+          // ملاحظة المدرس الاختيارية عند التفعيل (تُضاف لخانة ملاحظات الطلب)
+          if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
         }
       },
     );
