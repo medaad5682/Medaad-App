@@ -378,6 +378,11 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
+    // حجم اللوجو يتناسب مع ارتفاع الشاشة: كبير وواضح، وأصغر قليلاً على الشاشات القصيرة
+    // عشان زر إنشاء حساب يفضل ظاهر بدون تمرير كتير.
+    final double logoSize =
+        (MediaQuery.of(context).size.height * 0.2).clamp(120.0, 180.0).toDouble();
+
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       body: SafeArea(
@@ -390,17 +395,17 @@ class _LoginScreenState extends State<LoginScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 28),
 
                   Center(
                     child: Image.asset(
                       'assets/images/logo.png',
-                      width: 96,
-                      height: 96,
+                      width: logoSize,
+                      height: logoSize,
                       fit: BoxFit.contain,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
 
                   Center(
                     child: Text(
