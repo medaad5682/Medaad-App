@@ -14,7 +14,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:secure_display/secure_display.dart';
+// TEMP-AD-RECORDING: import disabled (SecureScreenWidget wrapper is commented out in main())
+// import 'package:secure_display/secure_display.dart';
 
 // ✅ استيراد Foundation لمعرفة وضع التطبيق
 import 'package:flutter/foundation.dart';
@@ -511,11 +512,18 @@ void main() async {
     await AppState().initLocaleFast();
     await AppState().initThemeFast();
 
+    // TEMP-AD-RECORDING: SecureScreenWidget (secure_display) disabled - it protected
+    // the WHOLE app from screenshots/recording. Restore the original block to re-enable.
+    // runApp(
+    //   SecureScreenWidget(useBlur: true,
+    //     child: const RestartWidget(
+    //       child: EduVantageApp(),
+    //     ),
+    //   ),
+    // );
     runApp(
-      SecureScreenWidget(useBlur: true,
-        child: const RestartWidget(
-          child: EduVantageApp(),
-        ),
+      const RestartWidget(
+        child: EduVantageApp(),
       ),
     );
 
