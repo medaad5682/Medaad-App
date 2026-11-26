@@ -25,6 +25,7 @@ import 'package:flutter_background_service_android/flutter_background_service_an
 
 import 'core/services/notification_service.dart';
 import 'core/services/app_state.dart';
+import 'core/theme/app_theme_config.dart';
 // 🆕 إثبات الأصالة: App Check (جوجل) / SysIntegrity (هواوي HMS فقط)
 import 'core/services/attestation_service.dart';
 import 'core/services/storage_service.dart';
@@ -509,6 +510,11 @@ void main() async {
     // hit the -25308 race the gate exists to prevent.
     await AppState().initLocaleFast();
     await AppState().initThemeFast();
+
+    // 🎨 ألوان التطبيق المخصصة من لوحة الأدمن: قراءة سريعة من الكاش المحلي
+    // (SharedPreferences، نفس نمط initThemeFast) قبل أول إطار. لو مفيش كاش أو
+    // حصل أي خطأ → الألوان الافتراضية المدمجة. التحديث من السيرفر بيتم في الـ Splash.
+    await AppThemeConfig.loadFast();
 
     runApp(
       SecureScreenWidget(useBlur: true,
