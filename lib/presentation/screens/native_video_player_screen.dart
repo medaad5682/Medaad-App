@@ -11,7 +11,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+// TEMP-AD-RECORDING: import disabled (FLAG_SECURE calls are commented out)
+// import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../core/services/audio_protection_service.dart';
@@ -295,14 +296,15 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
   Future<void> _initializeProtection() async {
     try {
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
-      await _protectionService.blockAudioCapture();
-      await _protectionService.startMonitoring();
-      _recordingSubscription =
-          _protectionService.recordingStateStream.listen((isRecording) {
-        if (isRecording) _handleRecordingDetected();
-      });
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // await FlutterWindowManagerPlus.addFlags(
+      //     FlutterWindowManagerPlus.FLAG_SECURE);
+      // await _protectionService.blockAudioCapture();
+      // await _protectionService.startMonitoring();
+      // _recordingSubscription =
+      //     _protectionService.recordingStateStream.listen((isRecording) {
+      //   if (isRecording) _handleRecordingDetected();
+      // });
       debugPrint("🛡️ Protection Enabled in Native Video Player");
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -365,9 +367,10 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (state == AppLifecycleState.paused) {
       _betterPlayerController?.pause();
     } else if (state == AppLifecycleState.resumed) {
-      FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
-          .catchError((_) {});
-      _protectionService.blockAudioCapture();
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
+      //     .catchError((_) {});
+      // _protectionService.blockAudioCapture();
       if (_isRecordingDetected) {
         _betterPlayerController?.setVolume(0.0);
         _betterPlayerController?.pause();

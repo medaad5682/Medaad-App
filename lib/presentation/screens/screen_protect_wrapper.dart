@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 // ✅ [FIX F-11] استدعاء مكتبة حماية النوافذ
-import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+// TEMP-AD-RECORDING: import disabled (FLAG_SECURE call is commented out below)
+// import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 
 class ScreenProtectWrapper extends StatefulWidget {
   final Widget child;
@@ -26,7 +27,8 @@ class _ScreenProtectWrapperState extends State<ScreenProtectWrapper>
     try {
       // هذا الأمر يمنع أخذ لقطات شاشة أو تصوير فيديو من الخلفية (App Switcher)
       // ويقضي على ثغرة الـ Race Condition الزمني تماماً
-      await FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE);
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // await FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE);
     } catch (e) {
       debugPrint("Failed to secure screen: $e");
     }

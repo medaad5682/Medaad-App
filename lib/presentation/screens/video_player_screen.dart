@@ -12,7 +12,8 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:dio/dio.dart';
 // ✅ مكتبات الحماية
-import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+// TEMP-AD-RECORDING: import disabled (FLAG_SECURE calls are commented out)
+// import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import '../../core/services/audio_protection_service.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/recording_alert_overlay.dart';
@@ -190,16 +191,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Future<void> _initializeProtection() async {
     try {
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
-      await _protectionService.blockAudioCapture();
-      await _protectionService.startMonitoring();
-      _recordingSubscription =
-          _protectionService.recordingStateStream.listen((isRecording) {
-        if (isRecording) {
-          _handleRecordingDetected();
-        }
-      });
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // await FlutterWindowManagerPlus.addFlags(
+      //     FlutterWindowManagerPlus.FLAG_SECURE);
+      // await _protectionService.blockAudioCapture();
+      // await _protectionService.startMonitoring();
+      // _recordingSubscription =
+      //     _protectionService.recordingStateStream.listen((isRecording) {
+      //   if (isRecording) {
+      //     _handleRecordingDetected();
+      //   }
+      // });
       debugPrint("🛡️ Protection Enabled in Video Player");
     } catch (e) {
       FirebaseCrashlytics.instance
@@ -270,7 +272,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     if (state == AppLifecycleState.paused) {
       _player.pause();
     } else if (state == AppLifecycleState.resumed) {
-      _protectionService.blockAudioCapture();
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // _protectionService.blockAudioCapture();
+
       if (_isRecordingDetected) {
         _player.setVolume(0.0);
         _player.pause();

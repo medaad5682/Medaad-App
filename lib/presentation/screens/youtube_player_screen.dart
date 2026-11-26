@@ -7,7 +7,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 // ✅ مكتبات الحماية
-import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+// TEMP-AD-RECORDING: import disabled (FLAG_SECURE calls are commented out)
+// import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/services/audio_protection_service.dart';
 
@@ -98,22 +99,23 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
   Future<void> _initializeProtection() async {
     try {
       // منع Screenshot & Screen Recording
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // await FlutterWindowManagerPlus.addFlags(
+      //     FlutterWindowManagerPlus.FLAG_SECURE);
 
-      // حظر التقاط الصوت
-      await _protectionService.blockAudioCapture();
+      // // حظر التقاط الصوت
+      // await _protectionService.blockAudioCapture();
 
-      // بدء مراقبة تطبيقات التسجيل
-      await _protectionService.startMonitoring();
+      // // بدء مراقبة تطبيقات التسجيل
+      // await _protectionService.startMonitoring();
 
-      // الاستماع لأي محاولة تسجيل
-      _recordingSubscription =
-          _protectionService.recordingStateStream.listen((isRecording) {
-        if (isRecording) {
-          _handleRecordingDetected();
-        }
-      });
+      // // الاستماع لأي محاولة تسجيل
+      // _recordingSubscription =
+      //     _protectionService.recordingStateStream.listen((isRecording) {
+      //   if (isRecording) {
+      //     _handleRecordingDetected();
+      //   }
+      // });
     } catch (e) {
       FirebaseCrashlytics.instance
           .recordError(e, null, reason: 'Protection Init Error');
@@ -184,7 +186,9 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
     if (state == AppLifecycleState.paused) {
       _controller.pause();
     } else if (state == AppLifecycleState.resumed) {
-      _protectionService.blockAudioCapture();
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // _protectionService.blockAudioCapture();
+
 
       // إذا كان هناك تسجيل، نعيد تطبيق الحظر (كتم وإيقاف)
       if (_isRecordingDetected) {
