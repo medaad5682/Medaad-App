@@ -68,7 +68,8 @@ class _EduVantageAppState extends State<EduVantageApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       // إعادة تفعيل الحظر عند العودة للتطبيق
-      AudioProtectionService().blockAudioCapture();
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // AudioProtectionService().blockAudioCapture();
       
       // ✅ أضف تأخير بسيط (500 ملي ثانية) لتجنب مشكلة الـ Race Condition مع النظام
       Future.delayed(const Duration(milliseconds: 500), () {

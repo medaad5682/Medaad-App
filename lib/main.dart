@@ -9,7 +9,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 // ✅ استيراد مكتبة الإشعارات من فايربيز
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+// TEMP-AD-RECORDING: import disabled (FLAG_SECURE call is commented out in _enableSecureMode)
+// import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -632,8 +633,9 @@ Future<void> _safeRecordError(
 
 Future<void> _enableSecureMode() async {
   try {
-    await FlutterWindowManagerPlus.addFlags(
-        FlutterWindowManagerPlus.FLAG_SECURE);
+    // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+    // await FlutterWindowManagerPlus.addFlags(
+    //     FlutterWindowManagerPlus.FLAG_SECURE);
   } catch (e) {
     debugPrint("Security Mode Error: $e");
   }
