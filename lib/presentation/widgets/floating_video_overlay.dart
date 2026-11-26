@@ -3,7 +3,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:better_player_plus/better_player_plus.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+// TEMP-AD-RECORDING: import disabled (FLAG_SECURE calls are commented out)
+// import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/floating_video_controller.dart';
@@ -131,8 +132,9 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
 
   Future<void> _assertFlagSecure() async {
     try {
-      await FlutterWindowManagerPlus.addFlags(
-          FlutterWindowManagerPlus.FLAG_SECURE);
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // await FlutterWindowManagerPlus.addFlags(
+      //     FlutterWindowManagerPlus.FLAG_SECURE);
     } catch (_) {}
   }
 

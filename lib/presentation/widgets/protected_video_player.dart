@@ -4,8 +4,10 @@ import 'dart:io';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
-import 'package:screen_protector/screen_protector.dart';
+// TEMP-AD-RECORDING: import disabled (FLAG_SECURE calls are commented out)
+// import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
+// TEMP-AD-RECORDING: import disabled (ScreenProtector calls are commented out)
+// import 'package:screen_protector/screen_protector.dart';
 import '../../core/services/audio_protection_service.dart';
 import 'dart:async';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
@@ -57,35 +59,37 @@ class _ProtectedVideoPlayerState extends State<ProtectedVideoPlayer> with Widget
       // =========================================================================================
       
       // 1. Platform-specific Screenshot/Screen Recording Protection
-      if (Platform.isAndroid) {
-        // Android: Use FlutterWindowManager (FLAG_SECURE)
-        // await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
-        debugPrint('✅ Amr AI: Android screen protection enabled (FLAG_SECURE)');
-      } else if (Platform.isIOS) {
-        // iOS: Use screen_protector plugin
-        await ScreenProtector.protectDataLeakageOn();
-        await ScreenProtector.preventScreenshotOn();
-        debugPrint('✅ Amr AI: iOS screen protection enabled (screen_protector)');
-      }
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // if (Platform.isAndroid) {
+      //   // Android: Use FlutterWindowManager (FLAG_SECURE)
+      //   // await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
+      //   debugPrint('✅ Amr AI: Android screen protection enabled (FLAG_SECURE)');
+      // } else if (Platform.isIOS) {
+      //   // iOS: Use screen_protector plugin
+      //   await ScreenProtector.protectDataLeakageOn();
+      //   await ScreenProtector.preventScreenshotOn();
+      //   debugPrint('✅ Amr AI: iOS screen protection enabled (screen_protector)');
+      // }
       
       // 2. تفعيل Wakelock (منع قفل الشاشة) - Works on both platforms
       await WakelockPlus.enable();
       debugPrint('✅ Amr AI: Wakelock enabled');
       
       // 3. حظر التقاط الصوت (Android 10+) / iOS returns success
-      await _protectionService.blockAudioCapture();
-      debugPrint('✅ Amr AI: Audio capture protection requested');
-      
-      // 4. بدء المراقبة
-      await _protectionService.startMonitoring();
-      debugPrint('✅ Amr AI: Monitoring started');
-      
-      // 5. الاستماع لحالة التسجيل
-      _recordingSubscription = _protectionService.recordingStateStream.listen((isRecording) {
-        if (isRecording && !_isRecording) {
-          _handleRecordingDetected();
-        }
-      });
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // await _protectionService.blockAudioCapture();
+      // debugPrint('✅ Amr AI: Audio capture protection requested');
+
+      // // 4. بدء المراقبة
+      // await _protectionService.startMonitoring();
+      // debugPrint('✅ Amr AI: Monitoring started');
+
+      // // 5. الاستماع لحالة التسجيل
+      // _recordingSubscription = _protectionService.recordingStateStream.listen((isRecording) {
+      //   if (isRecording && !_isRecording) {
+      //     _handleRecordingDetected();
+      //   }
+      // });
 
       if (mounted) {
         setState(() => _isProtectionActive = true);
@@ -177,7 +181,9 @@ class _ProtectedVideoPlayerState extends State<ProtectedVideoPlayer> with Widget
       _player.pause();
     } else if (state == AppLifecycleState.resumed) {
       // إعادة تطبيق الحماية عند العودة
-      _protectionService.blockAudioCapture();
+      // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+      // _protectionService.blockAudioCapture();
+
     }
   }
 
@@ -266,10 +272,11 @@ class _ProtectedVideoPlayerState extends State<ProtectedVideoPlayer> with Widget
     _player.dispose();
     
     // Clean up platform-specific protection
-    if (Platform.isIOS) {
-      ScreenProtector.protectDataLeakageOff();
-      ScreenProtector.preventScreenshotOff();
-    }
+    // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+    // if (Platform.isIOS) {
+    //   ScreenProtector.protectDataLeakageOff();
+    //   ScreenProtector.preventScreenshotOff();
+    // }
     
     debugPrint('✅ Amr AI: Protection cleaned up');
     super.dispose();
