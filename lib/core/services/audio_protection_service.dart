@@ -28,42 +28,45 @@ class AudioProtectionService {
 
   /// بدء المراقبة المستمرة
   Future<void> startMonitoring() async {
-    // استقبال إشارات من Native
-    platform.setMethodCallHandler((call) async {
-      if (call.method == 'onRecordingDetected') {
-        _handleRecordingDetected();
-      }
-    });
+    // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+    // // استقبال إشارات من Native
+    // platform.setMethodCallHandler((call) async {
+    //   if (call.method == 'onRecordingDetected') {
+    //     _handleRecordingDetected();
+    //   }
+    // });
 
-    // فحص دوري إضافي من جانب Flutter
-    // ✅ إلغاء أي مؤقّت قديم أولاً: الخدمة Singleton وكل مشغّل يستدعي
-    // startMonitoring() عند فتحه، فكان كل فتح جديد يضيف Timer إضافي
-    // (تراكم مؤقتات) بدل استبدال القديم.
-    _monitoringTimer?.cancel();
-    _monitoringTimer =
-        Timer.periodic(const Duration(seconds: 3), (timer) async {
-      await checkRecordingStatus();
-    });
+    // // فحص دوري إضافي من جانب Flutter
+    // // ✅ إلغاء أي مؤقّت قديم أولاً: الخدمة Singleton وكل مشغّل يستدعي
+    // // startMonitoring() عند فتحه، فكان كل فتح جديد يضيف Timer إضافي
+    // // (تراكم مؤقتات) بدل استبدال القديم.
+    // _monitoringTimer?.cancel();
+    // _monitoringTimer =
+    //     Timer.periodic(const Duration(seconds: 3), (timer) async {
+    //   await checkRecordingStatus();
+    // });
   }
 
   /// فحص حالة التسجيل
   Future<bool> checkRecordingStatus() async {
-    try {
-      final bool isRecording =
-          await platform.invokeMethod('checkRecording') ?? false;
+    // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+    // try {
+    //   final bool isRecording =
+    //       await platform.invokeMethod('checkRecording') ?? false;
 
-      if (isRecording && !_isRecording) {
-        _handleRecordingDetected();
-      } else if (!isRecording && _isRecording) {
-        _isRecording = false;
-        _recordingStateController.add(false);
-      }
+    //   if (isRecording && !_isRecording) {
+    //     _handleRecordingDetected();
+    //   } else if (!isRecording && _isRecording) {
+    //     _isRecording = false;
+    //     _recordingStateController.add(false);
+    //   }
 
-      return isRecording;
-    } catch (e) {
-      _safePrint('⚠️ خطأ في فحص التسجيل: $e'); // ✅ استخدام الطباعة الآمنة
-      return false;
-    }
+    //   return isRecording;
+    // } catch (e) {
+    //   _safePrint('⚠️ خطأ في فحص التسجيل: $e'); // ✅ استخدام الطباعة الآمنة
+    //   return false;
+    // }
+    return false;
   }
 
   /// معالجة اكتشاف التسجيل
@@ -74,14 +77,16 @@ class AudioProtectionService {
 
   /// حظر التقاط الصوت (Android 10+)
   Future<bool> blockAudioCapture() async {
-    try {
-      final bool result =
-          await platform.invokeMethod('blockAudioCapture') ?? false;
-      return result;
-    } catch (e) {
-      _safePrint('⚠️ خطأ في حظر الصوت: $e'); // ✅ استخدام الطباعة الآمنة
-      return false;
-    }
+    // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+    // try {
+    //   final bool result =
+    //       await platform.invokeMethod('blockAudioCapture') ?? false;
+    //   return result;
+    // } catch (e) {
+    //   _safePrint('⚠️ خطأ في حظر الصوت: $e'); // ✅ استخدام الطباعة الآمنة
+    //   return false;
+    // }
+    return false;
   }
 
   /// إيقاف المراقبة

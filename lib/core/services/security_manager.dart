@@ -6,7 +6,8 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:safe_device/safe_device.dart';
-import 'package:screen_protector/screen_protector.dart';
+// TEMP-AD-RECORDING: import disabled (ScreenProtector listener is commented out below)
+// import 'package:screen_protector/screen_protector.dart';
 
 // =========================================================
 // 🛡️ كلاس إدارة الحماية (Security Manager)
@@ -59,29 +60,30 @@ class SecurityManager {
   static const int _emulatorScoreThreshold = 3;
 
   void initListeners() {
-    _audioProtection.startMonitoring();
+    // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+    // _audioProtection.startMonitoring();
 
-    _audioProtection.recordingStateStream.listen((isRecording) {
-      if (isRecording) {
-        _triggerBreach(
-          "تم اكتشاف تسجيل للشاشة أو الصوت!",
-          type: BreachType.screenRecording,
-          source: 'recording_stream',
-        );
-      }
-    });
+    // _audioProtection.recordingStateStream.listen((isRecording) {
+    //   if (isRecording) {
+    //     _triggerBreach(
+    //       "تم اكتشاف تسجيل للشاشة أو الصوت!",
+    //       type: BreachType.screenRecording,
+    //       source: 'recording_stream',
+    //     );
+    //   }
+    // });
 
-    ScreenProtector.addListener(() {
-      // Screenshot callback
-    }, (isCapturing) {
-      if (isCapturing) {
-        _triggerBreach(
-          "تم اكتشاف تصوير للشاشة!",
-          type: BreachType.screenshot,
-          source: 'screen_protector_capture_callback',
-        );
-      }
-    });
+    // ScreenProtector.addListener(() {
+    //   // Screenshot callback
+    // }, (isCapturing) {
+    //   if (isCapturing) {
+    //     _triggerBreach(
+    //       "تم اكتشاف تصوير للشاشة!",
+    //       type: BreachType.screenshot,
+    //       source: 'screen_protector_capture_callback',
+    //     );
+    //   }
+    // });
   }
 
   // ---------------------------------------------------------
@@ -356,7 +358,9 @@ class SecurityManager {
       scan: scan,
     ));
 
-    _audioProtection.blockAudioCapture();
+    // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+    // _audioProtection.blockAudioCapture();
+
     HapticFeedback.heavyImpact();
   }
 
