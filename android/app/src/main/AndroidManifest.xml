@@ -18,12 +18,13 @@
          unused dangerous-adjacent permission is also a Play Console review
          flag worth avoiding. -->
 
+    <!-- TEMP-AD-RECORDING: allowAudioPlaybackCapture was "false"; set to "true" so ad videos can be recorded with internal audio. Set back to "false" to re-enable protection. -->
     <application
         android:label="مــــداد"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
         
-        android:allowAudioPlaybackCapture="false"
+        android:allowAudioPlaybackCapture="true"
 
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config"
