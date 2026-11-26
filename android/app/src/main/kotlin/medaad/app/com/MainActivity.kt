@@ -61,23 +61,26 @@ class MainActivity: FlutterActivity() {
 
         // ✅ 1. منع تسجيل الفيديو وأخذ لقطات الشاشة (FLAG_SECURE)
         // Applied in onCreate before first frame — consistent with FlutterWindowManagerPlus in Dart
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
+        // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+        // window.setFlags(
+        //     WindowManager.LayoutParams.FLAG_SECURE,
+        //     WindowManager.LayoutParams.FLAG_SECURE
+        // )
 
         // ✅ 2. منع تسجيل الصوت الداخلي (Internal Audio) - Android 10+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                audioManager?.allowedCapturePolicy = 3 // ALLOW_CAPTURE_BY_NONE
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+        // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        //     try {
+        //         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        //         audioManager?.allowedCapturePolicy = 3 // ALLOW_CAPTURE_BY_NONE
+        //     } catch (e: Exception) {
+        //         e.printStackTrace()
+        //     }
+        // }
 
         // ✅ 3. بدء حلقة المراقبة المستمرة للتطبيقات الخارجية
-        startRecordingMonitoring()
+        // TEMP-AD-RECORDING: recording monitor disabled so ad videos can be recorded. Restore to re-enable.
+        // startRecordingMonitoring()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -94,12 +97,14 @@ class MainActivity: FlutterActivity() {
                     result.success(mode)
                 }
                 "blockAudioCapture" -> {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        audioManager?.allowedCapturePolicy = 3
-                        result.success(true)
-                    } else {
-                        result.success(false)
-                    }
+                    // TEMP-AD-RECORDING: audio capture blocking disabled so ad videos can be recorded. Restore to re-enable.
+                    // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    //     audioManager?.allowedCapturePolicy = 3
+                    //     result.success(true)
+                    // } else {
+                    //     result.success(false)
+                    // }
+                    result.success(false)
                 }
                 // [FIX F-04] Expose native root detection to Flutter layer
                 "isDeviceRooted" -> {
@@ -181,26 +186,27 @@ class MainActivity: FlutterActivity() {
 
     // ✅ دالة فحص التسجيل النشط
     private fun checkIfRecording(): Boolean {
-        try {
-            if (audioManager == null) {
-                audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            }
-            
-            val audioMode = audioManager?.mode
-            if (audioMode == AudioManager.MODE_IN_COMMUNICATION || 
-                audioMode == AudioManager.MODE_IN_CALL) {
-                return true
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                val activeRecordings = audioManager?.activeRecordingConfigurations
-                if (!activeRecordings.isNullOrEmpty()) {
-                    return true
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // TEMP-AD-RECORDING: recording detection disabled (always reports "not recording"). Restore to re-enable.
+        // try {
+        //     if (audioManager == null) {
+        //         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        //     }
+        //
+        //     val audioMode = audioManager?.mode
+        //     if (audioMode == AudioManager.MODE_IN_COMMUNICATION ||
+        //         audioMode == AudioManager.MODE_IN_CALL) {
+        //         return true
+        //     }
+        //
+        //     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        //         val activeRecordings = audioManager?.activeRecordingConfigurations
+        //         if (!activeRecordings.isNullOrEmpty()) {
+        //             return true
+        //         }
+        //     }
+        // } catch (e: Exception) {
+        //     e.printStackTrace()
+        // }
         return false
     }
 
@@ -795,10 +801,11 @@ class MainActivity: FlutterActivity() {
         // ✅ Re-apply FLAG_SECURE on every resume so it is never left stripped
         // after returning from a child route (e.g. NativeVideoPlayerScreen) that
         // may have called FlutterWindowManagerPlus.clearFlags before popping.
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            audioManager?.allowedCapturePolicy = 3
-        }
+        // TEMP-AD-RECORDING: disabled so ad videos can be recorded. Restore to re-enable.
+        // window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        //     audioManager?.allowedCapturePolicy = 3
+        // }
     }
 
     override fun onDestroy() {
