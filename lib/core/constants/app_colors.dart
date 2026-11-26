@@ -1,24 +1,25 @@
 import 'package:flutter/material.dart';
 import '../services/app_state.dart';
+import '../theme/app_theme_config.dart';
 
 class AppColors {
   // ========================================================
   // 🌑 الوضع الليلي (ألوانك القديمة)
   // ========================================================
-  static const Color _darkBgPrimary = Color(0xFF1a1b1e);
-  static const Color _darkBgSecondary = Color(0xFF2a2b2f);
-  static const Color _darkTextPrimary = Color(0xFFE2E8F0);
-  static const Color _darkTextSecondary = Color(0xFF94A3B8);
-  static const Color _darkAccentYellow = Color(0xFFdba91d); // زر قديم
+  static Color get _darkBgPrimary => AppThemeConfig.color(AppThemeConfig.darkBgPrimary);
+  static Color get _darkBgSecondary => AppThemeConfig.color(AppThemeConfig.darkBgSecondary);
+  static Color get _darkTextPrimary => AppThemeConfig.color(AppThemeConfig.darkTextPrimary);
+  static Color get _darkTextSecondary => AppThemeConfig.color(AppThemeConfig.darkTextSecondary);
+  static Color get _darkAccentYellow => AppThemeConfig.color(AppThemeConfig.darkAccent); // زر قديم
 
   // ========================================================
   // ☀️ الوضع النهاري (الألوان الجديدة المطلوبة)
   // ========================================================
-  static const Color _lightBgPrimary = Color(0xFFE0E5EC); // الخلفية الأساسية
-  static const Color _lightBgSecondary = Color(0xFFF8F9FA); // اللون الثانوي
-  static const Color _lightTextPrimary = Color(0xFF354F52); // لون النصوص
-  static const Color _lightTextSecondary = Color(0xFF5F7D81); // لون نصوص فرعي (مشتق)
-  static const Color _lightBtnInteractive = Color(0xFFA85832); // الأزرار التفاعلية
+  static Color get _lightBgPrimary => AppThemeConfig.color(AppThemeConfig.lightBgPrimary); // الخلفية الأساسية
+  static Color get _lightBgSecondary => AppThemeConfig.color(AppThemeConfig.lightBgSecondary); // اللون الثانوي
+  static Color get _lightTextPrimary => AppThemeConfig.color(AppThemeConfig.lightTextPrimary); // لون النصوص
+  static Color get _lightTextSecondary => AppThemeConfig.color(AppThemeConfig.lightTextSecondary); // لون نصوص فرعي (مشتق)
+  static Color get _lightBtnInteractive => AppThemeConfig.color(AppThemeConfig.lightAccent); // الأزرار التفاعلية
 
   // ========================================================
   // 🚀 المحول الذكي (Getters)
