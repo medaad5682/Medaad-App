@@ -40,8 +40,14 @@ class VideoProgressService {
   static const String _boxName = 'video_progress_box';
   static const String _prefix = 'video_progress_v1';
 
-  /// مفاتيح موحّدة — الدروس (أونلاين/أوفلاين بنفس الـ lessonId) ويوتيوب.
-  static String lessonKey(String lessonId) => 'lesson:$lessonId';
+  /// ✅ مفتاح لكل مشغّل: كل مشغّل بيحتفظ بتقدّمه الخاص حتى لو نفس الدرس
+  /// اتفتح بأكتر من مشغّل (قبل كده media_kit والـ native كانوا بيشاركوا نفس
+  /// المفتاح، فالـ native كان بيكمّل من تقدّم media_kit).
+  ///   mk:     VideoPlayerScreen (media_kit) — أونلاين وأوفلاين وExplode
+  ///   native: NativeVideoPlayerScreen + النافذة العائمة (تابعة له)
+  ///   yt:     YoutubePlayerScreen
+  static String mediaKitKey(String lessonId) => 'mk:$lessonId';
+  static String nativeKey(String lessonId) => 'native:$lessonId';
   static String youtubeKey(String videoId) => 'yt:$videoId';
 
   Box? _box;
