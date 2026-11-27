@@ -18,7 +18,6 @@ import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/api_client.dart';
-import '../../core/services/device_info_collector.dart';
 import '../../core/constants/api_constants.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
@@ -191,8 +190,6 @@ class _LoginScreenState extends State<LoginScreen>
       var box = await StorageService.openBox('auth_box');
       // 1. جلب معرف الجهاز الحقيقي
       final deviceId = await _getAndSaveDeviceId(box);
-      // 1.1 تفاصيل الجهاز (الشركة المصنعة، الموديل، رقم البناء ...) لتسجيلها في السيرفر
-      final deviceInfo = await DeviceInfoCollector.collect();
 
       // 2. إرسال الطلب للباك اند بالاعتماد كلياً على ApiClient (بدون هيدرز يدوية)
       final response = await ApiClient.instance.post(
@@ -201,7 +198,6 @@ class _LoginScreenState extends State<LoginScreen>
           'identifier': identifier,
           'password': password,
           'deviceId': deviceId,
-          'deviceInfo': deviceInfo,
         },
         options: Options(
           validateStatus: (status) => status! < 500,
