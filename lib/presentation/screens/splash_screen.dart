@@ -17,6 +17,7 @@ import '../../core/services/pdf_cache_cleaner.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/video_screenshot_service.dart';
 import '../../core/services/api_client.dart';
+import '../../core/theme/app_theme_config.dart';
 // ✅ 1. استيراد خدمة الإشعارات
 import '../../core/services/notification_service.dart';
 // 🔒 حدّ الدخول بدون إنترنت
@@ -227,6 +228,11 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initializeApp() async {
     try {
+      // 🎨 ألوان التطبيق: نجلب أحدث نسخة من السيرفر في الخلفية (بدون انتظار) ونحفظها
+      // في الكاش لتظهر عند الفتح القادم. الجلسة الحالية تكمل بألوانها كما هي (لا وميض).
+      // لا يرمي أبداً؛ فشل السيرفر/النت = تجاهل صامت.
+      unawaited(AppThemeConfig.refreshFromServer());
+
       // تنظيف الملفات المؤقتة فوراً عند الفتح
       await _cleanupTempFiles();
 
