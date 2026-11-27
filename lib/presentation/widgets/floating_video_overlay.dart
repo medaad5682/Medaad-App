@@ -172,7 +172,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
     final lessonId = state.lessonId;
     _progressKey = (lessonId == null || lessonId.isEmpty)
         ? null
-        : VideoProgressService.lessonKey(lessonId);
+        : VideoProgressService.nativeKey(lessonId);
 
     _sortedQualities = state.streams.keys.toList();
     _sortedQualities.sort((a, b) {
