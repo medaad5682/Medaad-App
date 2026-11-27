@@ -544,7 +544,7 @@
   "manageTeamTitle": "إدارة فريق العمل",
   "addNewSupervisorTitle": "إضافة مشرف جديد",
   "addSupervisorSubtitle": "ابحث عن طالب لترقيته ومنحه صلاحيات كاملة تلقائياً",
-  "searchByNameOrUsernameHint": "ابحث بالاسم أو اسم المستخدم...",
+  "searchByNameOrUsernameHint": "ابحث باسم المستخدم...",
   "searchResultsLabel": "نتائج البحث:",
   "noNameFallback": "بدون اسم",
   "promoteConfirmMessage": "سيتم ترقية الطالب '{name}' ليصبح مشرفاً وسيتم منحه صلاحية الوصول لجميع كورساتك الحالية.\n\nهل أنت متأكد؟",

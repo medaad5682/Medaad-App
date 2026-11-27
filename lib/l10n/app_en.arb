@@ -2207,7 +2207,7 @@
   "@addSupervisorSubtitle": {
     "description": "Subtitle explaining the add-supervisor search section"
   },
-  "searchByNameOrUsernameHint": "Search by name or username...",
+  "searchByNameOrUsernameHint": "Search by username...",
   "@searchByNameOrUsernameHint": {
     "description": "Hint text for the supervisor search field"
   },
