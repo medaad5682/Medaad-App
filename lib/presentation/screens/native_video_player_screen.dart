@@ -100,7 +100,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   String? get _progressKey {
     final id = widget.lessonId;
     if (id == null || id.isEmpty) return null;
-    return VideoProgressService.lessonKey(id);
+    return VideoProgressService.nativeKey(id);
   }
 
   // ✅ إصلاح "إعادة المحاولة" بعد انقطاع الشبكة: نحفظ هنا آخر موضع تشغيل
@@ -907,6 +907,24 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     }
   }
 
+  /// ✅ [RESUME-PLAY-FIX] seekTo في video_player بياخد snapshot من حالة
+  /// التشغيل لحظة الاستدعاء وبعد الـ seek بيرجّع play()/pause() حسبها. وإحنا
+  /// بننادي الـ seek عند حدث initialized (قبل ما الـ autoplay يبدأ) فالفيديو
+  /// كان بيفتح paused. عشان كده بنعيد play() صراحةً بعد الـ seek لو التشغيل
+  /// التلقائي مطلوب.
+  Future<void> _seekToResumeAndPlay(Duration target) async {
+    final c = _betterPlayerController;
+    if (c == null) return;
+    try {
+      await c.seekTo(target);
+    } catch (_) {}
+    if (!mounted || _isDisposing || !widget.initialAutoPlay) return;
+    if (!identical(c, _betterPlayerController)) return;
+    try {
+      await c.play();
+    } catch (_) {}
+  }
+
   /// Resumes at the exact position/speed/play-state handed off from the
   /// floating (PiP) player, the first time the video initializes.
   void _applyHandoffStateIfNeeded() {
@@ -926,9 +944,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       final saved = _savedResumePosition;
       _savedResumePosition = null;
       if (saved != null && saved > Duration.zero) {
-        try {
-          _betterPlayerController?.seekTo(saved).catchError((Object e) {});
-        } catch (_) {}
+        unawaited(_seekToResumeAndPlay(saved));
         _progressHoldUntil = DateTime.now().add(const Duration(seconds: 3));
       }
     }
