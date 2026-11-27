@@ -129,7 +129,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   String? get _progressKey {
     final id = widget.progressLessonId ?? widget.lessonId;
     if (id == null || id.isEmpty) return null;
-    return VideoProgressService.lessonKey(id);
+    return VideoProgressService.mediaKitKey(id);
   }
 
   bool _isWeakDevice = false;
@@ -536,6 +536,50 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       _lastKnownPosition = resumeAt;
     }
     await _playVideo(url, startAt: resumeAt);
+
+    // شبكة أمان: نتأكد إن الاستئناف اتطبّق فعلاً ونعيد الـ seek لو لأ.
+    if (resumeAt != null && resumeAt > Duration.zero) {
+      unawaited(_ensureResumeApplied(resumeAt));
+    }
+  }
+
+  /// ✅ [RESUME-FIX] بعد ما الفيديو يخلّص تحميل نراقب أول ثواني: لو الموضع
+  /// لسه في بداية الفيديو (<5 ثواني) رغم إن المطلوب الاستئناف من [target]،
+  /// نعيد الـ seek (بحد أقصى 3 مرات، ولمدة ~45 ثانية).
+  Future<void> _ensureResumeApplied(Duration target) async {
+    if (target < const Duration(seconds: 8)) return;
+    final deadline = DateTime.now().add(const Duration(seconds: 45));
+    DateTime? loadedAt;
+    int reseeks = 0;
+
+    while (DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 1000));
+      if (!mounted || _isDisposing || _isError) return;
+
+      if (_isVideoLoading || _pendingResumePosition != null) {
+        loadedAt = null; // لسه بيحمّل (أو بيبدّل جودة) — ابدأ العدّ من جديد
+        continue;
+      }
+      loadedAt ??= DateTime.now();
+
+      try {
+        final state = _player.state;
+        if (reseeks < 3 &&
+            state.duration > Duration.zero &&
+            state.position < const Duration(seconds: 5)) {
+          reseeks++;
+          debugPrint('⏩ Resume re-seek #$reseeks → $target '
+              '(position was ${state.position})');
+          _acquireSeekLock(const Duration(seconds: 2));
+          _progressHoldUntil = DateTime.now().add(const Duration(seconds: 3));
+          await _player.seek(target);
+        }
+      } catch (_) {}
+
+      if (DateTime.now().difference(loadedAt) >= const Duration(seconds: 8)) {
+        return;
+      }
+    }
   }
 
   Future<void> _startProxyServer() async {
@@ -618,6 +662,20 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
       final bool isYoutubeSource = playUrl.contains('googlevideo.com');
       final headers = isYoutubeSource ? _youtubeHeaders : _serverHeaders;
+
+      // ✅ [RESUME-FIX] نخلّي mpv نفسه يبدأ من موضع الاستئناف أثناء تحميل
+      // الملف (خيار `start`) بدل الاعتماد على seek() بعد التحميل فقط — ده
+      // كان بيفشل أحيانًا في أول فتح فيرجع الفيديو للبداية. بنصفّره
+      // ('none') لو مفيش استئناف عشان ما يتسربش لمصدر تاني.
+      try {
+        final startAtPos = _pendingResumePosition;
+        await (_player.platform as dynamic).setProperty(
+          'start',
+          startAtPos != null
+              ? (startAtPos.inMilliseconds / 1000.0).toStringAsFixed(3)
+              : 'none',
+        );
+      } catch (_) {}
 
       await _player.open(Media(playUrl, httpHeaders: headers), play: false);
 
