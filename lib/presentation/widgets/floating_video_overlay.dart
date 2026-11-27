@@ -7,6 +7,7 @@ import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/floating_video_controller.dart';
+import '../../core/services/video_progress_service.dart';
 import '../../main.dart' show navigatorKey;
 import '../screens/native_video_player_screen.dart';
 
@@ -69,6 +70,13 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
   }
 
   late Offset _position; // top-left of the floating window
+
+  // ✅ [RESUME] حفظ تقدّم المشاهدة حتى لو الطالب كمّل الدرس من النافذة
+  // العائمة وقفلها. المفتاح بيتلقط في _initPlayer لأن _fvc.videoState بيتصفّر
+  // (stopFloating) قبل ما نقفل المشغّل في بعض المسارات.
+  String? _progressKey;
+  bool _progressTrackingEnabled = false;
+  DateTime? _progressHoldUntil;
   bool _isDragging = false;
   double _panDistance = 0.0; // accumulated movement of the current gesture
 
@@ -160,6 +168,11 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
   void _initPlayer() {
     final state = _fvc.videoState;
     if (state == null) return;
+
+    final lessonId = state.lessonId;
+    _progressKey = (lessonId == null || lessonId.isEmpty)
+        ? null
+        : VideoProgressService.lessonKey(lessonId);
 
     _sortedQualities = state.streams.keys.toList();
     _sortedQualities.sort((a, b) {
@@ -269,6 +282,20 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
       if (!_isScrubbing) _videoPosition = v.position;
       _videoDuration = v.duration ?? Duration.zero;
     });
+    _trackProgress();
+  }
+
+  /// ✅ [RESUME] يسجّل موضع التشغيل في VideoProgressService.
+  void _trackProgress({bool force = false}) {
+    if (!_progressTrackingEnabled || _isError) return;
+    final hold = _progressHoldUntil;
+    if (hold != null && DateTime.now().isBefore(hold)) return;
+    try {
+      final v = _controller?.videoPlayerController?.value;
+      if (v == null || v.duration == null) return;
+      VideoProgressService.instance
+          .update(_progressKey, v.position, v.duration, force: force);
+    } catch (_) {}
   }
 
   /// Resumes playback at the exact position/speed handed off from the
@@ -282,7 +309,9 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
       try {
         _controller?.seekTo(pos);
       } catch (_) {}
+      _progressHoldUntil = DateTime.now().add(const Duration(seconds: 3));
     }
+    _progressTrackingEnabled = true;
     if (_currentSpeed != 1.0) {
       Future.delayed(const Duration(milliseconds: 300), () {
         if (!mounted) return;
@@ -332,6 +361,7 @@ class _FloatingVideoOverlayState extends State<FloatingVideoOverlay>
   // dispose(). الحل: فصل "تنظيف الموارد" عن "إشعار الواجهة بإعادة البناء"
   // عبر معامل [notify]، بحيث يمرر dispose() القيمة false دائمًا.
   void _disposePlayer({bool notify = true}) {
+    _trackProgress(force: true); // ✅ [RESUME] احفظ الموضع قبل التدمير
     _controller?.videoPlayerController
         ?.removeListener(_onVideoValueChanged);
     _controlsTimer?.cancel();
