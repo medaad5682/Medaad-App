@@ -22,6 +22,7 @@ import '../../core/constants/api_constants.dart';
 import '../../core/services/api_client.dart';
 import '../../core/services/app_state.dart';
 import '../../core/services/local_proxy.dart';
+import '../../core/services/video_progress_service.dart';
 import 'package:Medaad/presentation/widgets/directional_icon.dart';
 import 'package:Medaad/presentation/widgets/safe_seek_bar.dart';
 
@@ -38,12 +39,19 @@ class VideoPlayerScreen extends StatefulWidget {
   /// before this fix. Mirrors NativeVideoPlayerScreen.lessonId.
   final String? lessonId;
 
+  /// معرّف الدرس المستخدم **فقط** لحفظ/استعادة موضع المشاهدة (انظر
+  /// VideoProgressService). منفصل عن [lessonId] عمدًا: [lessonId] بيفعّل
+  /// جلب روابط بث جديدة عند إعادة المحاولة، وده مش مطلوب في مسار الـ
+  /// Explode. لو null بنستخدم [lessonId].
+  final String? progressLessonId;
+
   const VideoPlayerScreen({
     super.key,
     required this.streams,
     required this.title,
     this.preReadyAudioUrl,
     this.lessonId,
+    this.progressLessonId,
   });
 
   @override
@@ -112,6 +120,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   // بدلاً من ذلك نخزّن الهدف هنا، وننفذ الـ seek فعلياً داخل مستمع
   // buffering أدناه بمجرد انتهاء التخزين المؤقت وقبل استئناف التشغيل.
   Duration? _pendingResumePosition;
+
+  // ✅ [RESUME] حفظ تقدّم المشاهدة: لو الطالب قفل الفيديو ورجع فتحه يكمّل
+  // من نفس النقطة. _progressHoldUntil بيمنع الحفظ لحظات قصيرة بعد الـ seek
+  // الخاص بالاستئناف عشان أي قيمة position قديمة ما تكتبش فوق التقدّم.
+  DateTime? _progressHoldUntil;
+
+  String? get _progressKey {
+    final id = widget.progressLessonId ?? widget.lessonId;
+    if (id == null || id.isEmpty) return null;
+    return VideoProgressService.lessonKey(id);
+  }
 
   bool _isWeakDevice = false;
 
@@ -268,6 +287,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      _saveProgressNow();
       _player.pause();
     } else if (state == AppLifecycleState.resumed) {
       _protectionService.blockAudioCapture();
@@ -426,6 +446,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
             _pendingResumePosition = null;
             if (resumeAt != null && resumeAt != Duration.zero) {
               _acquireSeekLock(const Duration(seconds: 2));
+              _progressHoldUntil =
+                  DateTime.now().add(const Duration(seconds: 3));
               _player.seek(resumeAt);
             }
             if (_isOfflineMode) {
@@ -443,6 +465,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         // وصول callback الخطأ، فنستخدم هذه القيمة بدلاً منه.
         if (pos > Duration.zero && !_isError) {
           _lastKnownPosition = pos;
+          _trackProgress(pos);
         }
       });
 
@@ -464,6 +487,55 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         });
       }
     }
+  }
+
+  /// ✅ [RESUME] هل مسموح نحفظ التقدّم دلوقتي؟ لا أثناء التحميل/قبل تطبيق
+  /// موضع الاستئناف/خلال فترة الـ hold بعد الـ seek.
+  bool get _canSaveProgress {
+    if (_isVideoLoading || _pendingResumePosition != null) return false;
+    final hold = _progressHoldUntil;
+    if (hold != null && DateTime.now().isBefore(hold)) return false;
+    return true;
+  }
+
+  void _trackProgress(Duration pos) {
+    if (!_canSaveProgress) return;
+    try {
+      VideoProgressService.instance
+          .update(_progressKey, pos, _player.state.duration);
+    } catch (_) {}
+  }
+
+  /// حفظ فوري (عند الخروج من المشغّل / دخول التطبيق للخلفية).
+  void _saveProgressNow() {
+    if (!_canSaveProgress) return;
+    try {
+      final state = _player.state;
+      Duration pos = state.position;
+      if (_isError || pos <= Duration.zero) pos = _lastKnownPosition;
+      VideoProgressService.instance
+          .update(_progressKey, pos, state.duration, force: true);
+    } catch (_) {}
+  }
+
+  /// ✅ [RESUME] تشغيل أول مرة: نقرأ آخر موضع محفوظ (لو موجود) ونبدأ منه.
+  /// بيستخدم نفس آلية _pendingResumePosition الموجودة أصلاً لتبديل الجودة.
+  Future<void> _startInitialPlayback() async {
+    Duration? resumeAt;
+    try {
+      resumeAt = await VideoProgressService.instance
+          .getResumePosition(_progressKey);
+    } catch (_) {}
+    if (!mounted || _isDisposing) return;
+
+    final url = _streamsMap[_currentQuality];
+    if (url == null) return;
+
+    if (resumeAt != null && resumeAt > Duration.zero) {
+      // عشان لو حصل خطأ شبكة قبل أول tick، «إعادة المحاولة» ترجع لنفس النقطة.
+      _lastKnownPosition = resumeAt;
+    }
+    await _playVideo(url, startAt: resumeAt);
   }
 
   Future<void> _startProxyServer() async {
@@ -974,7 +1046,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     }
 
     if (_currentQuality.isNotEmpty) {
-      _playVideo(_streamsMap[_currentQuality]!);
+      _startInitialPlayback();
     }
   }
 
@@ -1035,6 +1107,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Future<void> _safeExit() async {
     if (_isDisposing) return;
+
+    // ✅ [RESUME] احفظ موضع التشغيل قبل أي stop()/dispose() للمشغّل.
+    _saveProgressNow();
 
     if (mounted) setState(() => _isDisposing = true);
 

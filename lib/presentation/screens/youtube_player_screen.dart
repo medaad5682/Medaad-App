@@ -10,6 +10,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/services/audio_protection_service.dart';
+import '../../core/services/video_progress_service.dart';
 
 import '../../core/constants/app_colors.dart';
 import '../../core/services/app_state.dart';
@@ -51,6 +52,15 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
   // ✅ متغير لحالة الإغلاق لمنع أخطاء اللمس
   bool _isDisposing = false;
 
+  // ✅ [RESUME] حفظ تقدّم المشاهدة: بنقرأ آخر موضع محفوظ للفيديو ونعمل seek
+  // له أول ما المشغّل يبقى جاهز. المفتاح هو videoId (مفيش lessonId هنا).
+  Duration? _savedResumePosition;
+  bool _resumeLoaded = false;
+  bool _resumeApplied = false;
+  DateTime? _progressHoldUntil;
+
+  String get _progressKey => VideoProgressService.youtubeKey(widget.videoId);
+
   @override
   void initState() {
     super.initState();
@@ -88,10 +98,53 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
           disableDragSeek: false,
         ),
       )..addListener(_playerListener);
+      _loadSavedProgress();
     } catch (e, stack) {
       FirebaseCrashlytics.instance
           .recordError(e, stack, reason: 'Youtube Player Init Error');
     }
+  }
+
+  // ✅ [RESUME] قراءة آخر موضع محفوظ ثم محاولة تطبيقه.
+  Future<void> _loadSavedProgress() async {
+    try {
+      _savedResumePosition =
+          await VideoProgressService.instance.getResumePosition(_progressKey);
+    } catch (_) {}
+    _resumeLoaded = true;
+    _tryApplyResume();
+  }
+
+  // ✅ [RESUME] بيتنادى من مكانين (انتهاء القراءة + مستمع المشغّل) وبينفّذ
+  // مرة واحدة بس لما الاتنين يبقوا جاهزين: الموضع المحفوظ + المشغّل isReady.
+  void _tryApplyResume() {
+    if (_resumeApplied || !_resumeLoaded || !mounted || _isDisposing) return;
+    try {
+      if (!_controller.value.isReady) return;
+      _resumeApplied = true;
+      final saved = _savedResumePosition;
+      if (saved != null && saved > Duration.zero) {
+        _progressHoldUntil = DateTime.now().add(const Duration(seconds: 3));
+        _controller.seekTo(saved);
+      }
+    } catch (_) {}
+  }
+
+  // ✅ [RESUME] تسجيل موضع التشغيل (throttled جوّا الخدمة، إلا لو force).
+  void _trackProgress({bool force = false}) {
+    if (!_resumeApplied) return;
+    final hold = _progressHoldUntil;
+    if (hold != null && DateTime.now().isBefore(hold)) return;
+    try {
+      final value = _controller.value;
+      if (!value.isReady || value.hasError) return;
+      VideoProgressService.instance.update(
+        _progressKey,
+        value.position,
+        value.metaData.duration,
+        force: force,
+      );
+    } catch (_) {}
   }
 
   // ✅ دالة تفعيل الحماية
@@ -182,6 +235,7 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      _trackProgress(force: true);
       _controller.pause();
     } else if (state == AppLifecycleState.resumed) {
       _protectionService.blockAudioCapture();
@@ -195,6 +249,9 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
   }
 
   void _playerListener() {
+    _tryApplyResume();
+    _trackProgress();
+
     if (_controller.value.hasError) {
       FirebaseCrashlytics.instance
           .log("Youtube Player Error: ${_controller.value.errorCode}");
@@ -252,6 +309,7 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
     if (mounted) setState(() => _isDisposing = true);
 
     try {
+      _trackProgress(force: true); // ✅ [RESUME] احفظ الموضع قبل الإيقاف
       _watermarkTimer?.cancel();
       _controller.pause();
       
@@ -294,6 +352,7 @@ class _YoutubePlayerScreenState extends State<YoutubePlayerScreen>
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     }
 
+    _trackProgress(force: true); // ✅ [RESUME] احفظ الموضع قبل التدمير
     _controller.removeListener(_playerListener);
     _controller.dispose();
 

@@ -437,6 +437,9 @@ class _ChapterContentsScreenState extends State<ChapterContentsScreen> {
                 builder: (_) => VideoPlayerScreen(
                   streams: processedQualities,
                   title: videoTitle,
+                  // ✅ [RESUME] لحفظ/استعادة موضع المشاهدة فقط (بدون lessonId
+                  // عشان ما نفعّلش جلب روابط Bunny عند إعادة المحاولة).
+                  progressLessonId: video['id'].toString(),
                 ),
               ),
             );

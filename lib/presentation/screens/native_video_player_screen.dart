@@ -15,6 +15,7 @@ import 'package:flutter_windowmanager_plus/flutter_windowmanager_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../core/services/audio_protection_service.dart';
+import '../../core/services/video_progress_service.dart';
 import 'package:Medaad/l10n/generated/app_localizations.dart';
 import 'package:Medaad/presentation/widgets/recording_alert_overlay.dart';
 
@@ -87,6 +88,19 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
   int _currentQualityIndex = 0;
   bool _handoffApplied = false;
+
+  // ✅ [RESUME] حفظ تقدّم المشاهدة: آخر موضع محفوظ للدرس ده (لو الشاشة
+  // اتفتحت من الأول، مش كـ handoff من النافذة العائمة). بيتطبّق مرة واحدة
+  // عند أول initialized. _progressHoldUntil بيمنع الحفظ لحظات بعد الـ seek.
+  Duration? _savedResumePosition;
+  bool _progressTrackingEnabled = false;
+  DateTime? _progressHoldUntil;
+
+  String? get _progressKey {
+    final id = widget.lessonId;
+    if (id == null || id.isEmpty) return null;
+    return VideoProgressService.lessonKey(id);
+  }
 
   // ✅ إصلاح "إعادة المحاولة" بعد انقطاع الشبكة: نحفظ هنا آخر موضع تشغيل
   // معروف لحظة ظهور الخطأ، لنتمكن من العودة إليه بعد إعادة إنشاء المشغّل
@@ -177,6 +191,20 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     _resetAutoHideTimer();
   }
 
+  /// ✅ [RESUME] يسجّل موضع التشغيل الحالي في VideoProgressService (الكتابة
+  /// على القرص متقيّدة بالـ throttle جوّاه، إلا لو force = true).
+  void _trackProgress({bool force = false}) {
+    if (!_progressTrackingEnabled || _isError) return;
+    final hold = _progressHoldUntil;
+    if (hold != null && DateTime.now().isBefore(hold)) return;
+    try {
+      final value = _betterPlayerController?.videoPlayerController?.value;
+      if (value == null || value.duration == null) return;
+      VideoProgressService.instance
+          .update(_progressKey, value.position, value.duration, force: force);
+    } catch (_) {}
+  }
+
   void _attachVideoListener() {
     final vpc = _betterPlayerController?.videoPlayerController;
     if (vpc == null) return;
@@ -194,6 +222,8 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       if (!_isSeekBarDragging) _position = value.position;
       _videoDuration = value.duration ?? Duration.zero;
     });
+
+    _trackProgress();
 
     // ✅ التشغيل تجاوز نقطة إعادة المحاولة الأخيرة بأمان (5 ثوانٍ) دون فشل
     // جديد — نعتبر أن التعافي نجح فعليًا ونمسح علامة "نفس نقطة الفشل" حتى
@@ -363,6 +393,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      _trackProgress(force: true);
       _betterPlayerController?.pause();
     } else if (state == AppLifecycleState.resumed) {
       FlutterWindowManagerPlus.addFlags(FlutterWindowManagerPlus.FLAG_SECURE)
@@ -434,6 +465,15 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
 
       if (_currentQuality.isEmpty || _streamsMap[_currentQuality] == null) {
         throw Exception("No playable stream available");
+      }
+
+      // ✅ [RESUME] لو مفيش handoff من النافذة العائمة، اقرأ آخر موضع محفوظ.
+      if (widget.initialPosition == null) {
+        try {
+          _savedResumePosition = await VideoProgressService.instance
+              .getResumePosition(_progressKey);
+        } catch (_) {}
+        if (!mounted || _isDisposing) return;
       }
 
       _initializePlayer();
@@ -877,7 +917,19 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       try {
         _betterPlayerController?.seekTo(pos);
       } catch (_) {}
+      _progressHoldUntil = DateTime.now().add(const Duration(seconds: 3));
+    } else {
+      // ✅ [RESUME] فتح عادي (مش handoff): كمّل من آخر نقطة محفوظة.
+      final saved = _savedResumePosition;
+      _savedResumePosition = null;
+      if (saved != null && saved > Duration.zero) {
+        try {
+          _betterPlayerController?.seekTo(saved).catchError((Object e) {});
+        } catch (_) {}
+        _progressHoldUntil = DateTime.now().add(const Duration(seconds: 3));
+      }
     }
+    _progressTrackingEnabled = true;
     if (speed != null && speed != 1.0) {
       // A short delay avoids the seek/speed calls racing the player's own
       // startup on some devices.
@@ -924,6 +976,7 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
       );
     }
     _lastRetrySeekTarget = seekTarget;
+    _progressHoldUntil = DateTime.now().add(const Duration(seconds: 3));
 
     try {
       _betterPlayerController?.seekTo(seekTarget);
@@ -1424,6 +1477,8 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
     if (mounted) setState(() {});
 
     try {
+      // ✅ [RESUME] احفظ موضع التشغيل قبل ما نتخلّص من الـ controller.
+      _trackProgress(force: true);
       _betterPlayerController?.videoPlayerController?.removeListener(_onVideoValueChanged);
       _controlsAutoHideTimer?.cancel();
       _watermarkTimer?.cancel();
@@ -1487,6 +1542,9 @@ class _NativeVideoPlayerScreenState extends State<NativeVideoPlayerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // ✅ [RESUME] احفظ التقدّم قبل ما نعلّم الشاشة بأنها بتتقفل (no-op لو
+    // _safeExit() كان اشتغل قبل كده لأن الـ controller بيبقى null).
+    _trackProgress(force: true);
     _isDisposing = true;
     
     _betterPlayerController?.videoPlayerController?.removeListener(_onVideoValueChanged);
