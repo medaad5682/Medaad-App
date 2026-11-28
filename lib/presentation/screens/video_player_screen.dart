@@ -121,6 +121,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   // بدلاً من ذلك نخزّن الهدف هنا، وننفذ الـ seek فعلياً داخل مستمع
   // buffering أدناه بمجرد انتهاء التخزين المؤقت وقبل استئناف التشغيل.
   Duration? _pendingResumePosition;
+  int _playGeneration = 0; // ✅ [AUTOPLAY-FIX] يميّز كل استدعاء لـ _playVideo
 
   // ✅ [RESUME] حفظ تقدّم المشاهدة: لو الطالب قفل الفيديو ورجع فتحه يكمّل
   // من نفس النقطة. _progressHoldUntil بيمنع الحفظ لحظات قصيرة بعد الـ seek
@@ -427,39 +428,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
       _playerBufferingSubscription = _player.stream.buffering.listen((buffering) {
         if (!buffering && _isVideoLoading) {
-          // ✅ Fix: نفس فحص _isDisposing المستخدم بالفعل في مستمع الأخطاء
-          // أعلاه — mounted وحده لا يكفي لأن _isDisposing يُضبط بـ setState
-          // في بداية _safeExit() بينما تبقى الشاشة mounted حتى Navigator.pop()
-          // في النهاية، أي أن حدث buffering متأخر أثناء stop()/dispose() كان
-          // يجتاز فحص mounted فقط ثم يستدعي seek()/play() على مشغّل يُتخلّص
-          // منه في تلك اللحظة بالضبط.
-          if (mounted && !_isDisposing) {
-            setState(() => _isVideoLoading = false);
-            if (_isRecordingDetected) {
-              if (_pendingResumePosition != null) {
-                _needsReopenAfterRecording = true;
-              }
-              _player.setVolume(0.0);
-              _player.pause();
-              return;
-            }
-            // ✅ [QUALITY-SWITCH RESUME FIX] الآن — وليس فور open() — أصبح
-            // للمصدر نطاق قابل للـ seek فعلياً، لذا ننفذ موضع الاستئناف
-            // المخزّن هنا قبل استئناف التشغيل أو بدء العد التنازلي.
-            final resumeAt = _pendingResumePosition;
-            _pendingResumePosition = null;
-            if (resumeAt != null && resumeAt != Duration.zero) {
-              _acquireSeekLock(const Duration(seconds: 2));
-              _progressHoldUntil =
-                  DateTime.now().add(const Duration(seconds: 3));
-              _player.seek(resumeAt);
-            }
-            if (_isOfflineMode) {
-              _startCountdown();
-            } else {
-              _player.play();
-            }
-          }
+          unawaited(_onSourceReady());
         }
       });
 
@@ -490,6 +459,78 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           _isVideoLoading = false;
         });
       }
+    }
+  }
+
+  /// ✅ [AUTOPLAY-FIX] المصدر بقى جاهز: نطبّق موضع الاستئناف (لو موجود) ثم
+  /// نبدأ التشغيل. اتفصلت عن مستمع buffering عشان تتنادى من أكتر من مكان
+  /// (المستمع + _ensureAutoPlay) — آمنة للتكرار لأن أول سطر بيخرج لو
+  /// _isVideoLoading خلص بالفعل. وكمان بنستنى الـ seek يخلص قبل play()
+  /// عشان الـ seek ما يسيبش المشغّل واقف.
+  Future<void> _onSourceReady() async {
+    if (!_isVideoLoading) return;
+    if (!mounted || _isDisposing) return;
+
+    setState(() => _isVideoLoading = false);
+
+    if (_isRecordingDetected) {
+      if (_pendingResumePosition != null) {
+        _needsReopenAfterRecording = true;
+      }
+      _player.setVolume(0.0);
+      _player.pause();
+      return;
+    }
+
+    // ✅ [QUALITY-SWITCH RESUME FIX] الآن — وليس فور open() — أصبح للمصدر
+    // نطاق قابل للـ seek فعلياً، لذا ننفذ موضع الاستئناف المخزّن هنا قبل
+    // استئناف التشغيل أو بدء العد التنازلي.
+    final resumeAt = _pendingResumePosition;
+    _pendingResumePosition = null;
+    if (resumeAt != null && resumeAt != Duration.zero) {
+      _acquireSeekLock(const Duration(seconds: 2));
+      _progressHoldUntil = DateTime.now().add(const Duration(seconds: 3));
+      try {
+        await _player.seek(resumeAt);
+      } catch (_) {}
+      if (!mounted || _isDisposing) return;
+    }
+
+    if (_isRecordingDetected) {
+      _player.setVolume(0.0);
+      _player.pause();
+      return;
+    }
+
+    if (_isOfflineMode) {
+      _startCountdown();
+    } else {
+      _player.play();
+    }
+  }
+
+  /// ✅ [AUTOPLAY-FIX] شبكة أمان: التشغيل التلقائي كان معتمد على حدث
+  /// buffering=false وحده، وبعد إضافة الاستئناف (خيار `start` في mpv)
+  /// الحدث ده ساعات مبيجيش فالفيديو يفضل paused. هنا بنراقب بعد open():
+  /// لو المصدر اتحمّل (duration معروفة ومفيش buffering) و_isVideoLoading
+  /// لسه true، نكمّل نفس مسار التشغيل بنفسنا. [gen] بيلغي المراقبة لو
+  /// اتفتح مصدر جديد (تغيير جودة / إعادة محاولة).
+  Future<void> _ensureAutoPlay(int gen) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 15));
+    while (DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted || _isDisposing || _isError || gen != _playGeneration) {
+        return;
+      }
+      if (!_isVideoLoading) return; // المستمع اشتغل عادي
+      try {
+        final st = _player.state;
+        if (!st.buffering && st.duration > Duration.zero) {
+          debugPrint('▶️ Autoplay fallback: buffering event never arrived');
+          unawaited(_onSourceReady());
+          return;
+        }
+      } catch (_) {}
     }
   }
 
@@ -597,6 +638,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Future<void> _playVideo(String url, {Duration? startAt}) async {
     if (_isDisposing) return;
+    final int playGen = ++_playGeneration;
 
     // ✅ [QUALITY-SWITCH RESUME FIX] نخزّن الهدف هنا فقط. الـ seek الفعلي
     // يحدث لاحقًا داخل مستمع buffering أعلاه، بعد أن يصبح المصدر الجديد
@@ -731,6 +773,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       if (_currentSpeed != 1.0) {
         await _player.setRate(_currentSpeed);
       }
+
+      unawaited(_ensureAutoPlay(playGen));
     } catch (e, stack) {
       FirebaseCrashlytics.instance
           .recordError(e, stack, reason: 'PlayVideo Function Failed');
